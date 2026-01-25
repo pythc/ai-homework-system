@@ -1,16 +1,16 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { createClient, RedisClientType } from 'redis';
+import { createClient } from 'redis';
 import { TriggerAiGradingDto } from './dto/trigger-ai-grading.dto';
 
 @Injectable()
 export class AiGradingQueueService implements OnModuleDestroy {
   private readonly logger = new Logger(AiGradingQueueService.name);
-  private client?: RedisClientType;
+  private client?: ReturnType<typeof createClient>;
   private running = false;
   private stopped = false;
   private readonly queueKey = 'ai_grading_jobs';
 
-  private async getClient(): Promise<RedisClientType> {
+  private async getClient(): Promise<ReturnType<typeof createClient>> {
     if (this.client) {
       return this.client;
     }

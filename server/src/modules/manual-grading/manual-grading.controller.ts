@@ -1,4 +1,4 @@
-import { Controller, Put, Param, Body } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put } from '@nestjs/common';
 import { ManualGradingService } from './manual-grading.service';
 import { UpdateGradingDto } from './dto/update-grading.dto';
 
@@ -18,5 +18,16 @@ export class ManualGradingController {
     @Body() updateDto: UpdateGradingDto
   ) {
     return this.manualGradingService.submitFinalGrading(submissionVersionId, updateDto);
+  }
+
+  /**
+   * 5. 获取最终成绩
+   * GET /submissions/:submissionVersionId/grading
+   */
+  @Get(':submissionVersionId/grading')
+  async getFinalGrading(
+    @Param('submissionVersionId') submissionVersionId: string,
+  ) {
+    return this.manualGradingService.getFinalGrading(submissionVersionId);
   }
 }
