@@ -71,13 +71,12 @@ export class AddSubmissionVersions20260125000800
     await queryRunner.query(`
       UPDATE "submissions" s
       SET "current_version_id" = v."id"
-      FROM LATERAL (
-        SELECT "id"
+      FROM (
+        SELECT DISTINCT ON ("submission_id") "id", "submission_id"
         FROM "submission_versions"
-        WHERE "submission_id" = s."id"
-        ORDER BY "submit_no" DESC NULLS LAST, "submitted_at" DESC
-        LIMIT 1
+        ORDER BY "submission_id", "submit_no" DESC NULLS LAST, "submitted_at" DESC
       ) v
+      WHERE v."submission_id" = s."id"
     `);
     await queryRunner.query(
       `ALTER TABLE "submission_versions" ALTER COLUMN "submission_id" SET NOT NULL`,

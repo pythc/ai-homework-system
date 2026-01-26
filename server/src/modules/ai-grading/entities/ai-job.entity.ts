@@ -31,6 +31,12 @@ export class AiJobEntity {
   @Column({ type: 'enum', enum: AiJobStage, default: AiJobStage.PREPARE_INPUT })
   stage!: AiJobStage;
 
+  @Column({ type: 'int', default: 0 })
+  attempts!: number;
+
+  @Column({ name: 'last_started_at', type: 'timestamptz', nullable: true })
+  lastStartedAt?: Date | null;
+
   @Column({ type: 'text', nullable: true })
   error?: string | null;
 

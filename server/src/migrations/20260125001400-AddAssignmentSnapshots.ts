@@ -13,9 +13,6 @@ export class AddAssignmentSnapshots20260125001400
         WHEN duplicate_object THEN NULL;
       END $$;
     `);
-    await queryRunner.query(
-      `ALTER TABLE "assignments" ALTER COLUMN "status" SET DEFAULT 'DRAFT'`,
-    );
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "assignment_snapshots" (
