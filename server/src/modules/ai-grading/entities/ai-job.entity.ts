@@ -22,6 +22,9 @@ export class AiJobEntity {
   @Column({ name: 'submission_version_id', type: 'uuid' })
   submissionVersionId!: string;
 
+  @Column({ name: 'assignment_snapshot_id', type: 'uuid', nullable: true })
+  assignmentSnapshotId?: string | null;
+
   @Column({ type: 'enum', enum: AiJobStatus, default: AiJobStatus.QUEUED })
   status!: AiJobStatus;
 

@@ -6,9 +6,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { CreateAssignmentDto, CreateAssignmentQuestionDto } from './dto/create-assignment.dto';
+import { UpdateAssignmentDto } from './dto/update-assignment.dto';
+import { UpdateAssignmentQuestionsDto } from './dto/update-assignment-questions.dto';
 import { AssignmentEntity, AssignmentStatus } from './entities/assignment.entity';
+import { AssignmentSnapshotEntity } from './entities/assignment-snapshot.entity';
 import {
   AssignmentQuestionEntity,
+  QuestionNodeType,
   QuestionType,
 } from './entities/assignment-question.entity';
 import { CourseEntity } from './entities/course.entity';
@@ -19,18 +23,24 @@ export class AssignmentService {
     private readonly dataSource: DataSource,
     @InjectRepository(AssignmentEntity)
     private readonly assignmentRepo: Repository<AssignmentEntity>,
+    @InjectRepository(AssignmentSnapshotEntity)
+    private readonly snapshotRepo: Repository<AssignmentSnapshotEntity>,
     @InjectRepository(AssignmentQuestionEntity)
     private readonly questionRepo: Repository<AssignmentQuestionEntity>,
     @InjectRepository(CourseEntity)
     private readonly courseRepo: Repository<CourseEntity>,
   ) {}
 
-  async createAssignment(dto: CreateAssignmentDto): Promise<AssignmentEntity> {
+  async createAssignment(dto: CreateAssignmentDto) {
     const course = await this.courseRepo.findOne({
       where: { id: dto.courseId },
     });
     if (!course) {
       throw new NotFoundException('课程不存在');
+    }
+
+    if (dto.status && dto.status !== AssignmentStatus.DRAFT) {
+      throw new BadRequestException('新建作业仅支持 DRAFT 状态');
     }
 
     const selectedIds = dto.selectedQuestionIds ?? [];
@@ -45,16 +55,22 @@ export class AssignmentService {
       if (newQuestions.length > 0) {
         for (const question of newQuestions) {
           const defaultScore = this.resolveDefaultScore(question, dto.totalScore);
+          const promptBlock = this.toTextBlock(question.prompt);
+          const answerBlock = question.standardAnswer
+            ? this.toTextBlock(question.standardAnswer)
+            : null;
           const entity = manager.create(AssignmentQuestionEntity, {
             courseId: course.id,
             questionCode: this.resolveQuestionCode(question),
             title: question.title ?? null,
             description: question.prompt,
-            standardAnswer: question.standardAnswer ?? null,
+            prompt: promptBlock,
+            standardAnswer: answerBlock,
             questionType: question.questionType ?? QuestionType.SHORT_ANSWER,
             defaultScore: defaultScore.toFixed(2),
             rubric: question.rubric ?? null,
             createdBy: course.teacherId,
+            nodeType: QuestionNodeType.LEAF,
           });
           const saved = await manager.save(entity);
           createdQuestionIds.push(saved.id);
@@ -63,17 +79,11 @@ export class AssignmentService {
 
       let existingIds: string[] = [];
       if (selectedIds.length > 0) {
-        const existingQuestions = await manager.find(AssignmentQuestionEntity, {
-          where: {
-            id: In(selectedIds),
-            courseId: course.id,
-          },
-        });
-        const foundIds = new Set(existingQuestions.map((q) => q.id));
-        const missing = selectedIds.filter((id) => !foundIds.has(id));
-        if (missing.length > 0) {
-          throw new BadRequestException('存在无效题目 ID');
-        }
+        const existingQuestions = await this.loadLeafQuestions(
+          manager.getRepository(AssignmentQuestionEntity),
+          selectedIds,
+          course.id,
+        );
         existingIds = selectedIds;
       }
 
@@ -85,14 +95,26 @@ export class AssignmentService {
         deadline: dto.deadline ? new Date(dto.deadline) : null,
         totalScore: (dto.totalScore ?? 100).toFixed(2),
         aiEnabled: dto.aiEnabled ?? true,
-        status: dto.status ?? AssignmentStatus.OPEN,
+        status: AssignmentStatus.DRAFT,
         selectedQuestionIds: [...createdQuestionIds, ...existingIds],
+        currentSnapshotId: null,
       });
-      return manager.save(assignment);
+      const saved = await manager.save(assignment);
+      return this.toAssignmentResponse(saved);
     });
   }
 
-  async getAssignmentSnapshot(assignmentId: string) {
+  async getAssignment(assignmentId: string) {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    return this.toAssignmentResponse(assignment);
+  }
+
+  async updateAssignmentMeta(assignmentId: string, dto: UpdateAssignmentDto) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
     });
@@ -100,30 +122,106 @@ export class AssignmentService {
       throw new NotFoundException('作业不存在');
     }
 
-    const questions = await this.questionRepo.find({
-      where: { id: In(assignment.selectedQuestionIds) },
-    });
-    const questionMap = new Map(questions.map((q) => [q.id, q]));
-    const orderedQuestions = assignment.selectedQuestionIds
-      .map((id) => questionMap.get(id))
-      .filter((q): q is AssignmentQuestionEntity => Boolean(q));
-
-    const snapshots = orderedQuestions.map((question, index) => ({
-      questionIndex: index + 1,
-      prompt: question.description,
-      standardAnswer: question.standardAnswer ?? '',
-      rubric: Array.isArray(question.rubric) ? question.rubric : question.rubric ?? [],
-    }));
-
-    const response: Record<string, unknown> = {
-      assignmentSnapshotId: assignment.id,
-      questions: snapshots,
-      createdAt: assignment.createdAt.toISOString(),
-    };
-    if (snapshots.length === 1) {
-      response.question = snapshots[0];
+    if (dto.status === AssignmentStatus.OPEN && assignment.status === AssignmentStatus.DRAFT) {
+      throw new BadRequestException('请使用 publish 接口发布作业');
     }
-    return response;
+
+    assignment.title = dto.title ?? assignment.title;
+    assignment.description = dto.description ?? assignment.description;
+    assignment.deadline = dto.deadline ? new Date(dto.deadline) : assignment.deadline;
+    assignment.aiEnabled = dto.aiEnabled ?? assignment.aiEnabled;
+    assignment.status = dto.status ?? assignment.status;
+    assignment.updatedAt = new Date();
+
+    const saved = await this.assignmentRepo.save(assignment);
+    return this.toAssignmentResponse(saved);
+  }
+
+  async replaceAssignmentQuestions(
+    assignmentId: string,
+    dto: UpdateAssignmentQuestionsDto,
+  ) {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    if (assignment.status !== AssignmentStatus.DRAFT) {
+      throw new BadRequestException('非 DRAFT 状态不可修改题目列表');
+    }
+
+    await this.loadLeafQuestions(
+      this.questionRepo,
+      dto.selectedQuestionIds,
+      assignment.courseId,
+    );
+
+    assignment.selectedQuestionIds = dto.selectedQuestionIds;
+    assignment.updatedAt = new Date();
+    const saved = await this.assignmentRepo.save(assignment);
+    return this.toAssignmentResponse(saved);
+  }
+
+  async publishAssignment(assignmentId: string) {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    if (assignment.status !== AssignmentStatus.DRAFT) {
+      throw new BadRequestException('仅 DRAFT 作业可发布');
+    }
+    if (!assignment.selectedQuestionIds?.length) {
+      throw new BadRequestException('作业题目不能为空');
+    }
+
+    const snapshotPayload = await this.buildSnapshotPayload(assignment);
+    const snapshot = this.snapshotRepo.create({
+      assignmentId: assignment.id,
+      snapshot: snapshotPayload,
+    });
+    const savedSnapshot = await this.snapshotRepo.save(snapshot);
+
+    assignment.currentSnapshotId = savedSnapshot.id;
+    assignment.status = AssignmentStatus.OPEN;
+    assignment.updatedAt = new Date();
+    const savedAssignment = await this.assignmentRepo.save(assignment);
+
+    return {
+      message: 'Assignment published successfully',
+      snapshotId: savedSnapshot.id,
+      assignment: this.toAssignmentResponse(savedAssignment),
+    };
+  }
+
+  async getCurrentSnapshot(assignmentId: string) {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    if (!assignment.currentSnapshotId) {
+      throw new NotFoundException('作业尚未发布');
+    }
+    return this.getSnapshotById(assignment.currentSnapshotId);
+  }
+
+  async getSnapshotById(snapshotId: string) {
+    const snapshot = await this.snapshotRepo.findOne({
+      where: { id: snapshotId },
+    });
+    if (!snapshot) {
+      throw new NotFoundException('作业快照不存在');
+    }
+    return {
+      assignmentSnapshotId: snapshot.id,
+      assignmentId: snapshot.assignmentId,
+      questions: (snapshot.snapshot as { questions?: unknown }).questions ?? [],
+      createdAt: snapshot.createdAt.toISOString(),
+    };
   }
 
   private resolveQuestionCode(question: CreateAssignmentQuestionDto): string | null {
@@ -156,5 +254,74 @@ export class AssignmentService {
       return totalScore;
     }
     throw new BadRequestException('缺少题目默认分值');
+  }
+
+  private toTextBlock(text: string) {
+    return { text, media: [] };
+  }
+
+  private async buildSnapshotPayload(assignment: AssignmentEntity) {
+    const questions = await this.questionRepo.find({
+      where: { id: In(assignment.selectedQuestionIds) },
+    });
+    const questionMap = new Map(questions.map((q) => [q.id, q]));
+    const orderedQuestions = assignment.selectedQuestionIds
+      .map((id) => questionMap.get(id))
+      .filter((q): q is AssignmentQuestionEntity => Boolean(q));
+    if (orderedQuestions.length !== assignment.selectedQuestionIds.length) {
+      throw new BadRequestException('作业题目列表存在无效题目');
+    }
+
+    const snapshots = orderedQuestions.map((question, index) => ({
+      questionIndex: index + 1,
+      questionId: question.id,
+      prompt: question.prompt ?? this.toTextBlock(question.description),
+      standardAnswer: question.standardAnswer ?? this.toTextBlock(''),
+      rubric: Array.isArray(question.rubric) ? question.rubric : question.rubric ?? [],
+    }));
+
+    return { questions: snapshots };
+  }
+
+  private async loadLeafQuestions(
+    repo: Repository<AssignmentQuestionEntity>,
+    questionIds: string[],
+    courseId: string,
+  ) {
+    const existingQuestions = await repo.find({
+      where: {
+        id: In(questionIds),
+        courseId,
+      },
+    });
+    const foundIds = new Set(existingQuestions.map((q) => q.id));
+    const missing = questionIds.filter((id) => !foundIds.has(id));
+    if (missing.length > 0) {
+      throw new BadRequestException('存在无效题目 ID');
+    }
+    const nonLeaf = existingQuestions.find(
+      (question) => question.nodeType !== QuestionNodeType.LEAF,
+    );
+    if (nonLeaf) {
+      throw new BadRequestException('作业只能选择叶子题');
+    }
+    return existingQuestions;
+  }
+
+  private toAssignmentResponse(assignment: AssignmentEntity) {
+    return {
+      id: assignment.id,
+      title: assignment.title,
+      courseId: assignment.courseId,
+      description: assignment.description ?? null,
+      deadline: assignment.deadline ?? null,
+      status: assignment.status,
+      aiEnabled: assignment.aiEnabled,
+      questionNo: assignment.questionNo ?? null,
+      selectedQuestionIds: assignment.selectedQuestionIds,
+      currentSnapshotId: assignment.currentSnapshotId ?? null,
+      createdAt: assignment.createdAt,
+      updatedAt: assignment.updatedAt,
+    };
   }
 }

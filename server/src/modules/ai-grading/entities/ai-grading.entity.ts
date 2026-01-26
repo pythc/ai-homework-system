@@ -11,6 +11,9 @@ export class AiGradingEntity {
   @Column({ name: 'assignment_id', type: 'uuid' })
   assignmentId!: string;
 
+  @Column({ name: 'assignment_snapshot_id', type: 'uuid', nullable: true })
+  assignmentSnapshotId?: string | null;
+
   @Column({ name: 'model_name', type: 'varchar', length: 128 })
   modelName!: string;
 

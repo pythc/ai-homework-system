@@ -31,6 +31,9 @@ export class SubmissionVersionEntity {
   @Column({ name: 'student_id', type: 'uuid' })
   studentId!: string;
 
+  @Column({ name: 'question_id', type: 'uuid' })
+  questionId!: string;
+
   @Column({ name: 'submission_id', type: 'uuid' })
   submissionId!: string;
 

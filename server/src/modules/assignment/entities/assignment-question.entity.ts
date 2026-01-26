@@ -7,6 +7,12 @@ export enum QuestionType {
   SHORT_ANSWER = 'SHORT_ANSWER',
   ESSAY = 'ESSAY',
   CALCULATION = 'CALCULATION',
+  PROOF = 'PROOF',
+}
+
+export enum QuestionNodeType {
+  LEAF = 'LEAF',
+  GROUP = 'GROUP',
 }
 
 export enum QuestionStatus {
@@ -22,6 +28,23 @@ export class AssignmentQuestionEntity {
   @Column({ name: 'course_id', type: 'uuid' })
   courseId!: string;
 
+  @Column({ name: 'external_id', type: 'varchar', length: 128, nullable: true })
+  externalId?: string | null;
+
+  @Column({ name: 'chapter_id', type: 'uuid', nullable: true })
+  chapterId?: string | null;
+
+  @Column({
+    name: 'node_type',
+    type: 'enum',
+    enum: QuestionNodeType,
+    default: QuestionNodeType.LEAF,
+  })
+  nodeType!: QuestionNodeType;
+
+  @Column({ name: 'parent_id', type: 'uuid', nullable: true })
+  parentId?: string | null;
+
   @Column({ name: 'question_code', type: 'varchar', length: 32, nullable: true })
   questionCode?: string | null;
 
@@ -31,8 +54,14 @@ export class AssignmentQuestionEntity {
   @Column({ type: 'text' })
   description!: string;
 
-  @Column({ name: 'standard_answer', type: 'text', nullable: true })
-  standardAnswer?: string | null;
+  @Column({ name: 'stem', type: 'jsonb', nullable: true })
+  stem?: Record<string, unknown> | null;
+
+  @Column({ name: 'prompt', type: 'jsonb', nullable: true })
+  prompt?: Record<string, unknown> | null;
+
+  @Column({ name: 'standard_answer', type: 'jsonb', nullable: true })
+  standardAnswer?: Record<string, unknown> | null;
 
   @Column({
     name: 'question_type',
@@ -46,6 +75,9 @@ export class AssignmentQuestionEntity {
 
   @Column({ type: 'jsonb', nullable: true })
   rubric?: unknown | null;
+
+  @Column({ name: 'order_no', type: 'int', nullable: true })
+  orderNo?: number | null;
 
   @Column({ name: 'created_by', type: 'uuid' })
   createdBy!: string;

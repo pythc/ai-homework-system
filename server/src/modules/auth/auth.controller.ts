@@ -1,13 +1,18 @@
+import * as path from 'path';
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Post,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
+import type { Express, Request } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './auth.guard';
 import { LoginRequestDto, LoginResponseDto } from './dto/login.dto';
@@ -78,10 +83,47 @@ export class AuthController {
         schoolId: user.schoolId,
         accountType: user.accountType,
         account: user.account,
+        email: user.email ?? null,
         role: user.role,
         status: user.status,
         name: user.name ?? null,
       },
+    };
+  }
+
+  @Post('register/bulk')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  async registerBulk(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request,
+  ) {
+    if (!file) {
+      throw new BadRequestException('请上传Excel文件');
+    }
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext !== '.xlsx' && ext !== '.xls') {
+      throw new BadRequestException('仅支持 .xlsx 或 .xls 文件');
+    }
+    if (!file.buffer || file.buffer.length === 0) {
+      throw new BadRequestException('文件内容为空');
+    }
+
+    const payload = req.user as { schoolId?: string };
+    const schoolId = payload?.schoolId;
+    if (!schoolId) {
+      throw new BadRequestException('缺少schoolId');
+    }
+
+    const result = await this.authService.registerBulkFromExcel(
+      file.buffer,
+      schoolId,
+    );
+    return {
+      code: 201,
+      message: '批量导入完成',
+      data: result,
     };
   }
 

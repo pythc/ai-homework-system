@@ -15,6 +15,11 @@ export class RegisterRequestDto {
   @IsString()
   account!: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  email?: string;
+
   @ApiProperty({ enum: UserRole })
   @IsEnum(UserRole)
   role!: UserRole;
@@ -48,6 +53,7 @@ export class RegisterResponseDto {
     schoolId: string;
     accountType: string;
     account: string;
+    email?: string | null;
     role: string;
     status: string;
     name?: string | null;

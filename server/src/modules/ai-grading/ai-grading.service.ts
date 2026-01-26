@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,6 +11,8 @@ import { AiGradingQueueService } from './ai-grading.queue';
 import { AiGradingEntity } from './entities/ai-grading.entity';
 import { AiJobEntity, AiJobStage, AiJobStatus } from './entities/ai-job.entity';
 import { SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
+import { AssignmentEntity } from '../assignment/entities/assignment.entity';
+import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 
 @Injectable()
 export class AiGradingService {
@@ -23,6 +26,10 @@ export class AiGradingService {
     private readonly gradingRepo: Repository<AiGradingEntity>,
     @InjectRepository(SubmissionVersionEntity)
     private readonly submissionVersionRepo: Repository<SubmissionVersionEntity>,
+    @InjectRepository(AssignmentEntity)
+    private readonly assignmentRepo: Repository<AssignmentEntity>,
+    @InjectRepository(AssignmentSnapshotEntity)
+    private readonly snapshotRepo: Repository<AssignmentSnapshotEntity>,
   ) {}
 
   async createGradingJob(
@@ -36,8 +43,35 @@ export class AiGradingService {
       throw new NotFoundException('提交不存在');
     }
 
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: submissionVersion.assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+
+    let assignmentSnapshotId: string | null = null;
+    if (dto.snapshotPolicy === 'SPECIFIC') {
+      if (!dto.assignmentSnapshotId) {
+        throw new BadRequestException('缺少 assignmentSnapshotId');
+      }
+      const snapshot = await this.snapshotRepo.findOne({
+        where: { id: dto.assignmentSnapshotId },
+      });
+      if (!snapshot || snapshot.assignmentId !== assignment.id) {
+        throw new BadRequestException('作业快照不存在或不匹配');
+      }
+      assignmentSnapshotId = snapshot.id;
+    } else {
+      assignmentSnapshotId = assignment.currentSnapshotId ?? null;
+      if (!assignmentSnapshotId) {
+        throw new BadRequestException('作业尚未发布，无法批改');
+      }
+    }
+
     const job = this.jobRepo.create({
       submissionVersionId,
+      assignmentSnapshotId,
       status: AiJobStatus.QUEUED,
       stage: AiJobStage.PREPARE_INPUT,
     });
@@ -97,7 +131,7 @@ export class AiGradingService {
     return {
       aiGradingId: grading.id,
       submissionVersionId: grading.submissionVersionId,
-      assignmentSnapshotId: grading.assignmentId,
+      assignmentSnapshotId: grading.assignmentSnapshotId ?? grading.assignmentId,
       model: {
         name: grading.modelName,
         version: grading.modelVersion ?? undefined,

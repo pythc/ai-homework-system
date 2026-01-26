@@ -14,6 +14,9 @@ export class SubmissionEntity {
   @Column({ name: 'student_id', type: 'uuid' })
   studentId!: string;
 
+  @Column({ name: 'question_id', type: 'uuid' })
+  questionId!: string;
+
   @Column({ name: 'current_version_id', type: 'uuid', nullable: true })
   currentVersionId?: string | null;
 

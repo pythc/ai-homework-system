@@ -6,6 +6,8 @@ import { AiGradingQueueService } from './ai-grading.queue';
 import { AiJobEntity } from './entities/ai-job.entity';
 import { AiGradingEntity } from './entities/ai-grading.entity';
 import { SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
+import { AssignmentEntity } from '../assignment/entities/assignment.entity';
+import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 
 // 负责人: 周灿宇
 // 功能: AI评分（接口、调研）
@@ -17,6 +19,8 @@ import { SubmissionVersionEntity } from '../submission/entities/submission-versi
       AiJobEntity,
       AiGradingEntity,
       SubmissionVersionEntity,
+      AssignmentEntity,
+      AssignmentSnapshotEntity,
     ]),
   ],
   controllers: [AiGradingController],

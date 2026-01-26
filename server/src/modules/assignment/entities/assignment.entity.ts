@@ -1,6 +1,7 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 export enum AssignmentStatus {
+  DRAFT = 'DRAFT',
   OPEN = 'OPEN',
   CLOSED = 'CLOSED',
   ARCHIVED = 'ARCHIVED',
@@ -35,12 +36,15 @@ export class AssignmentEntity {
   @Column({
     type: 'enum',
     enum: AssignmentStatus,
-    default: AssignmentStatus.OPEN,
+    default: AssignmentStatus.DRAFT,
   })
   status!: AssignmentStatus;
 
   @Column({ name: 'selected_question_ids', type: 'uuid', array: true })
   selectedQuestionIds!: string[];
+
+  @Column({ name: 'current_snapshot_id', type: 'uuid', nullable: true })
+  currentSnapshotId?: string | null;
 
   @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
   createdAt!: Date;

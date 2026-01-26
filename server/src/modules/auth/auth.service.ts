@@ -7,11 +7,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'crypto';
+import * as xlsx from 'xlsx';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as jwt from 'jsonwebtoken';
 import { AuthSessionEntity } from './entities/auth-session.entity';
-import { UserEntity, UserRole, UserStatus } from './entities/user.entity';
+import { AccountType, UserEntity, UserRole, UserStatus } from './entities/user.entity';
 import { LoginRequestDto } from './dto/login.dto';
 import { RegisterRequestDto } from './dto/register.dto';
 
@@ -31,11 +32,17 @@ export class AuthService {
     meta: { ip?: string; userAgent?: string; deviceId?: string },
   ) {
     const user = await this.userRepo.findOne({
-      where: {
-        schoolId: dto.schoolId,
-        accountType: dto.accountType,
-        account: dto.account,
-      },
+      where:
+        dto.accountType === AccountType.EMAIL
+          ? {
+              schoolId: dto.schoolId,
+              email: dto.account,
+            }
+          : {
+              schoolId: dto.schoolId,
+              accountType: dto.accountType,
+              account: dto.account,
+            },
     });
     if (!user) {
       throw new UnauthorizedException('账号或密码错误');
@@ -86,12 +93,24 @@ export class AuthService {
     if (exists) {
       throw new ConflictException('账号已存在');
     }
+    if (dto.email) {
+      const emailExists = await this.userRepo.findOne({
+        where: {
+          schoolId: dto.schoolId,
+          email: dto.email,
+        },
+      });
+      if (emailExists) {
+        throw new ConflictException('邮箱已存在');
+      }
+    }
 
     const user = this.userRepo.create({
       id: randomUUID(),
       schoolId: dto.schoolId,
       accountType: dto.accountType,
       account: dto.account,
+      email: dto.email ?? null,
       role: dto.role,
       status: dto.status ?? UserStatus.ACTIVE,
       name: dto.name ?? null,
@@ -99,6 +118,119 @@ export class AuthService {
     });
     const saved = await this.userRepo.save(user);
     return saved;
+  }
+
+  async registerBulkFromExcel(buffer: Buffer, schoolId: string) {
+    const workbook = xlsx.read(buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = xlsx.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: '',
+    }) as Array<Array<unknown>>;
+
+    const results = {
+      total: Math.max(rows.length - 1, 0),
+      created: 0,
+      skipped: 0,
+      errors: [] as Array<{ row: number; reason: string; account?: string }>,
+    };
+
+    const seenAccounts = new Set<string>();
+    for (let i = 1; i < rows.length; i += 1) {
+      const row = rows[i] ?? [];
+      const rowNumber = i + 1;
+      const name = String(row[1] ?? '').trim();
+      const account = String(row[2] ?? '').trim();
+      const email = String(row[3] ?? '').trim();
+      const roleRaw = String(row[4] ?? '').trim();
+
+      if (!name || !account || !roleRaw) {
+        results.skipped += 1;
+        results.errors.push({
+          row: rowNumber,
+          reason: '姓名/学号(工号)/身份不能为空',
+          account: account || undefined,
+        });
+        continue;
+      }
+
+      if (seenAccounts.has(account)) {
+        results.skipped += 1;
+        results.errors.push({
+          row: rowNumber,
+          reason: '表内学号/工号重复',
+          account,
+        });
+        continue;
+      }
+      seenAccounts.add(account);
+
+      let role: UserRole | null = null;
+      if (roleRaw === '学生') {
+        role = UserRole.STUDENT;
+      } else if (roleRaw === '教师') {
+        role = UserRole.TEACHER;
+      }
+
+      if (!role) {
+        results.skipped += 1;
+        results.errors.push({
+          row: rowNumber,
+          reason: '身份仅支持学生/教师',
+          account,
+        });
+        continue;
+      }
+
+      const accountType =
+        role === UserRole.STUDENT
+          ? AccountType.STUDENT_ID
+          : AccountType.USERNAME;
+
+      const exists = await this.userRepo.findOne({
+        where: { schoolId, account },
+      });
+      if (exists) {
+        results.skipped += 1;
+        results.errors.push({
+          row: rowNumber,
+          reason: '账号已存在',
+          account,
+        });
+        continue;
+      }
+
+      if (email) {
+        const emailExists = await this.userRepo.findOne({
+          where: { schoolId, email },
+        });
+        if (emailExists) {
+          results.skipped += 1;
+          results.errors.push({
+            row: rowNumber,
+            reason: '邮箱已存在',
+            account,
+          });
+          continue;
+        }
+      }
+
+      const user = this.userRepo.create({
+        id: randomUUID(),
+        schoolId,
+        accountType,
+        account,
+        email: email || null,
+        role,
+        status: UserStatus.ACTIVE,
+        name,
+        passwordHash: await this.hashPassword(`cqupt${account}`),
+      });
+      await this.userRepo.save(user);
+      results.created += 1;
+    }
+
+    return results;
   }
 
   async refresh(

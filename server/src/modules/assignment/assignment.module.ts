@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AssignmentController } from './assignment.controller';
+import { AssignmentSnapshotController } from './assignment-snapshot.controller';
 import { AssignmentService } from './assignment.service';
 import { AssignmentEntity } from './entities/assignment.entity';
+import { AssignmentSnapshotEntity } from './entities/assignment-snapshot.entity';
 import { AssignmentQuestionEntity } from './entities/assignment-question.entity';
 import { CourseEntity } from './entities/course.entity';
 
@@ -14,11 +16,12 @@ import { CourseEntity } from './entities/course.entity';
   imports: [
     TypeOrmModule.forFeature([
       AssignmentEntity,
+      AssignmentSnapshotEntity,
       AssignmentQuestionEntity,
       CourseEntity,
     ]),
   ],
-  controllers: [AssignmentController],
+  controllers: [AssignmentController, AssignmentSnapshotController],
   providers: [AssignmentService]
 })
 export class AssignmentModule {}

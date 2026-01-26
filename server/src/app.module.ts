@@ -6,6 +6,7 @@ import { AiGradingModule } from './modules/ai-grading/ai-grading.module';
 import { AssignmentModule } from './modules/assignment/assignment.module';
 import { ManualGradingModule } from './modules/manual-grading/manual-grading.module';
 import { SubmissionModule } from './modules/submission/submission.module';
+import { QuestionBankModule } from './modules/question-bank/question-bank.module';
 import { PostgresKeyModule } from './common/database/postgres.module';
 import { MongoLogModule } from './common/database/mongo.module';
 
@@ -20,7 +21,8 @@ import { MongoLogModule } from './common/database/mongo.module';
     AssignmentModule,  // 作业发布 (邓翀宸)
     SubmissionModule,  // 学生提交 (廖治凯)
     AiGradingModule,   // AI评分 (周灿宇)
-    ManualGradingModule// 教师批改 (邓翀宸)
+    ManualGradingModule,// 教师批改 (邓翀宸)
+    QuestionBankModule, // 题库管理
   ],
   controllers: [AppController],
   providers: [AppService],
