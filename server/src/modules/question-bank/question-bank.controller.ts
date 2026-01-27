@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/auth.guard';
 import { QuestionBankService } from './question-bank.service';
 import { QuestionBankImportDto } from './dto/question-bank.dto';
@@ -27,4 +27,25 @@ export class QuestionBankController {
       data: result,
     };
   }
+
+  @Get()
+  // @UseGuards(JwtAuthGuard) // Toggle if needed
+  async findAll(@Query('courseId') courseId: string) {
+    if (!courseId) {
+      // Return empty or throw error? For now empty list if no courseId
+      return []; 
+    }
+    return this.questionBankService.findAll(courseId);
+  }
+
+  @Patch(':id')
+  async update(@Param('id') id: string, @Body() updateDto: any) {
+    return this.questionBankService.updateQuestion(id, updateDto);
+  }
+
+  @Delete(':id')
+  async remove(@Param('id') id: string) {
+    return this.questionBankService.deleteQuestion(id);
+  }
 }
+

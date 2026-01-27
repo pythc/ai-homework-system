@@ -3,8 +3,9 @@ import type { RouteRecordRaw } from 'vue-router'
 
 import Login from '../views/Login.vue'
 import ResetPassword from '../views/ResetPassword.vue'
-// import StudentDashboard from '../views/StudentDashboard.vue'
-// import TeacherDashboard from '../views/TeacherDashboard.vue'
+import StudentDashboard from '../views/StudentDashboard.vue'
+import TeacherDashboard from '../views/TeacherDashboard.vue'
+import QuestionBank from '../views/QuestionBank.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
@@ -18,15 +19,19 @@ const routes: RouteRecordRaw[] = [
     component: ResetPassword,
   },
 
-  // {
-  //   path: '/student',
-  //   component: StudentDashboard,
-  // },
+  {
+    path: '/student',
+    component: StudentDashboard,
+  },
 
-  // {
-  //   path: '/teacher',
-  //   component: TeacherDashboard,
-  // },
+  {
+    path: '/teacher',
+    component: TeacherDashboard,
+  },
+  {
+    path: '/teacher/question-bank',
+    component: QuestionBank
+  }
 ]
 
 const router = createRouter({
