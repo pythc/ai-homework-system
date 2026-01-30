@@ -2,7 +2,24 @@
   <div class="question-bank-container">
     <div class="header">
       <h1>题库管理</h1>
-      <button class="btn primary" @click="showImportModal = true">导入题库 (JSON)</button>
+      <div class="header-actions">
+        <!-- Local Folder Loader -->
+        <div class="local-loader">
+          <input type="text" v-model="localPathDisplay" placeholder="选择本地题库文件夹..." readonly class="path-display" />
+          <button class="btn outline" @click="triggerFolderSelect" title="浏览本地文件夹">📂 加载本地文件夹</button>
+          <input 
+            type="file" 
+            ref="folderInput" 
+            webkitdirectory 
+            directory 
+            multiple 
+            style="display: none" 
+            @change="handleFolderSelect" 
+          />
+        </div>
+        <div class="divider-v"></div>
+        <button class="btn primary" @click="showImportModal = true">导入题库 (JSON)</button>
+      </div>
     </div>
 
     <!-- Question List -->
@@ -244,6 +261,134 @@ const editForm = reactive({
   children: []   // Array<{...}>
 });
 
+// --- Local Folder Loading Logic ---
+const localPathDisplay = ref('');
+const folderInput = ref(null);
+
+const triggerFolderSelect = () => {
+  if (folderInput.value) {
+    folderInput.value.click();
+  }
+};
+
+const handleFolderSelect = async (event) => {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+
+  // 1. Display Selected Root Folder Name
+  const rootPath = files[0].webkitRelativePath || '';
+  localPathDisplay.value = rootPath.split('/')[0] || 'Selected Folder';
+
+  // 2. Prepare Maps
+  const imageMap = new Map();
+  const jsonFiles = [];
+
+  // Scan all files
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const relPath = file.webkitRelativePath; // e.g. "Bank/Book1/images/1.png"
+    
+    if (file.name.toLowerCase().endsWith('.json')) {
+      jsonFiles.push(file);
+    } else if (file.type.startsWith('image/')) {
+       // Create Blob URL for preview
+       imageMap.set(relPath, URL.createObjectURL(file));
+    }
+  }
+
+  if (jsonFiles.length === 0) {
+    alert('未在所选文件夹中找到 JSON 文件 (.json)');
+    return;
+  }
+
+  // 3. Process JSONs
+  let allQuestions = [];
+  let errorCount = 0;
+
+  for (const file of jsonFiles) {
+    try {
+      const text = await readFileAsText(file);
+      const data = JSON.parse(text);
+      
+      // Assume data structure { questions: [...] } or just [...] or other structure
+      // Adjust according to your JSON format. Assuming standard { questions: [] }
+      let rawList = [];
+      if (Array.isArray(data)) rawList = data;
+      else if (data && Array.isArray(data.questions)) rawList = data.questions;
+      else {
+         // Maybe single object?
+         console.warn(`Skipping ${file.name}: invalid format`);
+         continue;
+      }
+
+      // Determine "Current Directory" of this json file relative to the root selection
+      // relPath: "Bank/Category/data.json" -> curDir: "Bank/Category"
+      const fullRelPath = file.webkitRelativePath;
+      const curDir = fullRelPath.substring(0, fullRelPath.lastIndexOf('/'));
+
+      const list = rawList.map(q => processLocalQuestion(q, curDir, imageMap));
+      allQuestions.push(...list);
+
+    } catch (err) {
+      console.error(`Error processing ${file.name}`, err);
+      errorCount++;
+    }
+  }
+
+  questions.value = allQuestions;
+  alert(`加载完成！共读取 ${allQuestions.length} 道题目。${errorCount > 0 ? `(${errorCount} 个文件出错)` : ''}`);
+};
+
+const readFileAsText = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+};
+
+const processLocalQuestion = (q, curDir, imageMap) => {
+  // Helper to fix media url
+  const fixUrl = (mediaList) => {
+    if (!mediaList) return;
+    mediaList.forEach(m => {
+       if (m.type === 'image' && m.url && !m.url.startsWith('http') && !m.url.startsWith('data:')) {
+          // Construct potential key
+          // 1. naive join: curDir + '/' + m.url
+          // Win/Mac path separator handling? webkitRelativePath uses '/'
+          // q.url might use '\' or '/'
+          const normalizedUrl = m.url.replace(/\\/g, '/');
+          const targetKey = `${curDir}/${normalizedUrl}`;
+          
+          if (imageMap.has(targetKey)) {
+             m.url = imageMap.get(targetKey);
+          } else {
+             // Try searching just by filename if path mismatch?
+             // For now keep as is, or console log missing
+             console.log(`Image not found in map: ${targetKey}`);
+          }
+       }
+    });
+  };
+
+  // Clone to avoid mutation of raw data if referenced elsewhere (unlikely here)
+  const copy = { ...q };
+  
+  if (copy.prompt && copy.prompt.media) fixUrl(copy.prompt.media);
+  if (copy.stem && copy.stem.media) fixUrl(copy.stem.media); // For Group stems
+
+  if (copy.children && copy.children.length > 0) {
+      copy.children = copy.children.map(child => processLocalQuestion(child, curDir, imageMap));
+  }
+  
+  // Ensure IDs are unique-ish for the view key
+  if (!copy.id) copy.id = 'loc_' + Math.random().toString(36).substr(2, 9);
+  
+  return copy;
+};
+// ------------------------------------
+
 const COURSE_ID = '22222222-2222-2222-2222-222222222222';
 
 const shortenId = (id) => {
@@ -414,6 +559,39 @@ const removeQuestion = async (id) => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.local-loader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f0f7ff;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #cce4ff;
+}
+
+.path-display {
+  width: 200px;
+  padding: 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #666;
+  background: white;
+}
+
+.divider-v {
+  width: 1px;
+  height: 24px;
+  background: #eee;
+  margin: 0 5px;
 }
 
 .table-container {
