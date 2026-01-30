@@ -19,4 +19,5 @@ yarn-debug.log*
 yarn-error.log*
 
 # Local question bank data
-question_bank/
+question_bank/*
+!question_bank/.gitkeep
