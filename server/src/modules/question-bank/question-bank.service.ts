@@ -108,6 +108,53 @@ export class QuestionBankService {
     });
   }
 
+  async findAll(courseId: string) {
+    return this.questionRepo.find({
+      where: {
+        courseId,
+      },
+      order: {
+        // created_at isn't on the entity based on previous read, let's check. 
+        // If not, use id or orderNo if available? Entity has externalId?
+        // Let's use id for insertion order approx/random or add createdAt
+      },
+      relations: ['children'], 
+    });
+  }
+
+  async updateQuestion(id: string, dto: any) {
+    const q = await this.questionRepo.findOne({ where: { id } });
+    if (!q) {
+      throw new NotFoundException('Question not found');
+    }
+    
+    // Allow updating scalar fields
+    const updateData: any = {};
+    if (dto.title !== undefined) updateData.title = dto.title;
+    if (dto.defaultScore !== undefined) updateData.defaultScore = dto.defaultScore;
+    
+    // For text blocks (prompt, standardAnswer), we assume complete replacement 
+    if (dto.prompt) updateData.prompt = dto.prompt;
+    if (dto.stem) updateData.description = dto.stem; // Note: 'stem' usually maps to description or prompt in Group? Entity has 'description' and 'prompt'.
+    // In import: group -> description=stem? No, import logic isn't fully visible but let's assume 'description' or 'prompt'.
+    // Checked createAssignment: description=question.prompt, prompt=promptBlock. 
+    // AssignmentQuestionEntity has both description(string) and prompt(jsonb/TextBlock).
+    
+    if (dto.standardAnswer) updateData.standardAnswer = dto.standardAnswer;
+    
+    await this.questionRepo.update({ id }, updateData);
+    return this.questionRepo.findOne({ where: { id } });
+  }
+
+  async deleteQuestion(id: string) {
+    const q = await this.questionRepo.findOne({ where: { id } });
+    if (!q) {
+      throw new NotFoundException('Question not found');
+    }
+    await this.questionRepo.delete({ id });
+    return { success: true };
+  }
+
   private validatePayload(payload: QuestionBankImportDto) {
     if (!payload?.version) {
       throw new BadRequestException('缺少版本号');
