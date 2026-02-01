@@ -28,10 +28,31 @@
         <h2 class="login-title">登录</h2>
 
         <div class="form-item">
+          <div class="school-select" :class="{ open: isSchoolOpen }" @click="toggleSchool">
+            <div class="school-value" :class="{ placeholder: !schoolId }">
+              {{ schoolId || '请选择学校' }}
+            </div>
+            <span class="school-arrow" />
+            <div v-if="isSchoolOpen" class="school-dropdown" @click.stop>
+              <button
+                v-for="school in schools"
+                :key="school"
+                type="button"
+                class="school-option"
+                :class="{ active: schoolId === school }"
+                @click="selectSchool(school)"
+              >
+                {{ school }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-item">
           <input
             v-model="username"
             type="text"
-            placeholder="请输入统一认证号"
+            placeholder="请输入学号/工号"
           />
         </div>
 
@@ -39,7 +60,7 @@
           <input
             v-model="password"
             :type="showPassword ? 'text' : 'password'"
-            placeholder="请输入密码(6-16位字母和数字)"
+            placeholder="请输入密码"
           />
         </div>
 
@@ -65,7 +86,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { AccountType, login } from '../api/auth'
 import { ensureDeviceId, saveAuth } from '../auth/storage'
@@ -78,11 +99,60 @@ const loading = ref(false)
 const router = useRouter()
 
 // 当前后端登录接口需要 schoolId 和 accountType。
-// 为了匹配本地测试种子用户，默认使用 test-school + USERNAME。
-const schoolId = import.meta.env.VITE_SCHOOL_ID ?? 'test-school'
+const parseSchools = (raw) => {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+const normalizeSchools = (raw) =>
+  raw
+    ?.map((item) => {
+      if (typeof item === 'string') return item
+      return item?.name ?? item?.id ?? null
+    })
+    .filter(Boolean) ?? null
+
+const fallbackSchoolName = (import.meta.env.VITE_SCHOOL_NAME || '重庆邮电大学').trim()
+const schools =
+  normalizeSchools(parseSchools(import.meta.env.VITE_SCHOOLS)) ??
+  [fallbackSchoolName].filter(Boolean)
+const schoolId = ref('')
+const isSchoolOpen = ref(false)
 const accountType = AccountType.USERNAME
 
+const toggleSchool = () => {
+  isSchoolOpen.value = !isSchoolOpen.value
+}
+
+const selectSchool = (school) => {
+  schoolId.value = school
+  isSchoolOpen.value = false
+}
+
+const handleOutsideClick = (event) => {
+  const target = event.target
+  if (target?.closest?.('.school-select')) return
+  isSchoolOpen.value = false
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleOutsideClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleOutsideClick)
+})
+
 const handleLogin = async () => {
+  if (!schoolId.value) {
+    window.alert('请选择学校')
+    return
+  }
   if (!username.value || !password.value) {
     window.alert('请输入账号和密码')
     return
@@ -93,7 +163,7 @@ const handleLogin = async () => {
   try {
     const deviceId = ensureDeviceId()
     const response = await login({
-      schoolId,
+      schoolId: schoolId.value,
       accountType,
       account: username.value.trim(),
       password: password.value,
@@ -110,7 +180,7 @@ const handleLogin = async () => {
     window.alert('登录成功')
     // 目前还没有首页路由，先停留在登录页。
     // 后续可根据角色跳转到不同页面。
-    router.replace('/login')
+    router.replace('/Student')
   } catch (err) {
     const message = err instanceof Error ? err.message : '登录失败'
     window.alert(message)
@@ -205,7 +275,7 @@ const goToResetPassword = () => {
   letter-spacing: 1px;
   line-height: 1.05;
   position: relative;
-  display: inline-block;
+  /* display: inline-block; */
   padding-right: 6px;
   background: linear-gradient(120deg, #ffffff 0%, #e8f1ff 45%, #ffffff 100%);
   -webkit-background-clip: text;
@@ -226,7 +296,7 @@ const goToResetPassword = () => {
   letter-spacing: 2px;
   line-height: 1.25;
   position: relative;
-  display: inline-block;
+  /* display: inline-block; */
   background: linear-gradient(125deg, #ffffff 0%, #dbe9ff 55%, #ffffff 100%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -304,7 +374,7 @@ const goToResetPassword = () => {
     inset 0 -12px 24px rgba(255, 255, 255, 0.12);
 
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   animation: cardEnter 0.85s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
 }
 
@@ -349,6 +419,154 @@ const goToResetPassword = () => {
     inset 0 1px 0 rgba(255, 255, 255, 0.65),
     0 10px 18px rgba(31, 90, 180, 0.08);
   transition: all 0.2s ease;
+}
+
+.school-select {
+  width: 100%;
+  box-sizing: border-box;
+  height: 46px;
+  border: 1.5px solid rgba(70, 130, 255, 0.55);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 10px 20px rgba(31, 90, 180, 0.12),
+    0 2px 6px rgba(255, 255, 255, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transition: all 0.35s ease;
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 42px 0 14px;
+  cursor: pointer;
+  z-index: 3;
+  animation: glassFlow 6s ease-in-out infinite;
+}
+
+.school-select::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(140% 200% at 0% 0%, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.1) 55%, rgba(150, 190, 255, 0.08) 100%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
+.school-select.open {
+  border-color: rgba(61, 115, 255, 0.9);
+  box-shadow:
+    0 0 0 4px rgba(78, 132, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 18px 32px rgba(34, 96, 210, 0.2);
+  transform: translateY(-1px);
+  animation: selectPop 0.35s ease;
+  z-index: 5;
+}
+
+.school-select:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 16px 28px rgba(31, 90, 180, 0.18),
+    0 4px 10px rgba(255, 255, 255, 0.4);
+  filter: saturate(1.05) brightness(1.02);
+}
+
+.school-value {
+  font-size: 15px;
+  color: #0b2a5b;
+  letter-spacing: 0.2px;
+  user-select: none;
+  position: relative;
+  z-index: 1;
+}
+
+.school-value.placeholder {
+  color: rgba(11, 42, 91, 0.55);
+}
+
+.school-arrow {
+  position: absolute;
+  right: 14px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(43, 108, 255, 0.9);
+  border-bottom: 2px solid rgba(43, 108, 255, 0.9);
+  transform: rotate(45deg);
+  transition: transform 0.3s ease;
+  z-index: 1;
+}
+
+.school-select.open .school-arrow {
+  transform: rotate(-135deg);
+}
+
+.school-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 10px);
+  padding: 10px;
+  border-radius: 18px;
+  background:
+    radial-gradient(160% 140% at 0% 0%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.45) 50%, rgba(180, 210, 255, 0.3) 100%),
+    linear-gradient(140deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.35));
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 2px solid rgba(70, 130, 255, 0.75);
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: -4px;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.7),
+    0 16px 34px rgba(18, 65, 140, 0.22),
+    0 8px 16px rgba(40, 90, 180, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  animation: dropdownFloat 0.4s ease;
+  z-index: 10;
+}
+
+.school-dropdown::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(120, 170, 255, 0.35),
+    0 0 0 1px rgba(120, 170, 255, 0.15);
+}
+
+.school-option {
+  width: 100%;
+  border: none;
+  background: rgba(255, 255, 255, 0.3);
+  color: #0b2a5b;
+  font-size: 15px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.school-option + .school-option {
+  margin-top: 6px;
+}
+
+.school-option:hover {
+  background: rgba(255, 255, 255, 0.55);
+  transform: translateX(2px);
+  box-shadow: 0 10px 18px rgba(28, 86, 180, 0.18);
+}
+
+.school-option.active {
+  background: linear-gradient(135deg, rgba(60, 124, 255, 0.2), rgba(255, 255, 255, 0.7));
+  border: 1px solid rgba(82, 138, 255, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .form-item input:focus {
@@ -458,6 +676,49 @@ const goToResetPassword = () => {
       0 18px 36px rgba(36, 98, 205, 0.34),
       0 6px 16px rgba(255, 255, 255, 0.55);
     filter: brightness(1.05);
+  }
+}
+
+@keyframes selectPop {
+  0% {
+    transform: translateY(0) scale(0.99);
+  }
+  60% {
+    transform: translateY(-2px) scale(1.01);
+  }
+  100% {
+    transform: translateY(-1px) scale(1);
+  }
+}
+
+@keyframes glassFlow {
+  0%,
+  100% {
+    background-position:
+      calc(100% - 18px) calc(50% - 4px),
+      calc(100% - 12px) calc(50% - 4px),
+      calc(100% - 34px) 50%;
+    filter: brightness(1);
+  }
+  50% {
+    background-position:
+      calc(100% - 18px) calc(50% - 4px),
+      calc(100% - 12px) calc(50% - 4px),
+      calc(100% - 34px) 48%;
+    filter: brightness(1.04);
+  }
+}
+
+@keyframes dropdownFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
   }
 }
 

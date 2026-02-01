@@ -48,6 +48,8 @@ export class LoginResponseDto {
       accountType: string;
       account: string;
       name?: string | null;
+      createdAt?: string | Date;
+      updatedAt?: string | Date;
     };
   };
 }

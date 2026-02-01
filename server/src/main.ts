@@ -2,10 +2,75 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { DataSource } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
+import { AccountType, UserEntity, UserRole, UserStatus } from './modules/auth/entities/user.entity';
+
+async function seedTestUser(dataSource: DataSource) {
+  if (process.env.SEED_TEST_USER !== 'true') {
+    return; 
+  }
+
+  // If migrations haven't run yet, the users table may not exist.
+  // In that case, skip seeding to avoid crashing on startup.
+  const tableExistsResult = await dataSource.query(
+    `SELECT to_regclass('public.users') AS exists`,
+  );
+  const tableExists = Boolean(tableExistsResult?.[0]?.exists);
+  if (!tableExists) {
+    // eslint-disable-next-line no-console
+    console.log(
+      '[seed] Skipping test user seed because table "public.users" does not exist. Run migrations first.',
+    );
+    return;
+  }
+
+  const schoolId = process.env.SEED_SCHOOL_ID ?? 'test-school';
+  const account = process.env.SEED_ACCOUNT ?? 'admin';
+  const password = process.env.SEED_PASSWORD ?? 'admin123456';
+  const accountType = AccountType.USERNAME;
+
+  const userRepo = dataSource.getRepository(UserEntity);
+  const existing = await userRepo.findOne({
+    where: { schoolId, accountType, account },
+  });
+
+  if (existing) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[seed] Test user already exists: ${schoolId}/${accountType}/${account}`,
+    );
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const user = userRepo.create({
+    id: randomUUID(),
+    schoolId,
+    accountType,
+    account,
+    email: process.env.SEED_EMAIL ?? 'admin@example.com',
+    role: UserRole.ADMIN,
+    status: UserStatus.ACTIVE,
+    name: process.env.SEED_NAME ?? 'Test Admin',
+    passwordHash,
+  });
+
+  await userRepo.save(user);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[seed] Created test user: schoolId=${schoolId}, accountType=${accountType}, account=${account}, password=${password}`,
+  );
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api/v1');
+  app.enableCors({
+    origin: true,
+    credentials: true,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -24,6 +89,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api-docs', app, document);
 
+  await seedTestUser(app.get(DataSource));
   await app.listen(3000);
 }
 void bootstrap();

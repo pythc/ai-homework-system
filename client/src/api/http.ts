@@ -1,3 +1,5 @@
+import { clearAuth, getAccessToken, getRefreshToken, setTokens } from '../auth/storage'
+
 const DEFAULT_BASE_URL = 'http://localhost:3000/api/v1'
 
 export const API_BASE_URL =
@@ -6,6 +8,7 @@ export const API_BASE_URL =
 type RequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown
   token?: string | null
+  skipRefresh?: boolean
 }
 
 function buildUrl(path: string) {
@@ -16,15 +19,62 @@ function buildUrl(path: string) {
   return `${API_BASE_URL}${normalizedPath}`
 }
 
+let refreshPromise: Promise<string | null> | null = null
+
+function isAuthPath(path: string) {
+  return path.includes('/auth/login') || path.includes('/auth/refresh')
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise
+  refreshPromise = (async () => {
+    const refreshToken = getRefreshToken()
+    if (!refreshToken) return null
+
+    const response = await fetch(buildUrl('/auth/refresh'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    })
+
+    let payload: unknown = null
+    try {
+      payload = await response.json()
+    } catch (err) {
+      payload = null
+    }
+
+    if (!response.ok) {
+      clearAuth()
+      return null
+    }
+
+    const data = (payload as { data?: { accessToken?: string; refreshToken?: string } })
+      ?.data
+    if (!data?.accessToken) {
+      clearAuth()
+      return null
+    }
+
+    setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken })
+    return data.accessToken
+  })()
+
+  const result = await refreshPromise
+  refreshPromise = null
+  return result
+}
+
 export async function httpRequest<T>(path: string, options: RequestOptions = {}) {
-  const { body, headers, token, ...rest } = options
+  const { body, headers, token, skipRefresh, ...rest } = options
 
   const finalHeaders = new Headers(headers)
   if (body !== undefined && !finalHeaders.has('Content-Type')) {
     finalHeaders.set('Content-Type', 'application/json')
   }
-  if (token && !finalHeaders.has('Authorization')) {
-    finalHeaders.set('Authorization', `Bearer ${token}`)
+  const resolvedToken = token ?? getAccessToken()
+  if (resolvedToken && !finalHeaders.has('Authorization')) {
+    finalHeaders.set('Authorization', `Bearer ${resolvedToken}`)
   }
 
   const response = await fetch(buildUrl(path), {
@@ -41,6 +91,20 @@ export async function httpRequest<T>(path: string, options: RequestOptions = {})
   }
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      !skipRefresh &&
+      !isAuthPath(path)
+    ) {
+      const newToken = await refreshAccessToken()
+      if (newToken) {
+        return httpRequest<T>(path, {
+          ...options,
+          token: newToken,
+          skipRefresh: true,
+        })
+      }
+    }
     const message =
       (payload as { message?: string } | null)?.message ??
       response.statusText ??

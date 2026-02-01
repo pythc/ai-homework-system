@@ -209,6 +209,89 @@ export class AssignmentService {
     return this.getSnapshotById(assignment.currentSnapshotId);
   }
 
+  async listOpenAssignmentsForStudent(studentId: string, schoolId: string) {
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          a.id,
+          a.title,
+          a.course_id AS "courseId",
+          c.name AS "courseName",
+          a.description,
+          a.deadline,
+          a.status,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM submissions s
+              WHERE s.assignment_id = a.id
+                AND s.student_id = $1
+            )
+            THEN true
+            ELSE false
+          END AS "submitted"
+        FROM assignments a
+        INNER JOIN courses c ON c.id = a.course_id
+        INNER JOIN course_students cs ON cs.course_id = a.course_id
+        WHERE cs.student_id = $1
+          AND cs.status = 'ENROLLED'
+          AND a.status = 'OPEN'
+          AND (a.deadline IS NULL OR a.deadline > now())
+          AND c.school_id = $2
+        ORDER BY a.deadline NULLS LAST, a.created_at DESC
+      `,
+      [studentId, schoolId],
+    );
+
+    return {
+      items: rows.map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        courseId: row.courseId,
+        courseName: row.courseName ?? null,
+        description: row.description ?? null,
+        deadline: row.deadline ?? null,
+        status: row.status,
+        submitted: row.submitted === true,
+      })),
+    };
+  }
+
+  async listAllAssignmentsForStudent(studentId: string, schoolId: string) {
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          a.id,
+          a.title,
+          a.course_id AS "courseId",
+          c.name AS "courseName",
+          a.description,
+          a.deadline,
+          a.status
+        FROM assignments a
+        INNER JOIN courses c ON c.id = a.course_id
+        INNER JOIN course_students cs ON cs.course_id = a.course_id
+        WHERE cs.student_id = $1
+          AND cs.status = 'ENROLLED'
+          AND c.school_id = $2
+        ORDER BY a.deadline NULLS LAST, a.created_at DESC
+      `,
+      [studentId, schoolId],
+    );
+
+    return {
+      items: rows.map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        courseId: row.courseId,
+        courseName: row.courseName ?? null,
+        description: row.description ?? null,
+        deadline: row.deadline ?? null,
+        status: row.status,
+      })),
+    };
+  }
+
   async getSnapshotById(snapshotId: string) {
     const snapshot = await this.snapshotRepo.findOne({
       where: { id: snapshotId },

@@ -91,6 +91,39 @@ export class ManualGradingService {
     };
   }
 
+  async listMyScores(studentId: string) {
+    if (!studentId) {
+      throw new BadRequestException('缺少学生信息');
+    }
+    const rows = await this.scoreRepo
+      .createQueryBuilder('s')
+      .innerJoin(SubmissionVersionEntity, 'v', 'v.id = s.submissionVersionId')
+      .innerJoin(AssignmentEntity, 'a', 'a.id = v.assignmentId')
+      .where('v.studentId = :studentId', { studentId })
+      .andWhere('s.isFinal = :isFinal', { isFinal: true })
+      .orderBy('s.updatedAt', 'DESC')
+      .select([
+        's.id AS "scoreId"',
+        's.totalScore AS "totalScore"',
+        's.updatedAt AS "updatedAt"',
+        'v.id AS "submissionVersionId"',
+        'v.assignmentId AS "assignmentId"',
+        'a.title AS "assignmentTitle"',
+      ])
+      .getRawMany();
+
+    return {
+      items: rows.map((row: any) => ({
+        scoreId: row.scoreId,
+        submissionVersionId: row.submissionVersionId,
+        assignmentId: row.assignmentId,
+        assignmentTitle: row.assignmentTitle,
+        totalScore: Number(row.totalScore),
+        updatedAt: row.updatedAt,
+      })),
+    };
+  }
+
   private async resolveSnapshot(version: SubmissionVersionEntity) {
     const latestAi = await this.aiGradingRepo.findOne({
       where: { submissionVersionId: version.id },

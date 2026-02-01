@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ManualGradingController } from './manual-grading.controller';
+import { ScoreController } from './score.controller';
 import { ManualGradingService } from './manual-grading.service';
 import { ScoreEntity } from './entities/score.entity';
 import { SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
@@ -27,7 +28,7 @@ import { ManualGradingReadGuard } from './grading-read.guard';
     ]),
     AuthModule,
   ],
-  controllers: [ManualGradingController],
+  controllers: [ManualGradingController, ScoreController],
   providers: [ManualGradingService, JwtAuthGuard, RolesGuard, ManualGradingReadGuard],
 })
 export class ManualGradingModule {}

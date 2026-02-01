@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -304,6 +305,40 @@ export class AuthService {
 
   async getUserById(userId: string): Promise<UserEntity | null> {
     return this.userRepo.findOne({ where: { id: userId } });
+  }
+
+  async changePassword(
+    userId: string,
+    dto: { currentPassword: string; newPassword: string; confirmPassword: string },
+  ): Promise<void> {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('两次新密码不一致');
+    }
+    if (!dto.newPassword || dto.newPassword.length < 6) {
+      throw new BadRequestException('新密码至少6位');
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('用户不存在');
+    }
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('账号已禁用');
+    }
+
+    const isMatch = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!isMatch) {
+      throw new UnauthorizedException('旧密码错误');
+    }
+
+    user.passwordHash = await this.hashPassword(dto.newPassword);
+    user.updatedAt = new Date();
+    await this.userRepo.save(user);
+
+    await this.sessionRepo.update(
+      { userId, revokedAt: null },
+      { revokedAt: new Date(), updatedAt: new Date() },
+    );
   }
 
   verifyAccessToken(token: string): {
