@@ -16,6 +16,16 @@ type AssignmentListResponse = {
   items: AssignmentSummary[]
 }
 
+export type TeacherAssignmentSummary = AssignmentSummary & {
+  submissionCount: number
+  gradedCount: number
+  pendingCount: number
+}
+
+type TeacherAssignmentListResponse = {
+  items: TeacherAssignmentSummary[]
+}
+
 export type AssignmentSnapshotQuestion = {
   questionIndex: number
   questionId: string
@@ -27,6 +37,16 @@ export type AssignmentSnapshotResponse = {
   assignmentId: string
   questions: AssignmentSnapshotQuestion[]
   createdAt: string
+}
+
+export type CreateAssignmentRequest = {
+  courseId: string
+  title: string
+  description?: string
+  deadline?: string
+  totalScore?: number
+  aiEnabled?: boolean
+  selectedQuestionIds?: string[]
 }
 
 export async function listOpenAssignments() {
@@ -45,10 +65,35 @@ export async function listAllAssignments() {
   })
 }
 
+export async function listTeacherAssignments() {
+  const token = getAccessToken()
+  return httpRequest<TeacherAssignmentListResponse>('/assignments/teacher-list', {
+    method: 'GET',
+    token,
+  })
+}
+
 export async function getAssignmentSnapshot(assignmentId: string) {
   const token = getAccessToken()
   return httpRequest<AssignmentSnapshotResponse>(`/assignments/${assignmentId}/snapshot`, {
     method: 'GET',
+    token,
+  })
+}
+
+export async function createAssignment(payload: CreateAssignmentRequest) {
+  const token = getAccessToken()
+  return httpRequest<AssignmentSummary>('/assignments', {
+    method: 'POST',
+    token,
+    body: payload,
+  })
+}
+
+export async function publishAssignment(assignmentId: string) {
+  const token = getAccessToken()
+  return httpRequest<{ assignment: AssignmentSummary }>(`/assignments/${assignmentId}/publish`, {
+    method: 'POST',
     token,
   })
 }

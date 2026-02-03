@@ -1,5 +1,5 @@
 <template>
-  <AdminLayout
+  <TeacherLayout
     title="题目列表"
     subtitle="按章节查看题组与小题"
     :profile-name="profileName"
@@ -11,7 +11,7 @@
         <div class="topbar-avatar">{{ profileName[0] }}</div>
         <div>
           <div class="topbar-name">{{ profileName }}</div>
-          <div class="topbar-id">账号 {{ profileAccount }}</div>
+          <div class="topbar-id">工号 {{ profileAccount }}</div>
         </div>
       </div>
     </template>
@@ -49,17 +49,17 @@
         </div>
       </div>
     </section>
-  </AdminLayout>
+  </TeacherLayout>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import AdminLayout from '../components/AdminLayout.vue'
-import { useAdminProfile } from '../composables/useAdminProfile'
+import TeacherLayout from '../components/TeacherLayout.vue'
+import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { listQuestionBank } from '../api/questionBank'
 
-const { profileName, profileAccount, refreshProfile } = useAdminProfile()
+const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 const route = useRoute()
 const router = useRouter()
 const questionList = ref([])
@@ -147,6 +147,6 @@ const renderStemHtml = (item) => {
 }
 
 const goQuestionDetail = (questionId) => {
-  router.push(`/admin/question-bank/questions/${questionId}`)
+  router.push(`/teacher/question-bank/questions/${questionId}`)
 }
 </script>

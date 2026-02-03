@@ -4,6 +4,9 @@ import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { UpdateAssignmentQuestionsDto } from './dto/update-assignment-questions.dto';
 import { JwtAuthGuard } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '../auth/entities/user.entity';
 
 @Controller('assignments')
 export class AssignmentController {
@@ -31,6 +34,18 @@ export class AssignmentController {
     return this.assignmentService.listAllAssignmentsForStudent(
       payload.sub,
       payload.schoolId,
+    );
+  }
+
+  @Get('teacher-list')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async listAssignmentsForTeacher(@Req() req: any) {
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.assignmentService.listAssignmentsForTeacher(
+      payload.sub,
+      payload.schoolId,
+      payload.role,
     );
   }
 

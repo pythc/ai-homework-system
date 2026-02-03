@@ -14,7 +14,19 @@
           <div class="submit-title">
             第 {{ question.questionIndex }} 题
           </div>
-          <div class="submit-prompt">{{ question.promptText || '题目内容加载失败' }}</div>
+          <div
+            class="submit-prompt"
+            v-mathjax
+            v-html="renderTextHtml(question.promptText)"
+          />
+          <div v-if="question.promptMedia.length" class="submit-media">
+            <img
+              v-for="(img, index) in question.promptMedia"
+              :key="index"
+              :src="img.url"
+              :alt="img.caption || 'image'"
+            />
+          </div>
           <textarea
             v-model="answers[question.questionId]"
             class="submit-textarea"
@@ -67,6 +79,7 @@ type SubmitQuestion = {
   questionId: string
   questionIndex: number
   promptText: string
+  promptMedia: Array<{ url: string; caption?: string }>
 }
 
 const questions = ref<SubmitQuestion[]>([])
@@ -76,12 +89,19 @@ const filesByQuestion = ref<Record<string, File[]>>({})
 const assignmentId = computed(() => String(route.params.assignmentId ?? ''))
 
 const normalizePrompt = (prompt: unknown) => {
-  if (!prompt) return ''
-  if (typeof prompt === 'string') return prompt
-  if (typeof prompt === 'object' && 'text' in (prompt as any)) {
-    return String((prompt as any).text ?? '')
+  if (!prompt) return { text: '', media: [] }
+  if (typeof prompt === 'string') return { text: prompt, media: [] }
+  if (typeof prompt === 'object') {
+    const text = String((prompt as any).text ?? '')
+    const media = Array.isArray((prompt as any).media) ? (prompt as any).media : []
+    return { text, media }
   }
-  return ''
+  return { text: '', media: [] }
+}
+
+const renderTextHtml = (text: string) => {
+  if (!text) return '题目内容加载失败'
+  return text.replace(/\n/g, '<br />')
 }
 
 const loadSnapshot = async () => {
@@ -95,11 +115,15 @@ const loadSnapshot = async () => {
     console.log('snapshot', snapshot)
     const snapshotQuestions = (snapshot?.questions ?? []) as AssignmentSnapshotQuestion[]
     console.log('snapshotQuestions', snapshotQuestions)
-    questions.value = snapshotQuestions.map((item) => ({
-      questionId: item.questionId,
-      questionIndex: item.questionIndex,
-      promptText: normalizePrompt(item.prompt),
-    }))
+    questions.value = snapshotQuestions.map((item) => {
+      const prompt = normalizePrompt(item.prompt)
+      return {
+        questionId: item.questionId,
+        questionIndex: item.questionIndex,
+        promptText: prompt.text,
+        promptMedia: prompt.media,
+      }
+    })
     questions.value.forEach((question) => {
       if (!(question.questionId in answers.value)) {
         answers.value[question.questionId] = ''
@@ -196,6 +220,17 @@ onMounted(async () => {
 .submit-prompt {
   font-size: 13px;
   color: rgba(26, 29, 51, 0.7);
+}
+
+.submit-media {
+  display: grid;
+  gap: 10px;
+}
+
+.submit-media img {
+  max-width: 100%;
+  border-radius: 10px;
+  background: #ffffff;
 }
 
 .submit-textarea {

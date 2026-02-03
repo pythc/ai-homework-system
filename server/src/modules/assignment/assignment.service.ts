@@ -16,6 +16,7 @@ import {
   QuestionType,
 } from './entities/assignment-question.entity';
 import { CourseEntity } from './entities/course.entity';
+import { UserRole } from '../auth/entities/user.entity';
 
 @Injectable()
 export class AssignmentService {
@@ -288,6 +289,61 @@ export class AssignmentService {
         description: row.description ?? null,
         deadline: row.deadline ?? null,
         status: row.status,
+      })),
+    };
+  }
+
+  async listAssignmentsForTeacher(
+    teacherId: string,
+    schoolId: string,
+    role?: UserRole,
+  ) {
+    const params: Array<string> = [];
+    let whereClause = `c.school_id = $1`;
+    params.push(schoolId);
+    if (role !== UserRole.ADMIN) {
+      whereClause += ` AND c.teacher_id = $2`;
+      params.push(teacherId);
+    }
+
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          a.id,
+          a.title,
+          a.course_id AS "courseId",
+          c.name AS "courseName",
+          a.description,
+          a.deadline,
+          a.status,
+          COUNT(DISTINCT v.id) AS "submissionCount",
+          COUNT(DISTINCT s.id) FILTER (WHERE s.is_final = true) AS "gradedCount",
+          COUNT(DISTINCT v.id) FILTER (WHERE s.id IS NULL) AS "pendingCount"
+        FROM assignments a
+        INNER JOIN courses c ON c.id = a.course_id
+        LEFT JOIN submission_versions v ON v.assignment_id = a.id
+        LEFT JOIN scores s
+          ON s.submission_version_id = v.id
+          AND s.is_final = true
+        WHERE ${whereClause}
+        GROUP BY a.id, c.name
+        ORDER BY a.deadline NULLS LAST, a.created_at DESC
+      `,
+      params,
+    );
+
+    return {
+      items: rows.map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        courseId: row.courseId,
+        courseName: row.courseName ?? null,
+        description: row.description ?? null,
+        deadline: row.deadline ?? null,
+        status: row.status,
+        submissionCount: Number(row.submissionCount ?? 0),
+        gradedCount: Number(row.gradedCount ?? 0),
+        pendingCount: Number(row.pendingCount ?? 0),
       })),
     };
   }

@@ -91,11 +91,20 @@ export async function httpRequest<T>(path: string, options: RequestOptions = {})
   }
 
   if (!response.ok) {
-    if (
-      response.status === 401 &&
+    const message =
+      (payload as { message?: string } | null)?.message ??
+      response.statusText ??
+      '请求失败'
+
+    const shouldRefresh =
       !skipRefresh &&
-      !isAuthPath(path)
-    ) {
+      !isAuthPath(path) &&
+      (response.status === 401 ||
+        (response.status === 403 &&
+          (message.includes('无效的访问令牌') ||
+            message.includes('缺少访问令牌'))))
+
+    if (shouldRefresh) {
       const newToken = await refreshAccessToken()
       if (newToken) {
         return httpRequest<T>(path, {
@@ -105,10 +114,6 @@ export async function httpRequest<T>(path: string, options: RequestOptions = {})
         })
       }
     }
-    const message =
-      (payload as { message?: string } | null)?.message ??
-      response.statusText ??
-      '请求失败'
     throw new Error(message)
   }
 

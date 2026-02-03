@@ -181,8 +181,10 @@ const handleLogin = async () => {
     // 目前还没有首页路由，先停留在登录页。
     // 后续可根据角色跳转到不同页面。
     const role = response.data.user?.role
-    if (role === 'ADMIN' || role === 'TEACHER') {
+    if (role === 'ADMIN') {
       router.replace('/admin')
+    } else if (role === 'TEACHER') {
+      router.replace('/teacher')
     } else {
       router.replace('/student')
     }
