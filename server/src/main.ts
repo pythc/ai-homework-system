@@ -6,6 +6,7 @@ import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { AccountType, UserEntity, UserRole, UserStatus } from './modules/auth/entities/user.entity';
+import { json, urlencoded } from 'express';
 
 async function seedTestUser(dataSource: DataSource) {
   if (process.env.SEED_TEST_USER !== 'true') {
@@ -66,6 +67,8 @@ async function seedTestUser(dataSource: DataSource) {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use(json({ limit: '50mb' }));
+  app.use(urlencoded({ extended: true, limit: '50mb' }));
   app.setGlobalPrefix('api/v1');
   app.enableCors({
     origin: true,

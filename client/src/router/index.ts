@@ -8,7 +8,14 @@ import StudentAssignments from '../views/StudentAssignments.vue'
 import StudentScores from '../views/StudentScores.vue'
 import StudentAssistant from '../views/StudentAssistant.vue'
 import StudentAssignmentSubmit from '../views/StudentAssignmentSubmit.vue'
-// import TeacherDashboard from '../views/TeacherDashboard.vue'
+import AdminDashboard from '../views/AdminDashboard.vue'
+import AdminQuestionBank from '../views/AdminQuestionBank.vue'
+import AdminQuestionBankCourses from '../views/AdminQuestionBankCourses.vue'
+import AdminQuestionBankTextbooks from '../views/AdminQuestionBankTextbooks.vue'
+import AdminQuestionBankChapters from '../views/AdminQuestionBankChapters.vue'
+import AdminQuestionBankChapterChildren from '../views/AdminQuestionBankChapterChildren.vue'
+import AdminQuestionBankQuestions from '../views/AdminQuestionBankQuestions.vue'
+import AdminQuestionBankQuestionDetail from '../views/AdminQuestionBankQuestionDetail.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
@@ -43,10 +50,38 @@ const routes: RouteRecordRaw[] = [
     component: StudentAssistant,
   },
 
-  // {
-  //   path: '/teacher',
-  //   component: TeacherDashboard,
-  // },
+  {
+    path: '/admin',
+    component: AdminDashboard,
+  },
+  {
+    path: '/admin/question-bank',
+    component: AdminQuestionBank,
+  },
+  {
+    path: '/admin/question-bank/courses',
+    component: AdminQuestionBankCourses,
+  },
+  {
+    path: '/admin/question-bank/courses/:courseId/textbooks',
+    component: AdminQuestionBankTextbooks,
+  },
+  {
+    path: '/admin/question-bank/courses/:courseId/textbooks/:textbookId/chapters',
+    component: AdminQuestionBankChapters,
+  },
+  {
+    path: '/admin/question-bank/courses/:courseId/textbooks/:textbookId/chapters/:chapterId',
+    component: AdminQuestionBankChapterChildren,
+  },
+  {
+    path: '/admin/question-bank/courses/:courseId/textbooks/:textbookId/chapters/:chapterId/questions',
+    component: AdminQuestionBankQuestions,
+  },
+  {
+    path: '/admin/question-bank/questions/:questionId',
+    component: AdminQuestionBankQuestionDetail,
+  },
 ]
 
 const router = createRouter({
