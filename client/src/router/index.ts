@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { setCurrentAuthScope } from '../auth/storage'
 
 import Login from '../views/Login.vue'
 import ResetPassword from '../views/ResetPassword.vue'
@@ -8,6 +9,14 @@ import StudentAssignments from '../views/StudentAssignments.vue'
 import StudentScores from '../views/StudentScores.vue'
 import StudentAssistant from '../views/StudentAssistant.vue'
 import StudentAssignmentSubmit from '../views/StudentAssignmentSubmit.vue'
+import TeacherDashboard from '../views/TeacherDashboard.vue'
+import TeacherAssignmentPublish from '../views/TeacherAssignmentPublish.vue'
+import TeacherQuestionBankCourses from '../views/TeacherQuestionBankCourses.vue'
+import TeacherQuestionBankTextbooks from '../views/TeacherQuestionBankTextbooks.vue'
+import TeacherQuestionBankChapters from '../views/TeacherQuestionBankChapters.vue'
+import TeacherQuestionBankChapterChildren from '../views/TeacherQuestionBankChapterChildren.vue'
+import TeacherQuestionBankQuestions from '../views/TeacherQuestionBankQuestions.vue'
+import TeacherQuestionBankQuestionDetail from '../views/TeacherQuestionBankQuestionDetail.vue'
 import AdminDashboard from '../views/AdminDashboard.vue'
 import AdminQuestionBank from '../views/AdminQuestionBank.vue'
 import AdminQuestionBankCourses from '../views/AdminQuestionBankCourses.vue'
@@ -51,6 +60,39 @@ const routes: RouteRecordRaw[] = [
   },
 
   {
+    path: '/teacher',
+    component: TeacherDashboard,
+  },
+  {
+    path: '/teacher/assignments/publish',
+    component: TeacherAssignmentPublish,
+  },
+  {
+    path: '/teacher/question-bank',
+    component: TeacherQuestionBankCourses,
+  },
+  {
+    path: '/teacher/question-bank/courses/:courseId/textbooks',
+    component: TeacherQuestionBankTextbooks,
+  },
+  {
+    path: '/teacher/question-bank/courses/:courseId/textbooks/:textbookId/chapters',
+    component: TeacherQuestionBankChapters,
+  },
+  {
+    path: '/teacher/question-bank/courses/:courseId/textbooks/:textbookId/chapters/:chapterId',
+    component: TeacherQuestionBankChapterChildren,
+  },
+  {
+    path: '/teacher/question-bank/courses/:courseId/textbooks/:textbookId/chapters/:chapterId/questions',
+    component: TeacherQuestionBankQuestions,
+  },
+  {
+    path: '/teacher/question-bank/questions/:questionId',
+    component: TeacherQuestionBankQuestionDetail,
+  },
+
+  {
     path: '/admin',
     component: AdminDashboard,
   },
@@ -87,6 +129,18 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+router.beforeEach((to) => {
+  const path = to.path || ''
+  if (path.startsWith('/teacher')) {
+    setCurrentAuthScope('teacher')
+  } else if (path.startsWith('/admin')) {
+    setCurrentAuthScope('admin')
+  } else if (path.startsWith('/student')) {
+    setCurrentAuthScope('student')
+  }
+  return true
 })
 
 export default router

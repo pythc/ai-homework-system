@@ -1,5 +1,5 @@
 <template>
-  <AdminLayout
+  <TeacherLayout
     title="题目详情"
     subtitle="完整题干与答案"
     :profile-name="profileName"
@@ -11,24 +11,15 @@
         <div class="topbar-avatar">{{ profileName[0] }}</div>
         <div>
           <div class="topbar-name">{{ profileName }}</div>
-          <div class="topbar-id">账号 {{ profileAccount }}</div>
+          <div class="topbar-id">工号 {{ profileAccount }}</div>
         </div>
       </div>
     </template>
 
-    <section class="panel glass">
+    <section class="panel glass qb-detail">
       <div class="panel-title">题目</div>
       <div v-if="question" class="detail-body">
-        <div class="detail-row">
-          <!-- <div class="detail-label">标题</div>
-          <div class="detail-value">{{ question.title || '未命名' }}</div> -->
-        </div>
-        <div class="detail-row">
-          <!-- <div class="detail-label">类型</div> -->
-          <!-- <div class="detail-value">
-            {{ question.nodeType }} / {{ question.questionType }}
-          </div> -->
-        </div>
+        <div class="detail-row" />
 
         <div v-if="question.nodeType === 'GROUP'" class="detail-block">
           <div class="detail-label">题干</div>
@@ -86,17 +77,17 @@
         {{ loadError || '加载中...' }}
       </div>
     </section>
-  </AdminLayout>
+  </TeacherLayout>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import AdminLayout from '../components/AdminLayout.vue'
-import { useAdminProfile } from '../composables/useAdminProfile'
+import TeacherLayout from '../components/TeacherLayout.vue'
+import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getQuestionBankQuestion } from '../api/questionBank'
 
-const { profileName, profileAccount, refreshProfile } = useAdminProfile()
+const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 const route = useRoute()
 const loadError = ref('')
 const question = ref(null)
@@ -111,7 +102,7 @@ watch(
   () => route.params.questionId,
   async () => {
     await fetchQuestion()
-  }
+  },
 )
 
 const fetchQuestion = async () => {
@@ -139,4 +130,3 @@ const renderTextHtml = (value) => {
 
 const renderMedia = (value) => normalizeTextBlock(value).media
 </script>
-

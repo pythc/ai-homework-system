@@ -45,7 +45,11 @@
           <div v-for="task in pendingTasks" :key="task.title" class="task-card">
             <div class="task-head">
               <div>
-                <div class="task-title">{{ task.title }}</div>
+                <div
+                  class="task-title"
+                  v-mathjax
+                  v-html="renderTextHtml(task.title)"
+                />
                 <div class="task-sub">{{ task.course }}</div>
               </div>
               <div class="task-deadline">{{ task.deadline }}</div>
@@ -72,7 +76,11 @@
           <div v-for="task in submittedTasks" :key="task.title" class="task-card">
             <div class="task-head">
               <div>
-                <div class="task-title">{{ task.title }}</div>
+                <div
+                  class="task-title"
+                  v-mathjax
+                  v-html="renderTextHtml(task.title)"
+                />
                 <div class="task-sub">{{ task.course }}</div>
               </div>
               <div class="task-deadline">{{ task.deadline }}</div>
@@ -200,6 +208,11 @@ const formatDeadline = (deadline) => {
   const date = new Date(deadline)
   if (Number.isNaN(date.getTime())) return '未设置截止时间'
   return `截止 ${date.toLocaleDateString('zh-CN')}`
+}
+
+const renderTextHtml = (text) => {
+  if (!text) return ''
+  return String(text).replace(/\n/g, '<br />')
 }
 
 const taskList = computed(() =>
