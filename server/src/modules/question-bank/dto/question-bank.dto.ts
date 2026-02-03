@@ -67,3 +67,15 @@ export interface QuestionBankImportDto {
   chapters: ChapterInput[];
   questions: Array<LeafQuestionInput | GroupQuestionInput>;
 }
+
+export interface QuestionBankUpdateDto {
+  title?: string;
+  questionType?: string;
+  description?: string;
+  stem?: TextBlock | string;
+  prompt?: TextBlock | string;
+  standardAnswer?: TextBlock | string;
+  defaultScore?: number;
+  rubric?: RubricItem[];
+  orderNo?: number;
+}

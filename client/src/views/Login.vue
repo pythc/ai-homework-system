@@ -180,7 +180,12 @@ const handleLogin = async () => {
     window.alert('登录成功')
     // 目前还没有首页路由，先停留在登录页。
     // 后续可根据角色跳转到不同页面。
-    router.replace('/Student')
+    const role = response.data.user?.role
+    if (role === 'ADMIN' || role === 'TEACHER') {
+      router.replace('/admin')
+    } else {
+      router.replace('/student')
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : '登录失败'
     window.alert(message)
