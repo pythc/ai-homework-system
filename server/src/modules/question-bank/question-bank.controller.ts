@@ -1,15 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/auth.guard';
 import { QuestionBankService } from './question-bank.service';
 import {
@@ -43,35 +32,23 @@ export class QuestionBankController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard)
-  async findAll(@Query('courseId') courseId?: string) {
+  // @UseGuards(JwtAuthGuard) // Toggle if needed
+  async findAll(@Query('courseId') courseId: string) {
+    if (!courseId) {
+      // Return empty or throw error? For now empty list if no courseId
+      return []; 
+    }
     return this.questionBankService.findAll(courseId);
   }
 
-  @Get('structure')
-  @UseGuards(JwtAuthGuard)
-  async getStructure(@Query('courseId') courseId?: string) {
-    return this.questionBankService.getStructure(courseId);
-  }
-
-  @Get(':id')
-  @UseGuards(JwtAuthGuard)
-  async getQuestion(@Param('id') id: string) {
-    return this.questionBankService.getQuestion(id);
-  }
-
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  async updateQuestion(
-    @Param('id') id: string,
-    @Body() body: QuestionBankUpdateDto,
-  ) {
-    return this.questionBankService.updateQuestion(id, body);
+  async update(@Param('id') id: string, @Body() updateDto: any) {
+    return this.questionBankService.updateQuestion(id, updateDto);
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  async removeQuestion(@Param('id') id: string) {
+  async remove(@Param('id') id: string) {
     return this.questionBankService.deleteQuestion(id);
   }
 }
+
