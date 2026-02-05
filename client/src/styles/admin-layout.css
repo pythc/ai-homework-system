@@ -67,8 +67,8 @@
   z-index: 1;
   position: sticky;
   top: 0;
-  align-self: stretch;
-  height: auto;
+  align-self: start;
+  height: 800px;
 }
 
 .brand {

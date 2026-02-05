@@ -93,24 +93,52 @@
         </div>
       </div>
       <div class="qb-list" style="margin-top: 14px;">
-        <label
-          v-for="question in filteredQuestions"
-          :key="question.id"
-          class="qb-item"
+        <div
+          v-for="item in visibleQuestions"
+          :key="item.id"
+          class="qb-item qb-question"
+          :class="{ 'is-child': item.depth > 0, active: selectedQuestionIds.has(item.id) }"
         >
           <div class="qb-item-title">
             <input
+              v-if="item.nodeType === 'LEAF'"
               type="checkbox"
-              :checked="selectedQuestionIds.has(question.id)"
-              @change="toggleQuestion(question.id)"
+              :checked="selectedQuestionIds.has(item.id)"
+              @change="toggleQuestion(item.id)"
             />
-            {{ question.label }}
+            <span v-if="item.depth" class="qb-indent" />
+            <span
+              v-if="item.isExpandable"
+              class="qb-expand"
+              @click.stop="toggleExpand(item.id)"
+            >
+              {{ expandedIds.has(item.id) ? '▾' : '▸' }}
+            </span>
+            <span
+              class="qb-title-text"
+              @click="item.isExpandable ? toggleExpand(item.id) : viewDetail(item.id)"
+            >
+              {{ item.title || '未命名' }}
+            </span>
+            <span
+              v-if="item.isExpandable && getStemText(item)"
+              class="qb-stem"
+              v-mathjax
+              v-html="renderStemHtml(item)"
+            />
           </div>
           <div class="qb-item-meta">
-            <span>{{ question.questionType }}</span>
-            <span>{{ question.nodeType }}</span>
+            <!-- <span>{{ item.questionType }}</span>
+            <span>{{ item.nodeType }}</span> -->
+            <button
+              class="qb-action"
+              type="button"
+              @click="viewDetail(item.id)"
+            >
+              查看详情
+            </button>
           </div>
-        </label>
+        </div>
         <div v-if="!filteredQuestions.length" class="empty-box">
           {{ questionError || '暂无题目' }}
         </div>
@@ -137,7 +165,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { listCourses } from '../api/course'
@@ -145,10 +174,13 @@ import { getQuestionBankStructure, listQuestionBank } from '../api/questionBank'
 import { createAssignment, publishAssignment } from '../api/assignment'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
+const router = useRouter()
+const route = useRoute()
 const courses = ref([])
 const textbooks = ref([])
 const chapters = ref([])
 const questions = ref([])
+const expandedIds = ref(new Set())
 
 const selectedCourseId = ref('')
 const selectedTextbookId = ref('')
@@ -166,9 +198,46 @@ const submitError = ref('')
 const submitSuccess = ref('')
 const submitLoading = ref(false)
 
+const STORAGE_KEY = 'teacher.assignment.publish.filters'
+
+const hydrateFilters = async () => {
+  const raw = sessionStorage.getItem(STORAGE_KEY)
+  const stored = raw ? JSON.parse(raw) : null
+  const courseId = String(route.query.courseId ?? '') || stored?.courseId || ''
+  const textbookId = String(route.query.textbookId ?? '') || stored?.textbookId || ''
+  const chapterId = String(route.query.chapterId ?? '') || stored?.chapterId || ''
+  if (!courseId) return
+  selectedCourseId.value = courseId
+  await handleCourseChange()
+  selectedTextbookId.value = textbookId || ''
+  selectedChapterId.value = chapterId || ''
+}
+
+const persistFilters = () => {
+  const payload = {
+    courseId: selectedCourseId.value,
+    textbookId: selectedTextbookId.value,
+    chapterId: selectedChapterId.value,
+  }
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+  router.replace({
+    query: {
+      ...route.query,
+      courseId: payload.courseId || undefined,
+      textbookId: payload.textbookId || undefined,
+      chapterId: payload.chapterId || undefined,
+    },
+  })
+}
+
 onMounted(async () => {
   await refreshProfile()
   await fetchCourses()
+  await hydrateFilters()
+})
+
+watch([selectedCourseId, selectedTextbookId, selectedChapterId], () => {
+  persistFilters()
 })
 
 const fetchCourses = async () => {
@@ -230,17 +299,59 @@ const getQuestionLabel = (item) => {
   return '未命名题目'
 }
 
-const filteredQuestions = computed(() =>
-  questions.value
-    .filter((item) => item.nodeType === 'LEAF')
-    .filter((item) => (selectedChapterId.value ? item.chapterId === selectedChapterId.value : true))
+const filteredQuestions = computed(() => {
+  if (!selectedTextbookId.value || !selectedChapterId.value) return []
+  return questions.value
+    .filter((item) => item.chapterId === selectedChapterId.value)
     .map((item) => ({
       ...item,
       label: getQuestionLabel(item),
-    })),
-)
+    }))
+})
+
+const flattenedQuestions = computed(() => {
+  const byParent = new Map()
+  for (const item of filteredQuestions.value) {
+    const parentId = item.parentId ?? ''
+    if (!byParent.has(parentId)) {
+      byParent.set(parentId, [])
+    }
+    byParent.get(parentId).push(item)
+  }
+  for (const list of byParent.values()) {
+    list.sort((a, b) => (a.orderNo ?? 0) - (b.orderNo ?? 0))
+  }
+
+  const result = []
+  const walk = (parentId, depth) => {
+    const children = byParent.get(parentId) ?? []
+    for (const child of children) {
+      const isExpandable = (byParent.get(child.id) ?? []).length > 0
+      result.push({ ...child, depth, isExpandable })
+      walk(child.id, depth + 1)
+    }
+  }
+  walk('', 0)
+  return result
+})
+
+const visibleQuestions = computed(() => {
+  const byId = new Map(flattenedQuestions.value.map((item) => [item.id, item]))
+  return flattenedQuestions.value.filter((item) => {
+    let parentId = item.parentId ?? ''
+    while (parentId) {
+      if (!expandedIds.value.has(parentId)) return false
+      const parent = byId.get(parentId)
+      if (!parent) break
+      parentId = parent.parentId ?? ''
+    }
+    return true
+  })
+})
 
 const toggleQuestion = (id) => {
+  const item = questions.value.find((q) => q.id === id)
+  if (item?.nodeType !== 'LEAF') return
   const next = new Set(selectedQuestionIds.value)
   if (next.has(id)) {
     next.delete(id)
@@ -252,14 +363,42 @@ const toggleQuestion = (id) => {
 
 const selectAllVisible = () => {
   const next = new Set(selectedQuestionIds.value)
-  for (const item of filteredQuestions.value) {
-    next.add(item.id)
+  for (const item of visibleQuestions.value) {
+    if (item.nodeType === 'LEAF') {
+      next.add(item.id)
+    }
   }
   selectedQuestionIds.value = next
 }
 
 const clearSelection = () => {
   selectedQuestionIds.value = new Set()
+}
+
+const toggleExpand = (questionId) => {
+  const next = new Set(expandedIds.value)
+  if (next.has(questionId)) {
+    next.delete(questionId)
+  } else {
+    next.add(questionId)
+  }
+  expandedIds.value = next
+}
+
+const getStemText = (item) => {
+  if (!item?.stem) return ''
+  if (typeof item.stem === 'string') return item.stem
+  return item.stem.text ?? ''
+}
+
+const renderStemHtml = (item) => {
+  const text = getStemText(item)
+  if (!text) return ''
+  return text.replace(/\n/g, '<br />')
+}
+
+const viewDetail = (questionId) => {
+  router.push(`/teacher/question-bank/questions/${questionId}`)
 }
 
 const handlePublish = async () => {

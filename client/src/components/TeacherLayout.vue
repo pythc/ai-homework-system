@@ -13,7 +13,7 @@
         <RouterLink
           to="/teacher"
           class="nav-item"
-          :class="{ active: isActive('/teacher') }"
+          :class="{ active: isActive('/teacher', true) }"
         >
           个人主页
         </RouterLink>
@@ -62,7 +62,10 @@ defineProps({
 })
 
 const route = useRoute()
-const isActive = (path) => route.path === path || route.path.startsWith(`${path}/`)
+const isActive = (path, exact = false) => {
+  if (exact) return route.path === path
+  return route.path === path || route.path.startsWith(`${path}/`)
+}
 </script>
 
 <style src="../styles/teacher-layout.css"></style>
