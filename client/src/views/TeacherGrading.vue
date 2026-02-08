@@ -1,7 +1,7 @@
 <template>
   <TeacherLayout
     title="作业批改"
-    subtitle="先看 AI 批改结果，再确认最终成绩"
+    subtitle="查看 AI 结果并确认最终成绩"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="作业批改"
@@ -17,191 +17,149 @@
     </template>
 
     <section class="panel glass">
-      <div class="panel-title">提交列表</div>
-      <div class="grading-toolbar">
-        <div class="grading-tabs">
-          <button
-            class="tab-btn"
-            :class="{ active: statusFilter === 'PENDING' }"
-            @click="statusFilter = 'PENDING'"
-          >
-            未批改
-          </button>
-          <button
-            class="tab-btn"
-            :class="{ active: statusFilter === 'GRADED' }"
-            @click="statusFilter = 'GRADED'"
-          >
-            已批改
-          </button>
-          <button
-            class="tab-btn"
-            :class="{ active: statusFilter === 'ALL' }"
-            @click="statusFilter = 'ALL'"
-          >
-            全部
-          </button>
+      <div class="panel-title panel-title-row">
+        <div>
+          学生提交详情
+          <span class="badge" v-if="selectedSubmission">
+            {{ selectedSubmission.student.name || selectedSubmission.student.account || '学生' }}
+          </span>
         </div>
-        <div class="grading-search">
-          <input
-            v-model="searchText"
-            class="search-input"
-            type="text"
-            placeholder="搜索学生姓名/学号"
-          />
-        </div>
+        <button class="ghost-action" @click="backToList">返回提交列表</button>
       </div>
-      <div class="grading-grid">
-        <div class="grading-list">
-          <div
-            v-for="item in pagedSubmissions"
-            :key="item.submissionVersionId"
-            class="grading-card"
-            :class="{ active: item.submissionVersionId === selectedId }"
-            @click="selectSubmission(item.submissionVersionId)"
-          >
-            <div class="grading-title">
-              {{ item.student.name || item.student.account || '学生' }}
+
+      <div v-if="loadError" class="task-empty">{{ loadError }}</div>
+      <div v-else-if="!selectedSubmission" class="task-empty">提交不存在</div>
+
+      <div v-else class="detail-body">
+        <div class="detail-section">
+          <div class="detail-title">提交信息</div>
+          <div class="detail-row">
+            <div>学号：{{ selectedSubmission.student.account || '-' }}</div>
+            <div>提交时间：{{ formatTime(selectedSubmission.submittedAt) }}</div>
+            <div class="detail-status" :class="selectedSubmission.isFinal ? 'graded' : 'pending'">
+              {{ selectedSubmission.isFinal ? '已批改' : '未批改' }}
             </div>
-            <div class="grading-meta">
-              第 {{ questionIndexMap[item.questionId] ?? '-' }} 题
-            </div>
-            <div class="grading-meta">
-              提交 {{ formatTime(item.submittedAt) }}
-            </div>
-            <div class="grading-status" :class="item.isFinal ? 'graded' : 'pending'">
-              {{ item.isFinal ? '已批改' : '未批改' }}
-            </div>
-          </div>
-          <div v-if="!filteredSubmissions.length" class="task-empty">
-            {{ loadError || '暂无提交' }}
-          </div>
-          <div v-if="totalPages > 1" class="paging">
-            <button class="page-btn" :disabled="pageIndex === 1" @click="pageIndex -= 1">
-              上一页
-            </button>
-            <span class="page-text">{{ pageIndex }} / {{ totalPages }}</span>
-            <button class="page-btn" :disabled="pageIndex === totalPages" @click="pageIndex += 1">
-              下一页
-            </button>
           </div>
         </div>
 
-        <div class="grading-detail">
-          <div v-if="!selectedSubmission" class="empty-box">
-            请选择一条提交开始批改
+        <div class="detail-section">
+          <div class="detail-title">题目与标准答案</div>
+          <div class="detail-block">
+            <div class="detail-label">题目</div>
+            <div
+              class="detail-text"
+              v-mathjax
+              v-html="renderMath(questionMap[selectedSubmission.questionId]?.prompt?.text)"
+            />
           </div>
+          <div class="detail-block">
+            <div class="detail-label">标准答案</div>
+            <div
+              class="detail-text"
+              v-mathjax
+              v-html="renderMath(questionMap[selectedSubmission.questionId]?.standardAnswer?.text)"
+            />
+          </div>
+        </div>
 
-          <div v-else class="detail-body">
-            <div class="detail-section">
-              <div class="detail-title">题目与标准答案</div>
-              <div class="detail-block">
-                <div class="detail-label">题目</div>
-                <div
-                  class="detail-text"
-                  v-mathjax
-                  v-html="renderMath(questionMap[selectedSubmission.questionId]?.prompt?.text)"
-                />
-              </div>
-              <div class="detail-block">
-                <div class="detail-label">标准答案</div>
-                <div
-                  class="detail-text"
-                  v-mathjax
-                  v-html="renderMath(questionMap[selectedSubmission.questionId]?.standardAnswer?.text)"
-                />
-              </div>
-            </div>
+        <div class="detail-section">
+          <div class="detail-title">学生提交内容</div>
+          <div class="detail-text">{{ selectedSubmission.contentText || '未填写文字答案' }}</div>
+          <div v-if="selectedSubmission.fileUrls.length" class="detail-media">
+            <img
+              v-for="(img, index) in selectedSubmission.fileUrls"
+              :key="index"
+              :src="resolveFileUrl(img)"
+              alt="submission image"
+            />
+          </div>
+        </div>
 
-            <div class="detail-section">
-              <div class="detail-title">学生提交内容</div>
-              <div class="detail-text">{{ selectedSubmission.contentText || '未填写文字答案' }}</div>
-              <div v-if="selectedSubmission.fileUrls.length" class="detail-media">
-                <img
-                  v-for="(img, index) in selectedSubmission.fileUrls"
-                  :key="index"
-                  :src="resolveFileUrl(img)"
-                  alt="submission image"
-                />
+        <div class="detail-section">
+          <details class="ai-details" :open="!selectedSubmission.isFinal">
+            <summary class="ai-summary-header">
+              <span>AI 批改结果</span>
+              <span class="ai-summary-status">状态：{{ aiPanel.statusLabel }}</span>
+            </summary>
+            <div class="ai-status">状态：{{ aiPanel.statusLabel }}</div>
+            <div v-if="aiPanel.error" class="ai-error">{{ aiPanel.error }}</div>
+            <div v-if="aiPanel.result" class="ai-result">
+              <div class="ai-summary">
+                <div class="ai-row">
+                  <span class="ai-label">总评：</span>
+                  <span
+                    class="ai-text"
+                    v-mathjax
+                    v-html="renderMath(aiPanel.result?.result?.comment)"
+                  />
+                </div>
+                <div>总分：{{ aiPanel.result?.result?.totalScore ?? '-' }}</div>
+                <div>置信度：{{ aiPanel.result?.result?.confidence ?? '-' }}</div>
+                <div>是否存疑：{{ aiPanel.result?.result?.isUncertain ? '是' : '否' }}</div>
               </div>
-            </div>
-
-            <div class="detail-section">
-              <div class="detail-title">AI 批改结果</div>
-              <div class="ai-status">状态：{{ aiPanel.statusLabel }}</div>
-              <div v-if="aiPanel.error" class="ai-error">{{ aiPanel.error }}</div>
-              <div v-if="aiPanel.result" class="ai-result">
-                <div class="ai-summary">
+              <div v-if="aiPanel.result?.result?.items?.length" class="ai-items">
+                <div v-for="(item, idx) in aiPanel.result?.result?.items" :key="idx" class="ai-item">
+                  <div>评分项：{{ item.rubricItemKey || '-' }}</div>
+                  <div>得分：{{ item.score ?? '-' }} / {{ item.maxScore ?? '-' }}</div>
                   <div class="ai-row">
-                    <span class="ai-label">总评：</span>
+                    <span class="ai-label">理由：</span>
                     <span
                       class="ai-text"
                       v-mathjax
-                      v-html="renderMath(aiPanel.result?.result?.comment)"
+                      v-html="renderMath(item.reason)"
                     />
-                  </div>
-                  <div>总分：{{ aiPanel.result?.result?.totalScore ?? '-' }}</div>
-                  <div>置信度：{{ aiPanel.result?.result?.confidence ?? '-' }}</div>
-                  <div>是否存疑：{{ aiPanel.result?.result?.isUncertain ? '是' : '否' }}</div>
-                </div>
-                <div v-if="aiPanel.result?.result?.items?.length" class="ai-items">
-                  <div v-for="(item, idx) in aiPanel.result?.result?.items" :key="idx" class="ai-item">
-                    <div>评分项：{{ item.rubricItemKey || '-' }}</div>
-                    <div>得分：{{ item.score ?? '-' }} / {{ item.maxScore ?? '-' }}</div>
-                    <div class="ai-row">
-                      <span class="ai-label">理由：</span>
-                      <span
-                        class="ai-text"
-                        v-mathjax
-                        v-html="renderMath(item.reason)"
-                      />
-                    </div>
                   </div>
                 </div>
               </div>
             </div>
+          </details>
+        </div>
 
-            <div class="detail-section">
-              <div class="detail-title">教师复核与最终成绩</div>
-              <div v-if="gradingItems.length === 0" class="empty-box">
-                没有评分细则
+        <div class="detail-section">
+          <div class="detail-title">教师复核与最终成绩</div>
+          <div v-if="gradingItems.length === 0" class="empty-box">
+            没有评分细则
+          </div>
+          <div v-else class="grading-form">
+            <div v-for="(item, idx) in gradingItems" :key="item.rubricItemKey" class="grading-row">
+              <div class="grading-label">
+                {{ item.rubricItemKey }}（满分 {{ item.maxScore }}）
               </div>
-              <div v-else class="grading-form">
-                <div v-for="(item, idx) in gradingItems" :key="item.rubricItemKey" class="grading-row">
-                  <div class="grading-label">
-                    {{ item.rubricItemKey }}（满分 {{ item.maxScore }}）
-                  </div>
-                  <input
-                    class="grading-input"
-                    type="number"
-                    :min="0"
-                    :max="item.maxScore"
-                    v-model.number="gradingItems[idx].score"
-                    @blur="clampScore(idx)"
-                  />
-                  <textarea
-                    class="grading-textarea"
-                    v-model="gradingItems[idx].reason"
-                    placeholder="评分理由（可选）"
-                  />
-                </div>
-                <div class="grading-total">总分：{{ totalScore }}</div>
-                <textarea
-                  class="grading-comment"
-                  v-model="finalComment"
-                  placeholder="最终评语（可选）"
-                />
-                <div class="grading-actions">
-                  <button class="task-action" :disabled="saving" @click="submitGrading">
-                    {{ saving ? '提交中...' : '确认最终成绩' }}
-                  </button>
-                  <button class="task-action ghost" @click="backToList">
-                    返回
-                  </button>
-                  <div v-if="saveError" class="ai-error">{{ saveError }}</div>
-                  <div v-if="saveSuccess" class="ai-success">已保存最终成绩</div>
-                </div>
-              </div>
+              <input
+                class="grading-input"
+                type="number"
+                :min="0"
+                :max="item.maxScore"
+                v-model.number="gradingItems[idx].score"
+                @blur="clampScore(idx)"
+                :disabled="selectedSubmission.isFinal"
+              />
+              <textarea
+                class="grading-textarea"
+                v-model="gradingItems[idx].reason"
+                placeholder="评分理由（可选）"
+                :disabled="selectedSubmission.isFinal"
+              />
+            </div>
+            <div class="grading-total">总分：{{ totalScore }}</div>
+            <textarea
+              class="grading-comment"
+              v-model="finalComment"
+              placeholder="最终评语（可选）"
+              :disabled="selectedSubmission.isFinal"
+            />
+            <div class="grading-actions">
+              <template v-if="!selectedSubmission.isFinal">
+                <button class="task-action" :disabled="saving" @click="submitGrading(false)">
+                  {{ saving ? '提交中...' : '确认最终成绩' }}
+                </button>
+                <button class="task-action ghost" :disabled="saving" @click="submitGrading(true)">
+                  直接采用 AI
+                </button>
+              </template>
+              <div v-else class="graded-hint">已确认最终成绩</div>
+              <div v-if="saveError" class="ai-error">{{ saveError }}</div>
+              <div v-if="saveSuccess" class="ai-success">已保存最终成绩</div>
             </div>
           </div>
         </div>
@@ -212,7 +170,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getAssignmentSnapshot } from '../api/assignment'
@@ -233,26 +191,18 @@ type GradingRow = {
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 const route = useRoute()
+const router = useRouter()
 const assignmentId = computed(() => String(route.params.assignmentId ?? ''))
-const submissions = ref<any[]>([])
-const statusFilter = ref<'PENDING' | 'GRADED' | 'ALL'>('PENDING')
-const searchText = ref('')
-const pageIndex = ref(1)
-const pageSize = ref(20)
-const loadError = ref('')
-const selectedId = ref('')
-const selectedSubmission = computed(() =>
-  submissions.value.find((item) => item.submissionVersionId === selectedId.value),
-)
+const submissionVersionId = computed(() => String(route.params.submissionVersionId ?? ''))
+const courseId = computed(() => String(route.query.courseId ?? ''))
 
+const submissions = ref<any[]>([])
+const loadError = ref('')
 const questionMap = ref<Record<string, AssignmentSnapshotQuestion>>({})
-const questionIndexMap = computed(() => {
-  const result: Record<string, number> = {}
-  Object.values(questionMap.value).forEach((q) => {
-    result[q.questionId] = q.questionIndex
-  })
-  return result
-})
+
+const selectedSubmission = computed(() =>
+  submissions.value.find((item) => item.submissionVersionId === submissionVersionId.value),
+)
 
 const aiPanel = ref<{
   statusLabel: string
@@ -317,12 +267,12 @@ const buildGradingItems = (question?: AssignmentSnapshotQuestion, ai?: AiGrading
   })
 }
 
-const pollAiResult = async (submissionVersionId: string) => {
+const pollAiResult = async (submissionId: string) => {
   const maxAttempts = 30
   const delayMs = 2000
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      const job = await getAiJobStatus(submissionVersionId)
+      const job = await getAiJobStatus(submissionId)
       if (job.status === 'FAILED') {
         aiPanel.value = {
           statusLabel: '失败',
@@ -332,7 +282,7 @@ const pollAiResult = async (submissionVersionId: string) => {
         return
       }
       if (job.status === 'SUCCEEDED') {
-        const result = await getAiGradingResult(submissionVersionId)
+        const result = await getAiGradingResult(submissionId)
         aiPanel.value = {
           statusLabel: '完成',
           error: '',
@@ -361,10 +311,10 @@ const pollAiResult = async (submissionVersionId: string) => {
   }
 }
 
-const loadAiForSubmission = async (submissionVersionId: string, questionId: string) => {
+const loadAiForSubmission = async (submissionId: string, questionId: string) => {
   aiPanel.value = { statusLabel: '加载中', error: '', result: null }
   try {
-    const result = await getAiGradingResult(submissionVersionId)
+    const result = await getAiGradingResult(submissionId)
     aiPanel.value = { statusLabel: '完成', error: '', result }
     gradingItems.value = buildGradingItems(questionMap.value[questionId], result)
     finalComment.value = result.result?.comment ?? ''
@@ -376,26 +326,27 @@ const loadAiForSubmission = async (submissionVersionId: string, questionId: stri
     }
     gradingItems.value = buildGradingItems(questionMap.value[questionId], null)
     finalComment.value = ''
-    void pollAiResult(submissionVersionId)
+    void pollAiResult(submissionId)
   }
 }
 
-const selectSubmission = (submissionVersionId: string) => {
-  selectedId.value = submissionVersionId
-  saveSuccess.value = false
-  saveError.value = ''
-  const submission = selectedSubmission.value
-  if (!submission) return
-  void loadAiForSubmission(submissionVersionId, submission.questionId)
-}
-
-const submitGrading = async () => {
+const submitGrading = async (forceAiAdopt: boolean) => {
   const submission = selectedSubmission.value
   if (!submission) return
   saveError.value = ''
   saveSuccess.value = false
   saving.value = true
   try {
+    if (forceAiAdopt) {
+      if (!aiPanel.value.result) {
+        throw new Error('AI 结果尚未生成')
+      }
+      gradingItems.value = buildGradingItems(
+        questionMap.value[submission.questionId],
+        aiPanel.value.result,
+      )
+      finalComment.value = aiPanel.value.result.result?.comment ?? ''
+    }
     const items = gradingItems.value.map((item) => ({
       questionIndex: item.questionIndex,
       rubricItemKey: item.rubricItemKey,
@@ -420,7 +371,7 @@ const submitGrading = async () => {
 
     await submitFinalGrading(submission.submissionVersionId, {
       source: aiPanel.value.result
-        ? (isSameAsAi ? 'AI_ADOPTED' : 'MIXED')
+        ? (forceAiAdopt || isSameAsAi ? 'AI_ADOPTED' : 'MIXED')
         : 'MANUAL',
       totalScore: totalScore.value,
       finalComment: finalComment.value || undefined,
@@ -435,9 +386,14 @@ const submitGrading = async () => {
 }
 
 const backToList = () => {
-  selectedId.value = ''
-  saveError.value = ''
-  saveSuccess.value = false
+  if (assignmentId.value) {
+    router.push({
+      path: `/teacher/grading/${assignmentId.value}`,
+      query: courseId.value ? { courseId: courseId.value } : undefined,
+    })
+  } else {
+    router.push('/teacher/grading')
+  }
 }
 
 const loadData = async () => {
@@ -445,6 +401,8 @@ const loadData = async () => {
     loadError.value = '缺少作业 ID'
     return
   }
+  saveSuccess.value = false
+  saveError.value = ''
   try {
     const snapshot = await getAssignmentSnapshot(assignmentId.value)
     const map: Record<string, AssignmentSnapshotQuestion> = {}
@@ -462,170 +420,41 @@ const loadData = async () => {
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : '加载提交失败'
   }
-}
 
-const filteredSubmissions = computed(() => {
-  const keyword = searchText.value.trim()
-  let list = submissions.value
-  if (statusFilter.value === 'PENDING') {
-    list = list.filter((item: any) => !item.isFinal)
-  } else if (statusFilter.value === 'GRADED') {
-    list = list.filter((item: any) => item.isFinal)
-  }
-  if (keyword) {
-    list = list.filter((item: any) =>
-      `${item.student.name ?? ''}${item.student.account ?? ''}`.includes(keyword),
+  if (selectedSubmission.value) {
+    void loadAiForSubmission(
+      selectedSubmission.value.submissionVersionId,
+      selectedSubmission.value.questionId,
     )
   }
-  return list
-})
-
-const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredSubmissions.value.length / pageSize.value)),
-)
-
-const pagedSubmissions = computed(() => {
-  const start = (pageIndex.value - 1) * pageSize.value
-  return filteredSubmissions.value.slice(start, start + pageSize.value)
-})
-
-watch([statusFilter, searchText], () => {
-  pageIndex.value = 1
-})
+}
 
 onMounted(async () => {
   await refreshProfile()
   await loadData()
 })
+
+watch([assignmentId, submissionVersionId], async () => {
+  await loadData()
+})
 </script>
 
 <style scoped>
-.grading-grid {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 16px;
-}
-
-.grading-list {
-  display: grid;
-  gap: 10px;
-}
-
-.grading-toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-
-.grading-tabs {
-  display: flex;
-  gap: 8px;
-}
-
-.tab-btn {
-  border: none;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.6);
-  color: rgba(26, 29, 51, 0.7);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.tab-btn.active {
-  background: linear-gradient(135deg, rgba(90, 140, 255, 0.85), rgba(120, 200, 230, 0.85));
-  color: #ffffff;
-}
-
-.grading-search {
-  flex: 1;
-  min-width: 220px;
-}
-
-.search-input {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.8);
-}
-
-.grading-card {
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.6);
-  cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  transition: all 0.2s ease;
-}
-
-.grading-card.active {
-  background: linear-gradient(135deg, rgba(90, 140, 255, 0.85), rgba(120, 200, 230, 0.85));
-  color: #ffffff;
-}
-
-.grading-title {
-  font-weight: 600;
-}
-
-.grading-meta {
-  font-size: 12px;
-  color: rgba(26, 29, 51, 0.6);
-}
-
-.grading-card.active .grading-meta {
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.grading-status {
-  margin-top: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  display: inline-flex;
-  padding: 4px 10px;
-  border-radius: 999px;
-}
-
-.grading-status.pending {
-  background: rgba(255, 196, 154, 0.35);
-  color: #9a4a12;
-}
-
-.grading-status.graded {
-  background: rgba(120, 200, 170, 0.3);
-  color: #1f7a4b;
-}
-
-.paging {
+.panel-title-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 8px;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.page-btn {
+.ghost-action {
   border: none;
-  padding: 6px 10px;
-  border-radius: 8px;
   background: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-}
-
-.page-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.page-text {
+  padding: 6px 14px;
+  border-radius: 999px;
   font-size: 12px;
-  color: rgba(26, 29, 51, 0.6);
-}
-
-.grading-detail {
-  min-height: 300px;
+  color: rgba(26, 29, 51, 0.7);
+  cursor: pointer;
 }
 
 .detail-body {
@@ -643,6 +472,30 @@ onMounted(async () => {
 .detail-title {
   font-weight: 600;
   margin-bottom: 10px;
+}
+
+.detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.7);
+}
+
+.detail-status {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.detail-status.pending {
+  background: rgba(255, 196, 154, 0.35);
+  color: #9a4a12;
+}
+
+.detail-status.graded {
+  background: rgba(120, 200, 170, 0.3);
+  color: #1f7a4b;
 }
 
 .detail-block {
@@ -675,6 +528,31 @@ onMounted(async () => {
 .ai-status {
   font-size: 12px;
   color: rgba(26, 29, 51, 0.6);
+}
+
+.ai-details {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+.ai-summary-header::-webkit-details-marker {
+  display: none;
+}
+
+.ai-summary-status {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
+  font-weight: 500;
 }
 
 .ai-error {
@@ -747,6 +625,13 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.8);
 }
 
+.grading-input:disabled,
+.grading-textarea:disabled,
+.grading-comment:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .grading-textarea {
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.7);
@@ -773,17 +658,17 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.graded-hint {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
 }
 
 .task-action.ghost {
   background: rgba(255, 255, 255, 0.7);
   color: rgba(26, 29, 51, 0.8);
   box-shadow: none;
-}
-
-@media (max-width: 1100px) {
-  .grading-grid {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

@@ -6,7 +6,9 @@ import Login from '../views/Login.vue'
 import ResetPassword from '../views/ResetPassword.vue'
 import StudentDashboard from '../views/StudentDashboard.vue'
 import StudentAssignments from '../views/StudentAssignments.vue'
+import StudentAssignmentsCourse from '../views/StudentAssignmentsCourse.vue'
 import StudentScores from '../views/StudentScores.vue'
+import StudentScoresCourse from '../views/StudentScoresCourse.vue'
 import StudentScoreDetail from '../views/StudentScoreDetail.vue'
 import StudentAssistant from '../views/StudentAssistant.vue'
 import StudentAssignmentSubmit from '../views/StudentAssignmentSubmit.vue'
@@ -14,6 +16,8 @@ import TeacherDashboard from '../views/TeacherDashboard.vue'
 import TeacherAssignmentPublish from '../views/TeacherAssignmentPublish.vue'
 import TeacherGrading from '../views/TeacherGrading.vue'
 import TeacherGradingOverview from '../views/TeacherGradingOverview.vue'
+import TeacherGradingAssignments from '../views/TeacherGradingAssignments.vue'
+import TeacherGradingSubmissions from '../views/TeacherGradingSubmissions.vue'
 import TeacherQuestionBankCourses from '../views/TeacherQuestionBankCourses.vue'
 import TeacherQuestionBankTextbooks from '../views/TeacherQuestionBankTextbooks.vue'
 import TeacherQuestionBankChapters from '../views/TeacherQuestionBankChapters.vue'
@@ -51,12 +55,20 @@ const routes: RouteRecordRaw[] = [
     component: StudentAssignments,
   },
   {
+    path: '/student/assignments/course/:courseId',
+    component: StudentAssignmentsCourse,
+  },
+  {
     path: '/student/assignments/:assignmentId/submit',
     component: StudentAssignmentSubmit,
   },
   {
     path: '/student/scores',
     component: StudentScores,
+  },
+  {
+    path: '/student/scores/course/:courseId',
+    component: StudentScoresCourse,
   },
   {
     path: '/student/scores/:submissionVersionId',
@@ -80,7 +92,15 @@ const routes: RouteRecordRaw[] = [
     component: TeacherGradingOverview,
   },
   {
+    path: '/teacher/grading/course/:courseId',
+    component: TeacherGradingAssignments,
+  },
+  {
     path: '/teacher/grading/:assignmentId',
+    component: TeacherGradingSubmissions,
+  },
+  {
+    path: '/teacher/grading/:assignmentId/submission/:submissionVersionId',
     component: TeacherGrading,
   },
   {
