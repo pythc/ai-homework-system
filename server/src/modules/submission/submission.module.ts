@@ -7,9 +7,11 @@ import { SubmissionEntity } from './entities/submission.entity';
 import { SubmissionVersionEntity } from './entities/submission-version.entity';
 import { AssignmentEntity } from '../assignment/entities/assignment.entity';
 import { AssignmentQuestionEntity } from '../assignment/entities/assignment-question.entity';
+import { CourseEntity } from '../assignment/entities/course.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { AuthModule } from '../auth/auth.module';
 import { JwtAuthGuard } from '../auth/auth.guard';
+import { AiGradingModule } from '../ai-grading/ai-grading.module';
 
 // 负责人: 廖治凯
 // 功能: 学生提交作业
@@ -23,9 +25,11 @@ import { JwtAuthGuard } from '../auth/auth.guard';
       SubmissionVersionEntity,
       AssignmentEntity,
       AssignmentQuestionEntity,
+      CourseEntity,
       UserEntity,
     ]),
     AuthModule,
+    AiGradingModule,
   ],
   controllers: [SubmissionController],
   providers: [SubmissionService, JwtAuthGuard],

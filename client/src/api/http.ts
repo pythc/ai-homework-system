@@ -68,8 +68,9 @@ async function refreshAccessToken(): Promise<string | null> {
 export async function httpRequest<T>(path: string, options: RequestOptions = {}) {
   const { body, headers, token, skipRefresh, ...rest } = options
 
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   const finalHeaders = new Headers(headers)
-  if (body !== undefined && !finalHeaders.has('Content-Type')) {
+  if (body !== undefined && !isFormData && !finalHeaders.has('Content-Type')) {
     finalHeaders.set('Content-Type', 'application/json')
   }
   const resolvedToken = token ?? getAccessToken()
@@ -80,7 +81,7 @@ export async function httpRequest<T>(path: string, options: RequestOptions = {})
   const response = await fetch(buildUrl(path), {
     ...rest,
     headers: finalHeaders,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
   })
 
   let payload: unknown = null

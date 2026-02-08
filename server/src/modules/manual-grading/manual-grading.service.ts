@@ -87,6 +87,9 @@ export class ManualGradingService {
       gradingId: score.id,
       status: 'GRADED',
       totalScore: Number(score.totalScore),
+      source: (score.scoreDetail as any)?.source ?? null,
+      items: (score.scoreDetail as any)?.items ?? [],
+      finalComment: (score.scoreDetail as any)?.finalComment ?? null,
       updatedAt: score.updatedAt,
     };
   }

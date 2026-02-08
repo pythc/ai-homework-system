@@ -7,10 +7,13 @@ import ResetPassword from '../views/ResetPassword.vue'
 import StudentDashboard from '../views/StudentDashboard.vue'
 import StudentAssignments from '../views/StudentAssignments.vue'
 import StudentScores from '../views/StudentScores.vue'
+import StudentScoreDetail from '../views/StudentScoreDetail.vue'
 import StudentAssistant from '../views/StudentAssistant.vue'
 import StudentAssignmentSubmit from '../views/StudentAssignmentSubmit.vue'
 import TeacherDashboard from '../views/TeacherDashboard.vue'
 import TeacherAssignmentPublish from '../views/TeacherAssignmentPublish.vue'
+import TeacherGrading from '../views/TeacherGrading.vue'
+import TeacherGradingOverview from '../views/TeacherGradingOverview.vue'
 import TeacherQuestionBankCourses from '../views/TeacherQuestionBankCourses.vue'
 import TeacherQuestionBankTextbooks from '../views/TeacherQuestionBankTextbooks.vue'
 import TeacherQuestionBankChapters from '../views/TeacherQuestionBankChapters.vue'
@@ -19,6 +22,7 @@ import TeacherQuestionBankQuestions from '../views/TeacherQuestionBankQuestions.
 import TeacherQuestionBankQuestionDetail from '../views/TeacherQuestionBankQuestionDetail.vue'
 import AdminDashboard from '../views/AdminDashboard.vue'
 import AdminQuestionBank from '../views/AdminQuestionBank.vue'
+import AdminClassImport from '../views/AdminClassImport.vue'
 import AdminQuestionBankCourses from '../views/AdminQuestionBankCourses.vue'
 import AdminQuestionBankTextbooks from '../views/AdminQuestionBankTextbooks.vue'
 import AdminQuestionBankChapters from '../views/AdminQuestionBankChapters.vue'
@@ -55,6 +59,10 @@ const routes: RouteRecordRaw[] = [
     component: StudentScores,
   },
   {
+    path: '/student/scores/:submissionVersionId',
+    component: StudentScoreDetail,
+  },
+  {
     path: '/student/assistant',
     component: StudentAssistant,
   },
@@ -66,6 +74,14 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/teacher/assignments/publish',
     component: TeacherAssignmentPublish,
+  },
+  {
+    path: '/teacher/grading',
+    component: TeacherGradingOverview,
+  },
+  {
+    path: '/teacher/grading/:assignmentId',
+    component: TeacherGrading,
   },
   {
     path: '/teacher/question-bank',
@@ -99,6 +115,10 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/question-bank',
     component: AdminQuestionBank,
+  },
+  {
+    path: '/admin/class-import',
+    component: AdminClassImport,
   },
   {
     path: '/admin/question-bank/courses',

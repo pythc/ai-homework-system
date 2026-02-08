@@ -30,6 +30,8 @@ export type AssignmentSnapshotQuestion = {
   questionIndex: number
   questionId: string
   prompt?: { text?: string }
+  standardAnswer?: { text?: string }
+  rubric?: Array<{ rubricItemKey: string; maxScore: number; criteria: string }>
 }
 
 export type AssignmentSnapshotResponse = {

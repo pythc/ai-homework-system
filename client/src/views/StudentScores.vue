@@ -22,7 +22,6 @@
           </div>
           <div class="grade-actions">
             <button class="grade-action" @click="viewDetail(score)">查看详情</button>
-            <button class="grade-action ghost" @click="askAi(score)">询问AI</button>
           </div>
         </div>
         <div v-if="!scoreList.length" class="grade-empty">
@@ -33,7 +32,7 @@
   </StudentLayout>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import StudentLayout from '../components/StudentLayout.vue'
@@ -45,7 +44,7 @@ const scoreItems = ref([])
 const scoreError = ref('')
 const router = useRouter()
 
-const formatScoreDate = (value) => {
+const formatScoreDate = (value: string) => {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -55,20 +54,15 @@ const formatScoreDate = (value) => {
 const scoreList = computed(() =>
   scoreItems.value.map((item) => ({
     scoreId: item.scoreId,
+    submissionVersionId: item.submissionVersionId,
     title: item.assignmentTitle,
     totalScore: item.totalScore,
     updatedAt: formatScoreDate(item.updatedAt),
   })),
 )
 
-const viewDetail = (score) => {
-  void score
-  // TODO: 预留查看详情逻辑
-}
-
-const askAi = (score) => {
-  void score
-  router.push('/student/assistant')
+const viewDetail = (score: { submissionVersionId: string }) => {
+  router.push(`/student/scores/${score.submissionVersionId}`)
 }
 
 onMounted(async () => {
