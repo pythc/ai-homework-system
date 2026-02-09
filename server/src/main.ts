@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -7,6 +8,9 @@ import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { AccountType, UserEntity, UserRole, UserStatus } from './modules/auth/entities/user.entity';
 import { json, urlencoded } from 'express';
+import * as express from 'express';
+import { join } from 'path';
+import { existsSync } from 'fs';
 
 async function seedTestUser(dataSource: DataSource) {
   if (process.env.SEED_TEST_USER !== 'true') {
@@ -74,6 +78,10 @@ async function bootstrap() {
     origin: true,
     credentials: true,
   });
+  const cwdUploads = join(process.cwd(), 'uploads');
+  const repoUploads = join(process.cwd(), 'server', 'uploads');
+  const uploadRoot = existsSync(cwdUploads) ? cwdUploads : repoUploads;
+  app.use('/uploads', express.static(uploadRoot));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

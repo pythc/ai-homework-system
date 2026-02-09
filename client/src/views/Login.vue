@@ -27,50 +27,56 @@
       <div class="login-card">
         <h2 class="login-title">登录</h2>
 
-        <div class="form-item">
-          <div class="school-select" :class="{ open: isSchoolOpen }" @click="toggleSchool">
-            <div class="school-value" :class="{ placeholder: !schoolId }">
-              {{ schoolId || '请选择学校' }}
-            </div>
-            <span class="school-arrow" />
-            <div v-if="isSchoolOpen" class="school-dropdown" @click.stop>
-              <button
-                v-for="school in schools"
-                :key="school"
-                type="button"
-                class="school-option"
-                :class="{ active: schoolId === school }"
-                @click="selectSchool(school)"
-              >
-                {{ school }}
-              </button>
+        <form class="login-form" @submit.prevent="handleLogin">
+          <div class="form-item">
+            <div class="school-select" :class="{ open: isSchoolOpen }" @click="toggleSchool">
+              <div class="school-value" :class="{ placeholder: !schoolId }">
+                {{ schoolId || '请选择学校' }}
+              </div>
+              <span class="school-arrow" />
+              <div v-if="isSchoolOpen" class="school-dropdown" @click.stop>
+                <button
+                  v-for="school in schools"
+                  :key="school"
+                  type="button"
+                  class="school-option"
+                  :class="{ active: schoolId === school }"
+                  @click="selectSchool(school)"
+                >
+                  {{ school }}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div class="form-item">
-          <input
-            v-model="username"
-            type="text"
-            placeholder="请输入学号/工号"
-          />
-        </div>
+          <div class="form-item">
+            <input
+              v-model="username"
+              type="text"
+              placeholder="请输入学号/工号"
+            />
+          </div>
 
-        <div class="form-item">
-          <input
-            v-model="password"
-            :type="showPassword ? 'text' : 'password'"
-            placeholder="请输入密码"
-          />
-        </div>
+          <div class="form-item">
+            <input
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              placeholder="请输入密码"
+            />
+          </div>
 
-        <div class="options">
-          <label>
-            <input type="checkbox" v-model="remember" /> 记住密码
-          </label>
-        </div>
+          <div class="options">
+            <label>
+              <input type="checkbox" v-model="remember" /> 记住密码
+            </label>
+          </div>
 
-        <button class="login-btn" @click="handleLogin">登录</button>
+          <div v-if="errorMessage" class="login-error">
+            {{ errorMessage }}
+          </div>
+
+          <button class="login-btn" type="submit">登录</button>
+        </form>
 
         <!-- <div class="first-login" @click="goToResetPassword">
           第一次登录请点击此处修改密码
@@ -96,6 +102,7 @@ const password = ref('')
 const remember = ref(true)
 const showPassword = ref(false)
 const loading = ref(false)
+const errorMessage = ref('')
 const router = useRouter()
 
 // 当前后端登录接口需要 schoolId 和 accountType。
@@ -149,12 +156,13 @@ onBeforeUnmount(() => {
 })
 
 const handleLogin = async () => {
+  errorMessage.value = ''
   if (!schoolId.value) {
-    window.alert('请选择学校')
+    errorMessage.value = '请选择学校'
     return
   }
   if (!username.value || !password.value) {
-    window.alert('请输入账号和密码')
+    errorMessage.value = '请输入账号和密码'
     return
   }
   if (loading.value) return
@@ -177,7 +185,6 @@ const handleLogin = async () => {
       remember: remember.value,
     })
 
-    window.alert('登录成功')
     // 目前还没有首页路由，先停留在登录页。
     // 后续可根据角色跳转到不同页面。
     const role = response.data.user?.role
@@ -190,7 +197,7 @@ const handleLogin = async () => {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : '登录失败'
-    window.alert(message)
+    errorMessage.value = message
   } finally {
     loading.value = false
   }
@@ -595,6 +602,16 @@ const goToResetPassword = () => {
   margin-bottom: 26px;
   font-size: 14px;
   color: rgba(16, 53, 112, 0.8);
+}
+
+.login-error {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 90, 90, 0.12);
+  color: #b42318;
+  font-size: 13px;
+  border: 1px solid rgba(255, 90, 90, 0.3);
 }
 
 .login-btn {

@@ -14,10 +14,40 @@ import {
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { SubmissionService } from './submission.service';
 import { JwtAuthGuard } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '../auth/entities/user.entity';
 
 @Controller('submissions')
 export class SubmissionController {
   constructor(private readonly submissionService: SubmissionService) {}
+
+  @Get('by-assignment/:assignmentId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async listByAssignment(
+    @Param('assignmentId') assignmentId: string,
+    @Req() req: { user?: { sub?: string; role?: UserRole; schoolId?: string } },
+  ) {
+    const payload = req.user as { sub: string; role: UserRole; schoolId: string };
+    return this.submissionService.listAssignmentSubmissions(assignmentId, payload);
+  }
+
+  @Get('latest/:assignmentId')
+  @UseGuards(JwtAuthGuard)
+  async listLatestByAssignment(
+    @Param('assignmentId') assignmentId: string,
+    @Req() req: { user?: { sub?: string } },
+  ) {
+    const studentId = req.user?.sub;
+    if (!studentId) {
+      throw new BadRequestException('缺少学生身份信息');
+    }
+    return this.submissionService.listLatestSubmissionsForStudent(
+      assignmentId,
+      studentId,
+    );
+  }
 
   @Get(':submissionVersionId')
   async getSubmission(

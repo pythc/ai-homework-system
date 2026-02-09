@@ -18,7 +18,7 @@
   font-family: "Sora", "Noto Sans SC", sans-serif;
   color: #1a1d33;
   position: relative;
-  overflow: hidden;
+  /* overflow: hidden; */
 }
 
 .student-dashboard::before,

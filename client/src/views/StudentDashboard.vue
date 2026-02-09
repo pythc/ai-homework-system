@@ -59,7 +59,7 @@
                 <span>{{ task.level }}</span>
               </div>
             </div>
-            <button class="task-action">继续作业</button>
+          <button class="task-action" @click="goSubmit(task.id)">继续作业</button>
           </div>
           <div v-if="!pendingTasks.length" class="task-empty">
             {{ assignmentError || '暂无未提交作业' }}
@@ -138,9 +138,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import StudentLayout from '../components/StudentLayout.vue'
 import { changePassword } from '../api/auth'
 import { listOpenAssignments } from '../api/assignment'
+import { listMyScores } from '../api/score'
 import { getAccessToken, getStoredUser, updateStoredUser } from '../auth/storage'
 import { useStudentProfile } from '../composables/useStudentProfile'
 
@@ -155,6 +157,8 @@ const passwordLoading = ref(false)
 const passwordError = ref('')
 const assignmentItems = ref([])
 const assignmentError = ref('')
+const scoreItems = ref([])
+const router = useRouter()
 
 const requiresPasswordChange = computed(() => {
   const user = storedUser.value
@@ -215,14 +219,30 @@ const renderTextHtml = (text) => {
   return String(text).replace(/\n/g, '<br />')
 }
 
+const finalAssignmentIds = computed(() => {
+  const ids = new Set()
+  scoreItems.value.forEach((item) => {
+    if (item.assignmentId) {
+      ids.add(item.assignmentId)
+    }
+  })
+  return ids
+})
+
 const taskList = computed(() =>
-  assignmentItems.value.map((item) => ({
-    title: item.title,
-    course: item.courseName ?? item.courseId,
-    deadline: formatDeadline(item.deadline),
-    submitted: Boolean(item.submitted),
-    level: item.submitted ? '已提交' : '未提交',
-  })),
+  assignmentItems.value.map((item) => {
+    const isFinal = finalAssignmentIds.value.has(item.id)
+    const submitted = Boolean(item.submitted)
+    return {
+      id: item.id,
+      title: item.title,
+      course: item.courseName ?? item.courseId,
+      deadline: formatDeadline(item.deadline),
+      submitted,
+      isFinal,
+      level: isFinal ? '已批改' : submitted ? '已提交' : '未提交',
+    }
+  }),
 )
 
 const pendingTasks = computed(() =>
@@ -234,6 +254,11 @@ const submittedTasks = computed(() =>
 )
 
 const openAssignmentCount = computed(() => taskList.value.length)
+
+const goSubmit = (assignmentId) => {
+  if (!assignmentId) return
+  router.push(`/student/assignments/${assignmentId}/submit`)
+}
 
 onMounted(async () => {
   const params = new URLSearchParams(window.location.search)
@@ -249,6 +274,13 @@ onMounted(async () => {
     assignmentItems.value = response?.items ?? []
   } catch (err) {
     assignmentError.value = err instanceof Error ? err.message : '加载作业失败'
+  }
+
+  try {
+    const response = await listMyScores()
+    scoreItems.value = response?.items ?? []
+  } catch {
+    scoreItems.value = []
   }
 
   if (forceModal || requiresPasswordChange.value) {

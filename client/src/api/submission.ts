@@ -1,5 +1,4 @@
-import { API_BASE_URL } from './http'
-import { getAccessToken } from '../auth/storage'
+import { httpRequest } from './http'
 
 export type SubmissionAnswerInput = {
   questionId: string
@@ -17,7 +16,9 @@ type SubmissionResponse = {
       submissionVersionId: string
       submissionId: string
       fileUrls: string[]
+      aiStatus?: string
     }>
+    aiEnabled?: boolean
   }
 }
 
@@ -26,11 +27,6 @@ export async function uploadSubmission(params: {
   answers: SubmissionAnswerInput[]
   filesByQuestion: Record<string, File[]>
 }) {
-  const token = getAccessToken()
-  if (!token) {
-    throw new Error('未登录或登录已过期')
-  }
-
   const formData = new FormData()
   formData.append('assignmentId', params.assignmentId)
   formData.append('answers', JSON.stringify(params.answers))
@@ -41,25 +37,49 @@ export async function uploadSubmission(params: {
     })
   })
 
-  const response = await fetch(`${API_BASE_URL}/submissions/upload`, {
+  return httpRequest<SubmissionResponse>('/submissions/upload', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
     body: formData,
   })
+}
 
-  let payload: SubmissionResponse | null = null
-  try {
-    payload = await response.json()
-  } catch (err) {
-    payload = null
-  }
+export type SubmissionVersionResponse = {
+  submissionVersionId: string
+  submissionId: string
+  assignmentId: string
+  courseId: string
+  studentId: string
+  questionId: string
+  submitNo: number
+  fileUrls: string[]
+  contentText?: string | null
+  status: string
+  aiStatus: string
+  submittedAt: string
+  updatedAt: string
+}
 
-  if (!response.ok) {
-    const message = (payload as { message?: string } | null)?.message ?? '提交失败'
-    throw new Error(message)
-  }
+export async function getSubmissionVersion(submissionVersionId: string) {
+  return httpRequest<SubmissionVersionResponse>(
+    `/submissions/${submissionVersionId}`,
+    { method: 'GET' },
+  )
+}
 
-  return payload as SubmissionResponse
+type LatestSubmissionItem = {
+  submissionId: string
+  submissionVersionId: string
+  questionId: string
+  submitNo: number
+  contentText: string
+  fileUrls: string[]
+  submittedAt: string
+  isFinal?: boolean
+}
+
+export async function listLatestSubmissions(assignmentId: string) {
+  return httpRequest<{ items: LatestSubmissionItem[] }>(
+    `/submissions/latest/${assignmentId}`,
+    { method: 'GET' },
+  )
 }

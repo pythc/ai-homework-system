@@ -25,6 +25,13 @@
           上传题库
         </RouterLink>
         <RouterLink
+          to="/admin/class-import"
+          class="nav-item"
+          :class="{ active: isActive('/admin/class-import') }"
+        >
+          班级导入
+        </RouterLink>
+        <RouterLink
           to="/admin/question-bank/courses"
           class="nav-item"
           :class="{ active: isActive('/admin/question-bank/courses') }"

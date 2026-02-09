@@ -317,14 +317,15 @@ export class AssignmentService {
           a.deadline,
           a.status,
           COUNT(DISTINCT v.id) AS "submissionCount",
-          COUNT(DISTINCT s.id) FILTER (WHERE s.is_final = true) AS "gradedCount",
-          COUNT(DISTINCT v.id) FILTER (WHERE s.id IS NULL) AS "pendingCount"
+          COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NOT NULL) AS "gradedCount",
+          COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NULL) AS "pendingCount"
         FROM assignments a
         INNER JOIN courses c ON c.id = a.course_id
-        LEFT JOIN submission_versions v ON v.assignment_id = a.id
-        LEFT JOIN scores s
-          ON s.submission_version_id = v.id
-          AND s.is_final = true
+        LEFT JOIN submissions sub ON sub.assignment_id = a.id
+        LEFT JOIN submission_versions v ON v.id = sub.current_version_id
+        LEFT JOIN scores sc
+          ON sc.submission_version_id = v.id
+          AND sc.is_final = true
         WHERE ${whereClause}
         GROUP BY a.id, c.name
         ORDER BY a.deadline NULLS LAST, a.created_at DESC

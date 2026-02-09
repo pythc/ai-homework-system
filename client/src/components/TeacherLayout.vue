@@ -18,6 +18,13 @@
           个人主页
         </RouterLink>
         <RouterLink
+          to="/teacher/grading"
+          class="nav-item"
+          :class="{ active: isActive('/teacher/grading') }"
+        >
+          批改作业
+        </RouterLink>
+        <RouterLink
           to="/teacher/question-bank"
           class="nav-item"
           :class="{ active: isActive('/teacher/question-bank') }"

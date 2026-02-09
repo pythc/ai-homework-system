@@ -26,5 +26,6 @@ import { AiGradingWorkerService } from './ai-grading.worker';
   ],
   controllers: [AiGradingController],
   providers: [AiGradingService, AiGradingQueueService, AiGradingWorkerService],
+  exports: [AiGradingService],
 })
 export class AiGradingModule {}

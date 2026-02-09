@@ -6,6 +6,8 @@ export type ScoreSummary = {
   submissionVersionId: string
   assignmentId: string
   assignmentTitle: string
+  courseId: string
+  courseName?: string | null
   totalScore: number
   updatedAt: string
 }
