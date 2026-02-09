@@ -89,3 +89,26 @@ export async function getMe(token?: string | null) {
     token,
   })
 }
+
+
+type BulkRegisterResult = {
+  total: number
+  created: number
+  skipped: number
+  errors: Array<{ row: number; reason: string; account?: string }>
+}
+
+type BulkRegisterResponse = {
+  code: number
+  message: string
+  data: BulkRegisterResult
+}
+
+export async function registerBulkUsers(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return httpRequest<BulkRegisterResponse>('/auth/register/bulk', {
+    method: 'POST',
+    body: form,
+  })
+}

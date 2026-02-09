@@ -31,12 +31,14 @@
             v-model="answers[question.questionId]"
             class="submit-textarea"
             placeholder="输入文字答案（可留空，仅上传图片也可以）"
+            :disabled="isFinalized"
           />
           <div class="submit-upload">
             <input
               type="file"
               accept="image/*"
               multiple
+              :disabled="isFinalized"
               @change="onFileChange($event, question.questionId)"
             />
             <div class="submit-upload-hint">
@@ -46,13 +48,31 @@
           <div v-if="getFileCount(question.questionId) > 0" class="submit-files">
             已选择 {{ getFileCount(question.questionId) }} 张图片
           </div>
+
+          <div v-if="submittedMap[question.questionId]" class="submit-preview">
+            <div class="preview-title">已提交内容</div>
+            <div v-if="submittedMap[question.questionId].contentText" class="preview-text">
+              {{ submittedMap[question.questionId].contentText }}
+            </div>
+            <div v-else class="preview-empty">未填写文字答案</div>
+            <div v-if="submittedMap[question.questionId].fileUrls.length" class="preview-media">
+              <img
+                v-for="(img, index) in submittedMap[question.questionId].fileUrls"
+                :key="index"
+                :src="resolveFileUrl(img)"
+                alt="submission image"
+              />
+            </div>
+          </div>
+
         </div>
         <div class="submit-actions">
-          <button class="task-action" :disabled="submitting" @click="submit">
-            {{ submitting ? '提交中...' : '提交作业' }}
+          <button class="task-action" :disabled="submitting || isFinalized" @click="submit">
+            {{ isFinalized ? '已评分不可再提交' : submitting ? '提交中...' : '提交作业' }}
           </button>
           <div v-if="error" class="submit-error">{{ error }}</div>
           <div v-if="success" class="submit-success">提交成功</div>
+          <div v-if="isFinalized" class="submit-lock">老师已确认最终成绩，无法再次提交。</div>
         </div>
       </div>
     </section>
@@ -65,7 +85,8 @@ import { useRoute } from 'vue-router'
 import StudentLayout from '../components/StudentLayout.vue'
 import type { AssignmentSnapshotQuestion } from '../api/assignment'
 import { getAssignmentSnapshot } from '../api/assignment'
-import { uploadSubmission } from '../api/submission'
+import { listLatestSubmissions, uploadSubmission } from '../api/submission'
+import { API_BASE_URL } from '../api/http'
 import { useStudentProfile } from '../composables/useStudentProfile'
 
 const { profileName, profileAccount, refreshProfile } = useStudentProfile()
@@ -82,11 +103,20 @@ type SubmitQuestion = {
   promptMedia: Array<{ url: string; caption?: string }>
 }
 
+type SubmittedItem = {
+  submissionVersionId: string
+  contentText: string
+  fileUrls: string[]
+}
+
 const questions = ref<SubmitQuestion[]>([])
 const answers = ref<Record<string, string>>({})
 const filesByQuestion = ref<Record<string, File[]>>({})
+const submittedMap = ref<Record<string, SubmittedItem>>({})
+const isFinalized = ref(false)
 
 const assignmentId = computed(() => String(route.params.assignmentId ?? ''))
+const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
 
 const normalizePrompt = (prompt: unknown) => {
   if (!prompt) return { text: '', media: [] }
@@ -102,6 +132,14 @@ const normalizePrompt = (prompt: unknown) => {
 const renderTextHtml = (text: string) => {
   if (!text) return '题目内容加载失败'
   return text.replace(/\n/g, '<br />')
+}
+
+const resolveFileUrl = (url: string) => {
+  if (!url) return url
+  if (url.startsWith('/uploads/')) {
+    return `${apiBaseOrigin}${url}`
+  }
+  return url
 }
 
 const loadSnapshot = async () => {
@@ -136,6 +174,24 @@ const loadSnapshot = async () => {
     error.value = err instanceof Error ? err.message : '加载题目失败'
   } finally {
     loading.value = false
+  }
+}
+
+const loadLatestSubmissions = async () => {
+  if (!assignmentId.value) return
+  try {
+    const response = await listLatestSubmissions(assignmentId.value)
+    const items = response?.items ?? []
+    isFinalized.value = items.some((item) => item.isFinal)
+    items.forEach((item) => {
+      submittedMap.value[item.questionId] = {
+        submissionVersionId: item.submissionVersionId,
+        contentText: item.contentText ?? '',
+        fileUrls: item.fileUrls ?? [],
+      }
+    })
+  } catch {
+    // ignore
   }
 }
 
@@ -180,10 +236,21 @@ const submit = async () => {
       questionId: question.questionId,
       contentText: answers.value[question.questionId] ?? '',
     }))
-    await uploadSubmission({
+    const response = await uploadSubmission({
       assignmentId: assignmentId.value,
       answers: payloadAnswers,
       filesByQuestion: filesByQuestion.value,
+    })
+    const items = response?.data?.items ?? []
+    const aiEnabled = response?.data?.aiEnabled ?? false
+
+    items.forEach((item) => {
+      submittedMap.value[item.questionId] = {
+        submissionVersionId: item.submissionVersionId,
+        contentText: answers.value[item.questionId] ?? '',
+        fileUrls: item.fileUrls ?? [],
+      }
+      void aiEnabled
     })
     success.value = true
   } catch (err) {
@@ -193,9 +260,11 @@ const submit = async () => {
   }
 }
 
+
 onMounted(async () => {
   await refreshProfile()
   await loadSnapshot()
+  await loadLatestSubmissions()
 })
 </script>
 
@@ -269,6 +338,42 @@ onMounted(async () => {
   color: rgba(26, 29, 51, 0.6);
 }
 
+.submit-preview {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  display: grid;
+  gap: 8px;
+}
+
+.preview-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.preview-text {
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.preview-empty {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.5);
+}
+
+.preview-media {
+  display: grid;
+  gap: 8px;
+}
+
+.preview-media img {
+  max-width: 100%;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+
 .submit-actions {
   display: flex;
   align-items: center;
@@ -283,5 +388,10 @@ onMounted(async () => {
 .submit-success {
   font-size: 12px;
   color: #2e9d70;
+}
+
+.submit-lock {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
 }
 </style>

@@ -1,44 +1,31 @@
 <template>
   <StudentLayout
     title="作业库"
-    subtitle="显示所有课程作业（含已完成/已归档）"
+    subtitle="按课程查看作业"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="作业管理中心"
   >
     <section class="panel glass">
       <div class="panel-title">
-        全部作业
-        <span class="badge">{{ assignmentList.length }} 份</span>
+        选择课程
+        <span class="badge">{{ courseList.length }} 门</span>
       </div>
-      <div class="task-list">
-        <div v-for="task in assignmentList" :key="task.id" class="task-card">
-          <div class="task-head">
-            <div>
-              <div
-                class="task-title"
-                v-mathjax
-                v-html="renderTextHtml(task.title)"
-              />
-              <div class="task-sub">{{ task.course }}</div>
-            </div>
-            <div class="task-deadline">{{ task.deadline }}</div>
+      <div class="course-list">
+        <div v-for="course in courseList" :key="course.courseId" class="course-card">
+          <div class="course-main">
+            <div class="course-title">{{ course.name }}</div>
+            <div class="course-sub">作业 {{ course.total }} 份</div>
           </div>
-          <div class="task-progress">
-            <div class="progress-meta">
-              <span>{{ task.statusLabel }}</span>
-            </div>
+          <div class="course-meta">
+            <span class="course-pill">进行中 {{ course.open }}</span>
+            <span class="course-pill">已截止 {{ course.closed }}</span>
+            <span class="course-pill">已归档 {{ course.archived }}</span>
           </div>
-          <button
-            v-if="task.canSubmit"
-            class="task-action"
-            @click="goSubmit(task.id)"
-          >
-            提交作业
-          </button>
+          <button class="task-action" @click="goCourse(course.courseId)">进入课程</button>
         </div>
-        <div v-if="!assignmentList.length" class="task-empty">
-          {{ assignmentError || '暂无作业' }}
+        <div v-if="!courseList.length" class="task-empty">
+          {{ assignmentError || '暂无课程' }}
         </div>
       </div>
     </section>
@@ -57,48 +44,33 @@ const assignmentItems = ref([])
 const assignmentError = ref('')
 const router = useRouter()
 
-const formatDeadline = (deadline) => {
-  if (!deadline) return '未设置截止时间'
-  const date = new Date(deadline)
-  if (Number.isNaN(date.getTime())) return '未设置截止时间'
-  return `截止 ${date.toLocaleDateString('zh-CN')}`
-}
+const courseList = computed(() => {
+  const map = new Map()
+  assignmentItems.value.forEach((item) => {
+    const courseId = item.courseId
+    if (!courseId) return
+    if (!map.has(courseId)) {
+      map.set(courseId, {
+        courseId,
+        name: item.courseName ?? item.courseId,
+        total: 0,
+        open: 0,
+        closed: 0,
+        archived: 0,
+      })
+    }
+    const course = map.get(courseId)
+    course.total += 1
+    if (item.status === 'OPEN') course.open += 1
+    else if (item.status === 'CLOSED') course.closed += 1
+    else if (item.status === 'ARCHIVED') course.archived += 1
+  })
+  return Array.from(map.values())
+})
 
-const renderTextHtml = (text) => {
-  if (!text) return ''
-  return String(text).replace(/\n/g, '<br />')
-}
-
-const statusLabel = (status) => {
-  if (status === 'OPEN') return '状态：进行中'
-  if (status === 'CLOSED') return '状态：已截止'
-  if (status === 'ARCHIVED') return '状态：已归档'
-  return `状态：${status ?? '未知'}`
-}
-
-const isExpired = (deadline) => {
-  if (!deadline) return false
-  const date = new Date(deadline)
-  if (Number.isNaN(date.getTime())) return false
-  return date.getTime() < Date.now()
-}
-
-const assignmentList = computed(() =>
-  assignmentItems.value.map((item) => ({
-    id: item.id,
-    title: item.title,
-    course: item.courseName ?? item.courseId,
-    deadline: formatDeadline(item.deadline),
-    statusLabel: statusLabel(item.status),
-    canSubmit:
-      Boolean(item.submitted) === false &&
-      item.status === 'OPEN' &&
-      !isExpired(item.deadline),
-  })),
-)
-
-const goSubmit = (assignmentId) => {
-  router.push(`/student/assignments/${assignmentId}/submit`)
+const goCourse = (courseId) => {
+  if (!courseId) return
+  router.push(`/student/assignments/course/${courseId}`)
 }
 
 onMounted(async () => {
@@ -112,3 +84,42 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.course-list {
+  display: grid;
+  gap: 14px;
+}
+
+.course-card {
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 18px;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.course-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.course-sub {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.55);
+}
+
+.course-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.course-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: rgba(26, 29, 51, 0.7);
+}
+</style>

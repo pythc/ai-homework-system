@@ -6,11 +6,18 @@ import Login from '../views/Login.vue'
 import ResetPassword from '../views/ResetPassword.vue'
 import StudentDashboard from '../views/StudentDashboard.vue'
 import StudentAssignments from '../views/StudentAssignments.vue'
+import StudentAssignmentsCourse from '../views/StudentAssignmentsCourse.vue'
 import StudentScores from '../views/StudentScores.vue'
+import StudentScoresCourse from '../views/StudentScoresCourse.vue'
+import StudentScoreDetail from '../views/StudentScoreDetail.vue'
 import StudentAssistant from '../views/StudentAssistant.vue'
 import StudentAssignmentSubmit from '../views/StudentAssignmentSubmit.vue'
 import TeacherDashboard from '../views/TeacherDashboard.vue'
 import TeacherAssignmentPublish from '../views/TeacherAssignmentPublish.vue'
+import TeacherGrading from '../views/TeacherGrading.vue'
+import TeacherGradingOverview from '../views/TeacherGradingOverview.vue'
+import TeacherGradingAssignments from '../views/TeacherGradingAssignments.vue'
+import TeacherGradingSubmissions from '../views/TeacherGradingSubmissions.vue'
 import TeacherQuestionBankCourses from '../views/TeacherQuestionBankCourses.vue'
 import TeacherQuestionBankTextbooks from '../views/TeacherQuestionBankTextbooks.vue'
 import TeacherQuestionBankChapters from '../views/TeacherQuestionBankChapters.vue'
@@ -19,6 +26,7 @@ import TeacherQuestionBankQuestions from '../views/TeacherQuestionBankQuestions.
 import TeacherQuestionBankQuestionDetail from '../views/TeacherQuestionBankQuestionDetail.vue'
 import AdminDashboard from '../views/AdminDashboard.vue'
 import AdminQuestionBank from '../views/AdminQuestionBank.vue'
+import AdminClassImport from '../views/AdminClassImport.vue'
 import AdminQuestionBankCourses from '../views/AdminQuestionBankCourses.vue'
 import AdminQuestionBankTextbooks from '../views/AdminQuestionBankTextbooks.vue'
 import AdminQuestionBankChapters from '../views/AdminQuestionBankChapters.vue'
@@ -47,12 +55,24 @@ const routes: RouteRecordRaw[] = [
     component: StudentAssignments,
   },
   {
+    path: '/student/assignments/course/:courseId',
+    component: StudentAssignmentsCourse,
+  },
+  {
     path: '/student/assignments/:assignmentId/submit',
     component: StudentAssignmentSubmit,
   },
   {
     path: '/student/scores',
     component: StudentScores,
+  },
+  {
+    path: '/student/scores/course/:courseId',
+    component: StudentScoresCourse,
+  },
+  {
+    path: '/student/scores/:submissionVersionId',
+    component: StudentScoreDetail,
   },
   {
     path: '/student/assistant',
@@ -66,6 +86,22 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/teacher/assignments/publish',
     component: TeacherAssignmentPublish,
+  },
+  {
+    path: '/teacher/grading',
+    component: TeacherGradingOverview,
+  },
+  {
+    path: '/teacher/grading/course/:courseId',
+    component: TeacherGradingAssignments,
+  },
+  {
+    path: '/teacher/grading/:assignmentId',
+    component: TeacherGradingSubmissions,
+  },
+  {
+    path: '/teacher/grading/:assignmentId/submission/:submissionVersionId',
+    component: TeacherGrading,
   },
   {
     path: '/teacher/question-bank',
@@ -99,6 +135,10 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/question-bank',
     component: AdminQuestionBank,
+  },
+  {
+    path: '/admin/class-import',
+    component: AdminClassImport,
   },
   {
     path: '/admin/question-bank/courses',

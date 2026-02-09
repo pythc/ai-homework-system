@@ -87,6 +87,9 @@ export class ManualGradingService {
       gradingId: score.id,
       status: 'GRADED',
       totalScore: Number(score.totalScore),
+      source: (score.scoreDetail as any)?.source ?? null,
+      items: (score.scoreDetail as any)?.items ?? [],
+      finalComment: (score.scoreDetail as any)?.finalComment ?? null,
       updatedAt: score.updatedAt,
     };
   }
@@ -99,6 +102,7 @@ export class ManualGradingService {
       .createQueryBuilder('s')
       .innerJoin(SubmissionVersionEntity, 'v', 'v.id = s.submissionVersionId')
       .innerJoin(AssignmentEntity, 'a', 'a.id = v.assignmentId')
+      .innerJoin('courses', 'c', 'c.id = a.course_id')
       .where('v.studentId = :studentId', { studentId })
       .andWhere('s.isFinal = :isFinal', { isFinal: true })
       .orderBy('s.updatedAt', 'DESC')
@@ -109,6 +113,8 @@ export class ManualGradingService {
         'v.id AS "submissionVersionId"',
         'v.assignmentId AS "assignmentId"',
         'a.title AS "assignmentTitle"',
+        'a.course_id AS "courseId"',
+        'c.name AS "courseName"',
       ])
       .getRawMany();
 
@@ -118,6 +124,8 @@ export class ManualGradingService {
         submissionVersionId: row.submissionVersionId,
         assignmentId: row.assignmentId,
         assignmentTitle: row.assignmentTitle,
+        courseId: row.courseId,
+        courseName: row.courseName ?? null,
         totalScore: Number(row.totalScore),
         updatedAt: row.updatedAt,
       })),

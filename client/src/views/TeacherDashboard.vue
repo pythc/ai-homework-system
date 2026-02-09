@@ -17,7 +17,7 @@
     </template>
 
     <section class="overview">
-      <div class="stat-card glass stat-card-wide">
+      <div class="stat-card glass stat-card-wide" @click="goGradingOverview">
         <div class="stat-main">
           <div class="stat-label">待批改作业</div>
           <div class="stat-value">{{ ungradedTasks.length }}</div>
@@ -56,7 +56,7 @@
                 <span>{{ task.level }}</span>
               </div>
             </div>
-            <button class="task-action">开始批改</button>
+            <button class="task-action" @click="goGrading(task.id, task.courseId)">开始批改</button>
           </div>
           <div v-if="!ungradedTasks.length" class="task-empty">
             {{ gradingError || '暂无未批改作业' }}
@@ -90,20 +90,23 @@
         </div>
       </div>
     </section>
+
   </TeacherLayout>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { listTeacherAssignments } from '../api/assignment'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
-const gradingItems = ref([])
+const gradingItems = ref<any[]>([])
 const gradingError = ref('')
+const router = useRouter()
 
-const formatDeadline = (deadline) => {
+const formatDeadline = (deadline: string | null | undefined) => {
   if (!deadline) return '未设置截止时间'
   const date = new Date(deadline)
   if (Number.isNaN(date.getTime())) return '未设置截止时间'
@@ -117,6 +120,7 @@ const gradingList = computed(() =>
     return {
       id: item.id,
       title: item.title,
+      courseId: item.courseId,
       course: item.courseName ?? item.courseId ?? '--',
       deadline: formatDeadline(item.deadline),
       graded,
@@ -141,6 +145,17 @@ const gradedTasks = computed(() =>
 )
 const gradingTotal = computed(() => gradingList.value.length)
 
+const goGrading = (assignmentId: string, courseId?: string) => {
+  router.push({
+    path: `/teacher/grading/${assignmentId}`,
+    query: courseId ? { courseId } : undefined,
+  })
+}
+
+const goGradingOverview = () => {
+  router.push('/teacher/grading')
+}
+
 onMounted(async () => {
   await refreshProfile()
 
@@ -152,3 +167,6 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+</style>
