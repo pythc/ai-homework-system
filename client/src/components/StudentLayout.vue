@@ -39,6 +39,19 @@
           AI 助手
         </RouterLink>
       </nav>
+
+      <div v-if="usage.limitTokens" class="token-usage">
+        <div class="token-usage-title">本周模型用量</div>
+        <div class="token-usage-bar">
+          <div
+            class="token-usage-progress"
+            :style="{ width: `${usagePercent}%` }"
+          />
+        </div>
+        <div class="token-usage-text">
+          {{ usage.usedTokens }} / {{ usage.limitTokens }}
+        </div>
+      </div>
     </aside>
 
     <main class="content">
@@ -58,7 +71,9 @@
 </template>
 
 <script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { fetchAssistantUsage } from '../api/assistant'
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -70,6 +85,39 @@ const props = defineProps({
 
 const route = useRoute()
 const isActive = (path) => route.path === path
+
+const usage = ref({
+  usedTokens: 0,
+  limitTokens: 0,
+  allowed: true,
+})
+
+const fetchUsage = async () => {
+  try {
+    const data = await fetchAssistantUsage()
+    usage.value = data
+  } catch (err) {
+    // ignore
+  }
+}
+
+const usagePercent = computed(() => {
+  if (!usage.value.limitTokens) return 0
+  return Math.min(100, Math.round((usage.value.usedTokens / usage.value.limitTokens) * 100))
+})
+
+const handleUsageRefresh = () => {
+  fetchUsage()
+}
+
+onMounted(async () => {
+  await fetchUsage()
+  window.addEventListener('assistant-usage-refresh', handleUsageRefresh)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('assistant-usage-refresh', handleUsageRefresh)
+})
 
 </script>
 
