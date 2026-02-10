@@ -130,13 +130,13 @@
                 type="number"
                 :min="0"
                 :max="item.maxScore"
-                v-model.number="gradingItems[idx].score"
+                v-model.number="item.score"
                 @blur="clampScore(idx)"
                 :disabled="selectedSubmission.isFinal"
               />
               <textarea
                 class="grading-textarea"
-                v-model="gradingItems[idx].reason"
+                v-model="item.reason"
                 placeholder="评分理由（可选）"
                 :disabled="selectedSubmission.isFinal"
               />

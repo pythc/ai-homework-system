@@ -34,11 +34,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import StudentLayout from '../components/StudentLayout.vue'
-import { listMyScores } from '../api/score'
+import { listMyScores, type ScoreSummary } from '../api/score'
 import { useStudentProfile } from '../composables/useStudentProfile'
 
 const { profileName, profileAccount, refreshProfile } = useStudentProfile()
-const scoreItems = ref([])
+const scoreItems = ref<ScoreSummary[]>([])
 const scoreError = ref('')
 const router = useRouter()
 
