@@ -21,6 +21,7 @@ import TeacherGrading from '../views/TeacherGrading.vue'
 import TeacherGradingOverview from '../views/TeacherGradingOverview.vue'
 import TeacherGradingAssignments from '../views/TeacherGradingAssignments.vue'
 import TeacherGradingSubmissions from '../views/TeacherGradingSubmissions.vue'
+import TeacherAssistant from '../views/TeacherAssistant.vue'
 import TeacherQuestionBankCourses from '../views/TeacherQuestionBankCourses.vue'
 import TeacherQuestionBankTextbooks from '../views/TeacherQuestionBankTextbooks.vue'
 import TeacherQuestionBankChapters from '../views/TeacherQuestionBankChapters.vue'
@@ -117,6 +118,10 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/teacher/grading/:assignmentId/submission/:submissionVersionId',
     component: TeacherGrading,
+  },
+  {
+    path: '/teacher/assistant',
+    component: TeacherAssistant,
   },
   {
     path: '/teacher/question-bank',

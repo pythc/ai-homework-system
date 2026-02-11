@@ -1,7 +1,7 @@
 <template>
-  <StudentLayout
+  <TeacherLayout
     title="110实验室 AI 助手"
-    subtitle="同学您好，随时提问课程、作业与学习方法"
+    subtitle="老师您好，随时提问课程、作业与同学成绩"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="学习辅助中心"
@@ -185,20 +185,19 @@
           </div>
         </div>
       </div>
-
     </section>
-  </StudentLayout>
+  </TeacherLayout>
 </template>
 
 <script setup>
 import { marked } from 'marked'
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import StudentLayout from '../components/StudentLayout.vue'
+import TeacherLayout from '../components/TeacherLayout.vue'
 import { streamAssistantMessage, uploadAssistantImages } from '../api/assistant'
-import { useStudentProfile } from '../composables/useStudentProfile'
+import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getStoredUser } from '../auth/storage'
 
-const { profileName, profileAccount, refreshProfile } = useStudentProfile()
+const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 
 const listRef = ref(null)
 const fileInputRef = ref(null)
@@ -216,14 +215,14 @@ let persistTimer = null
 
 const resolveChatKey = () => {
   const user = getStoredUser()
-  const role = (user?.role ?? 'student').toLowerCase()
+  const role = (user?.role ?? 'teacher').toLowerCase()
   const userId = user?.userId ?? 'anonymous'
   return `assistant.chat.${role}.${userId}`
 }
 
 const resolveSessionKey = () => {
   const user = getStoredUser()
-  const role = (user?.role ?? 'student').toLowerCase()
+  const role = (user?.role ?? 'teacher').toLowerCase()
   const userId = user?.userId ?? 'anonymous'
   return `assistant.session.${role}.${userId}`
 }
@@ -251,7 +250,7 @@ const sessionId = ref(initSessionId())
 
 const resolveThinkingKey = () => {
   const user = getStoredUser()
-  const role = (user?.role ?? 'student').toLowerCase()
+  const role = (user?.role ?? 'teacher').toLowerCase()
   const userId = user?.userId ?? 'anonymous'
   return `assistant.thinking.${role}.${userId}`
 }
@@ -340,9 +339,9 @@ const messages = ref(createInitialMessages())
 
 const quickPrompts = [
   '⚠重要提醒！点我查看',
-  '你好，介绍一下自己',  
-  '帮我查看今晚未完成作业',
-  '分析我上次作业的成绩如何',
+  '你好，介绍一下自己',
+  '分析一下某教学班的成绩',
+  '上次作业的完成情况如何',
   '此系统不好用应该如何反馈',
 ]
 
@@ -357,8 +356,7 @@ const buildHistory = () => {
     .join('\n')
 }
 
-const renderMarkdown = (content) =>
-  marked.parse(content ?? '', { breaks: true })
+const renderMarkdown = (content) => marked.parse(content ?? '', { breaks: true })
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -483,6 +481,12 @@ const buildImagesPayload = async () => {
   }))
 }
 
+const refreshUsage = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('assistant-usage-refresh'))
+  }
+}
+
 const sendMessageWithText = async (question) => {
   const trimmed = question.trim()
   if ((!trimmed && !attachments.value.length) || sending.value) return
@@ -499,6 +503,7 @@ const sendMessageWithText = async (question) => {
   if (payload.length > 4000) {
     pushMessage('assistant', '非常抱歉，小小作坊资金有限，长对话暂不支持，请开启新对话继续学习吧~')
     clearAttachments()
+    refreshUsage()
     return
   }
   pushMessage('user', userContent)
@@ -528,6 +533,7 @@ const sendMessageWithText = async (question) => {
     sending.value = false
     streamingMessageId.value = null
     clearAttachments()
+    refreshUsage()
   }
 }
 
@@ -866,13 +872,13 @@ onBeforeUnmount(() => {
 }
 
 .assistant-tools-item:hover {
-  background: rgba(47, 110, 230, 0.1);
+  background: rgba(255, 176, 77, 0.18);
   color: rgba(26, 29, 51, 0.9);
 }
 
 .assistant-tools-item.active {
   font-weight: 600;
-  color: rgba(47, 110, 230, 0.95);
+  color: rgba(245, 145, 59, 0.95);
 }
 
 .assistant-tools-item.active::after {
@@ -945,9 +951,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.assistant-attachments-hint {
-  font-size: 12px;
-  color: rgba(26, 29, 51, 0.5);
+.assistant-panel.has-attachments .assistant-messages {
+  height: 500px;
+  max-height: 540px;
 }
 
 .assistant-input textarea {
@@ -971,7 +977,7 @@ onBeforeUnmount(() => {
 
 .assistant-send {
   border: none;
-  background: linear-gradient(135deg, rgba(47, 110, 230, 0.95), rgba(55, 198, 209, 0.95));
+  background: linear-gradient(135deg, rgba(243, 125, 63, 0.95), rgba(255, 196, 120, 0.95));
   color: #ffffff;
   padding: 12px 16px;
   border-radius: 16px;
@@ -1043,10 +1049,10 @@ onBeforeUnmount(() => {
 }
 
 .assistant-prompts-tag.new-chat {
-  background: linear-gradient(135deg, rgba(47, 110, 230, 0.92), rgba(55, 198, 209, 0.92));
+  background: linear-gradient(135deg, rgba(243, 125, 63, 0.92), rgba(255, 196, 120, 0.92));
   color: #ffffff;
   font-weight: 600;
-  box-shadow: 0 8px 16px rgba(47, 110, 230, 0.18);
+  box-shadow: 0 8px 16px rgba(243, 125, 63, 0.2);
 }
 
 

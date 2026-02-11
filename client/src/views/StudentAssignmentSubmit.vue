@@ -74,13 +74,13 @@
 
           <div v-if="submittedMap[currentQuestion.questionId]" class="submit-preview">
             <div class="preview-title">已提交内容</div>
-            <div v-if="submittedMap[currentQuestion.questionId].contentText" class="preview-text">
-              {{ submittedMap[currentQuestion.questionId].contentText }}
+            <div v-if="submittedMap[currentQuestion.questionId]?.contentText" class="preview-text">
+              {{ submittedMap[currentQuestion.questionId]?.contentText }}
             </div>
             <div v-else class="preview-empty">未填写文字答案</div>
-            <div v-if="submittedMap[currentQuestion.questionId].fileUrls.length" class="preview-media">
+            <div v-if="submittedMap[currentQuestion.questionId]?.fileUrls?.length" class="preview-media">
               <img
-                v-for="(img, index) in submittedMap[currentQuestion.questionId].fileUrls"
+                v-for="(img, index) in submittedMap[currentQuestion.questionId]?.fileUrls ?? []"
                 :key="index"
                 :src="resolveFileUrl(img)"
                 alt="submission image"
