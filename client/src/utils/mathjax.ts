@@ -13,10 +13,14 @@ export function ensureMathJaxReady(): Promise<any> {
 
     // 先配置（必须在脚本加载前）
     ;(window as any).MathJax = {
+      loader: {
+        load: ['[tex]/ams', '[tex]/boldsymbol'],
+      },
       tex: {
         inlineMath: [['$', '$'], ['\\(', '\\)']],
         displayMath: [['$$', '$$']],
         processEscapes: true, // 允许 \$ 这种
+        packages: { '[+]': ['ams', 'boldsymbol'] },
       },
       startup: {
         typeset: false, // SPA 里建议关掉自动全页 typeset
