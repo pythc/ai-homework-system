@@ -20,7 +20,7 @@
       <div class="panel-title panel-title-row">
         <div>
           提交列表
-          <span class="badge">{{ filteredSubmissions.length }} 条</span>
+          <span class="badge">{{ displayCount }} 条</span>
         </div>
         <button class="ghost-action" @click="goBack">返回作业</button>
       </div>
@@ -48,6 +48,13 @@
           >
             全部
           </button>
+          <button
+            class="tab-btn"
+            :class="{ active: statusFilter === 'MISSING' }"
+            @click="statusFilter = 'MISSING'"
+          >
+            未提交
+          </button>
         </div>
         <div class="grading-search">
           <input
@@ -59,7 +66,7 @@
         </div>
       </div>
 
-      <div class="submission-list">
+      <div v-if="statusFilter !== 'MISSING'" class="submission-list">
         <div
           v-for="item in pagedSubmissions"
           :key="item.submissionVersionId"
@@ -96,6 +103,26 @@
           </button>
         </div>
       </div>
+      <div v-else class="submission-list">
+        <div
+          v-for="student in missingStudents"
+          :key="student.studentId"
+          class="submission-row"
+        >
+          <div class="submission-main">
+            <div class="submission-name">
+              {{ student.name || student.account || '学生' }}
+            </div>
+            <div class="submission-meta">
+              学号 {{ student.account || '-' }}
+            </div>
+          </div>
+          <div class="submission-status pending">未提交</div>
+        </div>
+        <div v-if="!missingStudents.length" class="task-empty">
+          {{ missingError || '暂无未提交学生' }}
+        </div>
+      </div>
     </section>
   </TeacherLayout>
 </template>
@@ -104,7 +131,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
-import { listSubmissionsByAssignment } from '../api/teacherGrading'
+import { listMissingByAssignment, listSubmissionsByAssignment } from '../api/teacherGrading'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
@@ -114,8 +141,10 @@ const assignmentId = computed(() => String(route.params.assignmentId ?? ''))
 const courseId = computed(() => String(route.query.courseId ?? ''))
 
 const submissions = ref<any[]>([])
+const missingStudents = ref<any[]>([])
+const missingError = ref('')
 const loadError = ref('')
-const statusFilter = ref<'PENDING' | 'GRADED' | 'ALL'>('PENDING')
+const statusFilter = ref<'PENDING' | 'GRADED' | 'ALL' | 'MISSING'>('PENDING')
 const searchText = ref('')
 const pageIndex = ref(1)
 const pageSize = ref(20)
@@ -128,6 +157,7 @@ const formatTime = (value?: string) => {
 }
 
 const filteredSubmissions = computed(() => {
+  if (statusFilter.value === 'MISSING') return []
   const keyword = searchText.value.trim()
   let list = submissions.value
   if (statusFilter.value === 'PENDING') {
@@ -142,6 +172,12 @@ const filteredSubmissions = computed(() => {
   }
   return list
 })
+
+const displayCount = computed(() =>
+  statusFilter.value === 'MISSING'
+    ? missingStudents.value.length
+    : filteredSubmissions.value.length,
+)
 
 const totalPages = computed(() =>
   Math.max(1, Math.ceil(filteredSubmissions.value.length / pageSize.value)),
@@ -181,8 +217,24 @@ const loadData = async () => {
   }
 }
 
+const loadMissing = async () => {
+  if (!assignmentId.value) return
+  try {
+    const response = await listMissingByAssignment(assignmentId.value)
+    missingStudents.value = response?.items ?? []
+  } catch (err) {
+    missingError.value = err instanceof Error ? err.message : '加载未提交失败'
+  }
+}
+
 watch([statusFilter, searchText], () => {
   pageIndex.value = 1
+})
+
+watch(statusFilter, async (value) => {
+  if (value === 'MISSING' && !missingStudents.value.length) {
+    await loadMissing()
+  }
 })
 
 onMounted(async () => {

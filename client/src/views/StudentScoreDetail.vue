@@ -7,9 +7,15 @@
     brand-sub="成绩看板"
   >
     <section class="panel glass">
-      <div class="panel-title">题目信息</div>
-      <div v-if="questionText" class="detail-text" v-mathjax v-html="renderMath(questionText)" />
-      <div v-else class="empty-box">暂无题目内容</div>
+      <div class="panel-title">作业信息</div>
+      <div class="detail-row">
+        <div class="detail-label">作业</div>
+        <div class="detail-value">{{ result?.assignmentTitle || '—' }}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">课程</div>
+        <div class="detail-value">{{ result?.courseName || result?.courseId || '—' }}</div>
+      </div>
     </section>
 
     <section class="panel glass">
@@ -19,29 +25,28 @@
       <div v-else class="detail-body">
         <div class="detail-row">
           <div class="detail-label">总分</div>
-          <div class="detail-value">{{ result?.totalScore ?? '-' }}</div>
+          <div class="detail-value">{{ result?.weightedScore ?? '-' }} / {{ result?.totalScore ?? '-' }}</div>
         </div>
-        <div class="detail-row">
-          <div class="detail-label">来源</div>
-          <div class="detail-value">{{ sourceLabel }}</div>
-        </div>
-        <div v-if="result?.finalComment" class="detail-block">
-          <div class="detail-label">教师评语</div>
-          <div class="detail-text" v-mathjax v-html="renderMath(result?.finalComment)" />
-        </div>
-
         <div class="detail-block">
-          <div class="detail-label">评分明细</div>
-          <div v-if="!result?.items?.length" class="empty-box">暂无明细</div>
+          <div class="detail-label">题目明细</div>
+          <div v-if="!result?.questions?.length" class="empty-box">暂无明细</div>
           <div v-else class="detail-items">
-            <div v-for="(item, idx) in result.items" :key="idx" class="detail-item">
+            <div v-for="(item, idx) in result.questions" :key="idx" class="detail-item">
               <div class="detail-item-title">
-                评分项 {{ item.rubricItemKey || '-' }}
+                第 {{ item.questionIndex }} 题（权重 {{ item.weight }}%）
               </div>
               <div class="detail-item-meta">
-                得分 {{ item.score ?? '-' }}
+                得分 {{ item.score ?? '-' }} / {{ item.maxScore ?? '-' }}
               </div>
-              <div v-if="item.reason" class="detail-text" v-mathjax v-html="renderMath(item.reason)" />
+              <div v-if="item.promptText" class="detail-text" v-mathjax v-html="renderMath(item.promptText)" />
+              <div v-if="item.items?.length" class="detail-sub">
+                <div v-for="(sub, subIdx) in item.items" :key="subIdx" class="detail-sub-item">
+                  <div>评分项 {{ sub.rubricItemKey || '-' }}</div>
+                  <div>得分 {{ sub.score ?? '-' }}</div>
+                  <div v-if="sub.reason" class="detail-text" v-mathjax v-html="renderMath(sub.reason)" />
+                </div>
+              </div>
+              <div v-if="item.finalComment" class="detail-text" v-mathjax v-html="renderMath(item.finalComment)" />
             </div>
           </div>
         </div>
@@ -55,9 +60,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import StudentLayout from '../components/StudentLayout.vue'
 import { useStudentProfile } from '../composables/useStudentProfile'
-import { getFinalGrading } from '../api/grading'
-import { getSubmissionVersion } from '../api/submission'
-import { getAssignmentSnapshot } from '../api/assignment'
+import { getAssignmentScoreDetail } from '../api/score'
 
 const { profileName, profileAccount, refreshProfile } = useStudentProfile()
 const route = useRoute()
@@ -65,17 +68,8 @@ const route = useRoute()
 const loading = ref(true)
 const error = ref('')
 const result = ref<any | null>(null)
-const questionText = ref('')
 
-const submissionVersionId = computed(() => String(route.params.submissionVersionId ?? ''))
-
-const sourceLabel = computed(() => {
-  const source = result.value?.source
-  if (source === 'AI_ADOPTED') return 'AI 批改'
-  if (source === 'MANUAL') return '教师批改'
-  if (source === 'MIXED') return '教师修订'
-  return '—'
-})
+const assignmentId = computed(() => String(route.params.assignmentId ?? ''))
 
 const renderMath = (text?: string | null) => {
   if (!text) return '—'
@@ -84,19 +78,13 @@ const renderMath = (text?: string | null) => {
 
 onMounted(async () => {
   await refreshProfile()
-  if (!submissionVersionId.value) {
+  if (!assignmentId.value) {
     error.value = '缺少提交信息'
     loading.value = false
     return
   }
   try {
-    result.value = await getFinalGrading(submissionVersionId.value)
-    const submission = await getSubmissionVersion(submissionVersionId.value)
-    const snapshot = await getAssignmentSnapshot(submission.assignmentId)
-    const question = (snapshot?.questions ?? []).find(
-      (item) => item.questionId === submission.questionId,
-    )
-    questionText.value = question?.prompt?.text ?? ''
+    result.value = await getAssignmentScoreDetail(assignmentId.value)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '加载失败'
   } finally {
@@ -139,6 +127,20 @@ onMounted(async () => {
 .detail-items {
   display: grid;
   gap: 10px;
+}
+
+.detail-sub {
+  display: grid;
+  gap: 8px;
+}
+
+.detail-sub-item {
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
 }
 
 .detail-item {

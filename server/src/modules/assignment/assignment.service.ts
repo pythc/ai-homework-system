@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { CreateAssignmentDto, CreateAssignmentQuestionDto } from './dto/create-assignment.dto';
+import { PublishAssignmentDto } from './dto/publish-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { UpdateAssignmentQuestionsDto } from './dto/update-assignment-questions.dto';
 import { AssignmentEntity, AssignmentStatus } from './entities/assignment.entity';
@@ -131,6 +132,10 @@ export class AssignmentService {
     assignment.description = dto.description ?? assignment.description;
     assignment.deadline = dto.deadline ? new Date(dto.deadline) : assignment.deadline;
     assignment.aiEnabled = dto.aiEnabled ?? assignment.aiEnabled;
+    assignment.totalScore =
+      typeof dto.totalScore === 'number'
+        ? dto.totalScore.toFixed(2)
+        : assignment.totalScore;
     assignment.status = dto.status ?? assignment.status;
     assignment.updatedAt = new Date();
 
@@ -164,7 +169,7 @@ export class AssignmentService {
     return this.toAssignmentResponse(saved);
   }
 
-  async publishAssignment(assignmentId: string) {
+  async publishAssignment(assignmentId: string, dto?: PublishAssignmentDto) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
     });
@@ -178,7 +183,8 @@ export class AssignmentService {
       throw new BadRequestException('作业题目不能为空');
     }
 
-    const snapshotPayload = await this.buildSnapshotPayload(assignment);
+    const weightMap = this.buildWeightMap(assignment, dto?.questionWeights ?? []);
+    const snapshotPayload = await this.buildSnapshotPayload(assignment, weightMap);
     const snapshot = this.snapshotRepo.create({
       assignmentId: assignment.id,
       snapshot: snapshotPayload,
@@ -318,10 +324,15 @@ export class AssignmentService {
           a.status,
           COUNT(DISTINCT v.id) AS "submissionCount",
           COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NOT NULL) AS "gradedCount",
-          COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NULL) AS "pendingCount"
+          COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NULL) AS "pendingCount",
+          COUNT(DISTINCT cs.student_id) AS "studentCount",
+          COUNT(DISTINCT sub.student_id) AS "submittedStudentCount"
         FROM assignments a
         INNER JOIN courses c ON c.id = a.course_id
         LEFT JOIN submissions sub ON sub.assignment_id = a.id
+        LEFT JOIN course_students cs
+          ON cs.course_id = a.course_id
+          AND cs.status = 'ENROLLED'
         LEFT JOIN submission_versions v ON v.id = sub.current_version_id
         LEFT JOIN scores sc
           ON sc.submission_version_id = v.id
@@ -345,6 +356,11 @@ export class AssignmentService {
         submissionCount: Number(row.submissionCount ?? 0),
         gradedCount: Number(row.gradedCount ?? 0),
         pendingCount: Number(row.pendingCount ?? 0),
+        studentCount: Number(row.studentCount ?? 0),
+        unsubmittedCount: Math.max(
+          Number(row.studentCount ?? 0) - Number(row.submittedStudentCount ?? 0),
+          0,
+        ),
       })),
     };
   }
@@ -356,10 +372,32 @@ export class AssignmentService {
     if (!snapshot) {
       throw new NotFoundException('作业快照不存在');
     }
+    const snapshotPayload = snapshot.snapshot as { questions?: any[] };
+    const questions = Array.isArray(snapshotPayload.questions)
+      ? snapshotPayload.questions
+      : [];
+    if (questions.length) {
+      const questionIds = questions
+        .map((item) => item?.questionId)
+        .filter((id): id is string => Boolean(id));
+      const questionMap = await this.loadQuestionsWithAncestors(questionIds);
+
+      snapshotPayload.questions = questions.map((item) => {
+        if (item?.parentPrompt) return item;
+        const question = questionMap.get(item?.questionId);
+        if (!question) return item;
+        const parentText = this.resolveParentPromptText(question, questionMap);
+        if (!parentText) return item;
+        return {
+          ...item,
+          parentPrompt: this.toTextBlock(String(parentText)),
+        };
+      });
+    }
     return {
       assignmentSnapshotId: snapshot.id,
       assignmentId: snapshot.assignmentId,
-      questions: (snapshot.snapshot as { questions?: unknown }).questions ?? [],
+      questions: snapshotPayload.questions ?? [],
       createdAt: snapshot.createdAt.toISOString(),
     };
   }
@@ -400,11 +438,62 @@ export class AssignmentService {
     return { text, media: [] };
   }
 
-  private async buildSnapshotPayload(assignment: AssignmentEntity) {
-    const questions = await this.questionRepo.find({
-      where: { id: In(assignment.selectedQuestionIds) },
-    });
-    const questionMap = new Map(questions.map((q) => [q.id, q]));
+  private async loadQuestionsWithAncestors(questionIds: string[]) {
+    const map = new Map<string, AssignmentQuestionEntity>();
+    const seedIds = Array.from(new Set(questionIds.filter(Boolean)));
+    if (!seedIds.length) return map;
+
+    const seed = await this.questionRepo.find({ where: { id: In(seedIds) } });
+    seed.forEach((item) => map.set(item.id, item));
+
+    let frontier = new Set(
+      seed
+        .map((item) => item.parentId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    while (frontier.size > 0) {
+      const ids = Array.from(frontier).filter((id) => !map.has(id));
+      if (!ids.length) break;
+      const rows = await this.questionRepo.find({ where: { id: In(ids) } });
+      frontier = new Set<string>();
+      for (const row of rows) {
+        map.set(row.id, row);
+        if (row.parentId && !map.has(row.parentId)) {
+          frontier.add(row.parentId);
+        }
+      }
+    }
+
+    return map;
+  }
+
+  private resolveParentPromptText(
+    question: AssignmentQuestionEntity,
+    questionMap: Map<string, AssignmentQuestionEntity>,
+  ) {
+    let current = question.parentId ? questionMap.get(question.parentId) : null;
+    while (current) {
+      const parentText =
+        current?.stem?.text ??
+        (typeof current?.stem === 'string' ? current?.stem : null) ??
+        current?.prompt?.text ??
+        (typeof current?.prompt === 'string' ? current?.prompt : null) ??
+        current?.description ??
+        '';
+      if (parentText) return parentText;
+      current = current.parentId ? questionMap.get(current.parentId) : null;
+    }
+    return '';
+  }
+
+  private async buildSnapshotPayload(
+    assignment: AssignmentEntity,
+    weightMap: Map<string, number>,
+  ) {
+    const questionMap = await this.loadQuestionsWithAncestors(
+      assignment.selectedQuestionIds,
+    );
     const orderedQuestions = assignment.selectedQuestionIds
       .map((id) => questionMap.get(id))
       .filter((q): q is AssignmentQuestionEntity => Boolean(q));
@@ -412,15 +501,58 @@ export class AssignmentService {
       throw new BadRequestException('作业题目列表存在无效题目');
     }
 
-    const snapshots = orderedQuestions.map((question, index) => ({
-      questionIndex: index + 1,
-      questionId: question.id,
-      prompt: question.prompt ?? this.toTextBlock(question.description),
-      standardAnswer: question.standardAnswer ?? this.toTextBlock(''),
-      rubric: Array.isArray(question.rubric) ? question.rubric : question.rubric ?? [],
-    }));
+    const snapshots = orderedQuestions.map((question, index) => {
+      const parentText = this.resolveParentPromptText(question, questionMap);
+      return {
+        questionIndex: index + 1,
+        questionId: question.id,
+        prompt: question.prompt ?? this.toTextBlock(question.description),
+        parentPrompt: parentText ? this.toTextBlock(String(parentText)) : null,
+        standardAnswer: question.standardAnswer ?? this.toTextBlock(''),
+        rubric: Array.isArray(question.rubric) ? question.rubric : question.rubric ?? [],
+        weight: weightMap.get(question.id) ?? null,
+      };
+    });
 
     return { questions: snapshots };
+  }
+
+  private buildWeightMap(
+    assignment: AssignmentEntity,
+    questionWeights: Array<{ questionId: string; weight: number }>,
+  ) {
+    const ids = assignment.selectedQuestionIds ?? [];
+    if (!ids.length) {
+      return new Map<string, number>();
+    }
+
+    const map = new Map<string, number>();
+    for (const item of questionWeights) {
+      if (!item?.questionId) continue;
+      if (!ids.includes(item.questionId)) continue;
+      const weight = Number(item.weight);
+      if (!Number.isFinite(weight) || weight < 0) continue;
+      map.set(item.questionId, weight);
+    }
+
+    if (map.size === ids.length) {
+      const sum = Array.from(map.values()).reduce((acc, v) => acc + v, 0);
+      if (Math.abs(sum - 100) > 0.01) {
+        throw new BadRequestException('题目权重之和必须为 100');
+      }
+      return map;
+    }
+
+    const defaultWeight = Number((100 / ids.length).toFixed(2));
+    const normalized = new Map<string, number>();
+    ids.forEach((id, index) => {
+      const value =
+        index === ids.length - 1
+          ? Number((100 - defaultWeight * (ids.length - 1)).toFixed(2))
+          : defaultWeight;
+      normalized.set(id, value);
+    });
+    return normalized;
   }
 
   private async loadLeafQuestions(

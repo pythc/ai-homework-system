@@ -17,77 +17,58 @@
     </template>
 
     <section class="overview">
-      <div class="stat-card glass stat-card-wide" @click="goGradingOverview">
-        <div class="stat-main">
-          <div class="stat-label">待批改作业</div>
-          <div class="stat-value">{{ ungradedTasks.length }}</div>
-          <div class="stat-meta">全部作业 {{ gradingTotal }}</div>
+      <div class="panel glass">
+        <div class="panel-title panel-title-row">
+          <div>我的课程</div>
+          <button class="ghost-action" @click="goCourses">查看全部</button>
         </div>
-        <div class="stat-side">
-          <div class="stat-side-item">
-            <div class="stat-side-label">已批改</div>
-            <div class="stat-side-value">{{ gradedTasks.length }}</div>
-          </div>
-          <div class="stat-side-item">
-            <div class="stat-side-label">未批改</div>
-            <div class="stat-side-value">{{ ungradedTasks.length }}</div>
+        <div class="course-list">
+          <button
+            v-for="course in courseGroups"
+            :key="course.courseId"
+            class="course-chip"
+            type="button"
+            @click="goCourse(course.courseId)"
+          >
+            <span class="course-name">{{ course.courseName || '课程' }}</span>
+            <span class="course-meta">{{ course.assignments.length }} 次作业</span>
+          </button>
+          <div v-if="!courseGroups.length" class="task-empty">
+            {{ gradingError || '暂无课程' }}
           </div>
         </div>
       </div>
     </section>
 
     <section class="grid">
-      <div class="panel glass">
+      <div v-for="course in courseGroups" :key="course.courseId" class="panel glass">
         <div class="panel-title">
-          未批改作业
-          <span class="badge">{{ ungradedTasks.length }} 份</span>
+          {{ course.courseName || '课程' }}
+          <span class="badge">{{ course.assignments.length }} 次作业</span>
         </div>
         <div class="task-list">
-          <div v-for="task in ungradedTasks" :key="task.id" class="task-card">
+          <div v-for="task in course.assignments" :key="task.id" class="task-card">
             <div class="task-head">
-              <div>
-                <div class="task-title">{{ task.title }}</div>
-                <div class="task-sub">{{ task.course }}</div>
-              </div>
+              <div class="task-title">{{ task.title }}</div>
               <div class="task-deadline">{{ task.deadline }}</div>
             </div>
-            <div class="task-progress">
-              <div class="progress-meta">
-                <span>{{ task.level }}</span>
+            <div class="task-foot">
+              <div class="task-metrics">
+                <span class="metric-tag">未批改 {{ task.pendingCount }}</span>
+                <span class="metric-tag">未提交 {{ task.unsubmittedCount }}</span>
               </div>
+              <button class="task-action" @click="goGrading(task.id, task.courseId)">
+                开始批改
+              </button>
             </div>
-            <button class="task-action" @click="goGrading(task.id, task.courseId)">开始批改</button>
           </div>
-          <div v-if="!ungradedTasks.length" class="task-empty">
-            {{ gradingError || '暂无未批改作业' }}
+          <div v-if="!course.assignments.length" class="task-empty">
+            {{ gradingError || '暂无作业' }}
           </div>
         </div>
       </div>
-
-      <div class="panel glass">
-        <div class="panel-title">
-          已批改作业
-          <span class="badge">{{ gradedTasks.length }} 份</span>
-        </div>
-        <div class="task-list">
-          <div v-for="task in gradedTasks" :key="task.id" class="task-card">
-            <div class="task-head">
-              <div>
-                <div class="task-title">{{ task.title }}</div>
-                <div class="task-sub">{{ task.course }}</div>
-              </div>
-              <div class="task-deadline">{{ task.deadline }}</div>
-            </div>
-            <div class="task-progress">
-              <div class="progress-meta">
-                <span>{{ task.level }}</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="!gradedTasks.length" class="task-empty">
-            {{ gradingError || '暂无已批改作业' }}
-          </div>
-        </div>
+      <div v-if="!courseGroups.length" class="panel glass task-empty">
+        {{ gradingError || '暂无课程' }}
       </div>
     </section>
 
@@ -114,35 +95,39 @@ const formatDeadline = (deadline: string | null | undefined) => {
 }
 
 const gradingList = computed(() =>
-  gradingItems.value.map((item) => {
-    const pendingCount = Number(item.pendingCount ?? 0)
-    const graded = pendingCount === 0 && Number(item.submissionCount ?? 0) > 0
-    return {
-      id: item.id,
-      title: item.title,
-      courseId: item.courseId,
-      course: item.courseName ?? item.courseId ?? '--',
-      deadline: formatDeadline(item.deadline),
-      graded,
-      pendingCount,
-      submissionCount: Number(item.submissionCount ?? 0),
-      level: graded
-        ? `已批改 (${item.gradedCount ?? 0})`
-        : pendingCount > 0
-          ? `待批改 (${pendingCount})`
-          : '暂无提交',
-    }
-  }),
+  gradingItems.value.map((item) => ({
+    id: item.id,
+    title: item.title,
+    courseId: item.courseId,
+    course: item.courseName ?? item.courseId ?? '--',
+    courseName: item.courseName ?? '',
+    deadline: formatDeadline(item.deadline),
+    pendingCount: Number(item.pendingCount ?? 0),
+    unsubmittedCount: Number(item.unsubmittedCount ?? 0),
+  })),
 )
 
-const ungradedTasks = computed(() =>
-  gradingList.value.filter(
-    (task) => task.pendingCount > 0 || task.submissionCount === 0,
-  ),
-)
-const gradedTasks = computed(() =>
-  gradingList.value.filter((task) => task.pendingCount === 0 && task.submissionCount > 0),
-)
+const courseGroups = computed(() => {
+  const map = new Map<
+    string,
+    { courseId: string; courseName: string; assignments: any[] }
+  >()
+  gradingList.value.forEach((item) => {
+    if (!map.has(item.courseId)) {
+      map.set(item.courseId, {
+        courseId: item.courseId,
+        courseName: item.courseName || item.course,
+        assignments: [],
+      })
+    }
+    if (item.pendingCount === 0 && item.unsubmittedCount === 0) {
+      return
+    }
+    map.get(item.courseId)?.assignments.push(item)
+  })
+  return Array.from(map.values())
+})
+
 const gradingTotal = computed(() => gradingList.value.length)
 
 const goGrading = (assignmentId: string, courseId?: string) => {
@@ -154,6 +139,14 @@ const goGrading = (assignmentId: string, courseId?: string) => {
 
 const goGradingOverview = () => {
   router.push('/teacher/grading')
+}
+
+const goCourses = () => {
+  router.push('/teacher/courses')
+}
+
+const goCourse = (courseId: string) => {
+  router.push(`/teacher/courses/${courseId}`)
 }
 
 onMounted(async () => {
@@ -169,4 +162,76 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.task-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ghost-action {
+  border: none;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.7);
+  cursor: pointer;
+}
+
+.course-list {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.course-chip {
+  border: none;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 160px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.course-chip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(24, 34, 64, 0.12);
+}
+
+.course-name {
+  font-weight: 600;
+}
+
+.course-meta {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
+}
+
+.task-metrics {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.metric-tag {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.7);
+}
 </style>

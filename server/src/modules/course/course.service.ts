@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { CourseEntity, CourseStatus } from '../assignment/entities/course.entity';
 import { UserEntity, UserRole } from '../auth/entities/user.entity';
 import { CreateCourseDto } from './dto/create-course.dto';
@@ -22,6 +22,7 @@ type RequestUser = {
 @Injectable()
 export class CourseService {
   constructor(
+    private readonly dataSource: DataSource,
     @InjectRepository(CourseEntity)
     private readonly courseRepo: Repository<CourseEntity>,
     @InjectRepository(UserEntity)
@@ -115,6 +116,228 @@ export class CourseService {
     }
     this.assertCourseAccess(course, requester);
     return this.toCourseResponse(course);
+  }
+
+  async getCourseSummary(courseId: string, requester: RequestUser) {
+    const course = await this.courseRepo.findOne({
+      where: { id: courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    this.assertCourseAccess(course, requester);
+
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          COUNT(DISTINCT cs.student_id) AS "studentCount",
+          COUNT(DISTINCT a.id) AS "assignmentCount"
+        FROM courses c
+        LEFT JOIN course_students cs
+          ON cs.course_id = c.id
+          AND cs.status = 'ENROLLED'
+        LEFT JOIN assignments a ON a.course_id = c.id
+        WHERE c.id = $1
+        GROUP BY c.id
+      `,
+      [courseId],
+    );
+    const row = rows[0] ?? {};
+    return {
+      course: this.toCourseResponse(course),
+      studentCount: Number(row.studentCount ?? 0),
+      assignmentCount: Number(row.assignmentCount ?? 0),
+    };
+  }
+
+  async listCourseStudents(courseId: string, requester: RequestUser) {
+    const course = await this.courseRepo.findOne({
+      where: { id: courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    this.assertCourseAccess(course, requester);
+
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          u.id AS "studentId",
+          u.name AS "studentName",
+          u.account AS "studentAccount"
+        FROM course_students cs
+        INNER JOIN users u ON u.id = cs.student_id
+        WHERE cs.course_id = $1
+          AND cs.status = 'ENROLLED'
+        ORDER BY u.name NULLS LAST, u.account NULLS LAST
+      `,
+      [courseId],
+    );
+
+    return {
+      items: rows.map((row: any) => ({
+        studentId: row.studentId,
+        name: row.studentName ?? null,
+        account: row.studentAccount ?? null,
+      })),
+    };
+  }
+
+  async getCourseGradebook(courseId: string, requester: RequestUser) {
+    const course = await this.courseRepo.findOne({
+      where: { id: courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    this.assertCourseAccess(course, requester);
+
+    const students = await this.dataSource.query(
+      `
+        SELECT
+          u.id AS "studentId",
+          u.name AS "studentName",
+          u.account AS "studentAccount"
+        FROM course_students cs
+        INNER JOIN users u ON u.id = cs.student_id
+        WHERE cs.course_id = $1
+          AND cs.status = 'ENROLLED'
+        ORDER BY u.name NULLS LAST, u.account NULLS LAST
+      `,
+      [courseId],
+    );
+
+    const assignments = await this.dataSource.query(
+      `
+        SELECT
+          a.id,
+          a.title,
+          a.deadline,
+          a.created_at AS "createdAt"
+        FROM assignments a
+        WHERE a.course_id = $1
+        ORDER BY a.created_at ASC, a.deadline NULLS LAST
+      `,
+      [courseId],
+    );
+    const assignmentIds = assignments.map((row: any) => row.id);
+
+    const snapshots = assignmentIds.length
+      ? await this.dataSource.query(
+          `
+            SELECT DISTINCT ON (assignment_id)
+              assignment_id AS "assignmentId",
+              id,
+              snapshot
+            FROM assignment_snapshots
+            WHERE assignment_id = ANY($1)
+            ORDER BY assignment_id, created_at DESC
+          `,
+          [assignmentIds],
+        )
+      : [];
+
+    const snapshotMap = new Map<string, any>();
+    for (const row of snapshots) {
+      const questions = Array.isArray(row.snapshot?.questions)
+        ? row.snapshot.questions
+        : [];
+      const normalized = questions
+        .map((q: any) => ({
+          questionId: q?.questionId,
+          questionIndex: Number(q?.questionIndex),
+        }))
+        .filter((q: any) => q.questionId && Number.isFinite(q.questionIndex))
+        .sort((a: any, b: any) => a.questionIndex - b.questionIndex);
+      snapshotMap.set(row.assignmentId, normalized);
+    }
+
+    const submissions = assignmentIds.length
+      ? await this.dataSource.query(
+          `
+            SELECT
+              s.assignment_id AS "assignmentId",
+              s.student_id AS "studentId",
+              s.question_id AS "questionId",
+              s.current_version_id AS "submissionVersionId"
+            FROM submissions s
+            WHERE s.assignment_id = ANY($1)
+          `,
+          [assignmentIds],
+        )
+      : [];
+
+    const versionIds = submissions
+      .map((row: any) => row.submissionVersionId)
+      .filter(Boolean);
+
+    const finalScores = versionIds.length
+      ? await this.dataSource.query(
+          `
+            SELECT
+              submission_version_id AS "submissionVersionId",
+              total_score AS "totalScore"
+            FROM scores
+            WHERE is_final = true
+              AND submission_version_id = ANY($1)
+          `,
+          [versionIds],
+        )
+      : [];
+
+    const aiScores = versionIds.length
+      ? await this.dataSource.query(
+          `
+            SELECT DISTINCT ON (submission_version_id)
+              submission_version_id AS "submissionVersionId",
+              result
+            FROM ai_gradings
+            WHERE submission_version_id = ANY($1)
+            ORDER BY submission_version_id, created_at DESC
+          `,
+          [versionIds],
+        )
+      : [];
+
+    const finalMap = new Map<string, number>();
+    for (const row of finalScores) {
+      const value = Number(row.totalScore);
+      finalMap.set(row.submissionVersionId, Number.isFinite(value) ? value : 0);
+    }
+
+    const aiMap = new Map<string, number>();
+    for (const row of aiScores) {
+      const value = Number((row.result as any)?.totalScore);
+      if (Number.isFinite(value)) {
+        aiMap.set(row.submissionVersionId, value);
+      }
+    }
+
+    const cells = submissions.map((row: any) => ({
+      studentId: row.studentId,
+      assignmentId: row.assignmentId,
+      questionId: row.questionId,
+      submissionVersionId: row.submissionVersionId,
+      finalScore: finalMap.get(row.submissionVersionId) ?? null,
+      aiScore: aiMap.get(row.submissionVersionId) ?? null,
+    }));
+
+    return {
+      course: this.toCourseResponse(course),
+      students: students.map((row: any) => ({
+        studentId: row.studentId,
+        name: row.studentName ?? null,
+        account: row.studentAccount ?? null,
+      })),
+      assignments: assignments.map((row: any, index: number) => ({
+        id: row.id,
+        title: row.title,
+        deadline: row.deadline ?? null,
+        order: index + 1,
+        questions: snapshotMap.get(row.id) ?? [],
+      })),
+      cells,
+    };
   }
 
   async updateCourse(

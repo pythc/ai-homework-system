@@ -146,6 +146,7 @@
   flex-direction: column;
   gap: 20px;
   z-index: 1;
+  min-width: 0;
 }
 
 .topbar {

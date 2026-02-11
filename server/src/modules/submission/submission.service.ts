@@ -518,6 +518,55 @@ export class SubmissionService {
     };
   }
 
+  async listMissingSubmissions(
+    assignmentId: string,
+    requester: { sub: string; role: UserRole; schoolId: string },
+  ) {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+
+    const course = await this.courseRepo.findOne({
+      where: { id: assignment.courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    if (requester.role !== UserRole.ADMIN && course.teacherId !== requester.sub) {
+      throw new BadRequestException('无权查看该作业的未提交列表');
+    }
+
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          u.id AS "studentId",
+          u.name AS "studentName",
+          u.account AS "studentAccount"
+        FROM course_students cs
+        INNER JOIN users u ON u.id = cs.student_id
+        LEFT JOIN submissions s
+          ON s.assignment_id = $1
+          AND s.student_id = cs.student_id
+        WHERE cs.course_id = $2
+          AND cs.status = 'ENROLLED'
+          AND s.id IS NULL
+        ORDER BY u.name NULLS LAST, u.account NULLS LAST
+      `,
+      [assignmentId, assignment.courseId],
+    );
+
+    return {
+      items: rows.map((row: any) => ({
+        studentId: row.studentId,
+        name: row.studentName ?? null,
+        account: row.studentAccount ?? null,
+      })),
+    };
+  }
+
   async listLatestSubmissionsForStudent(
     assignmentId: string,
     studentId: string,
