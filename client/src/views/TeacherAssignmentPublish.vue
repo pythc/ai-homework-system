@@ -168,14 +168,12 @@
               v-mathjax
               v-html="getQuestionPreview(item)"
             />
-          </div>
-          <div class="qb-item-meta">
             <button
-              class="qb-action"
+              class="qb-action qb-detail-btn"
               type="button"
-              @click="viewDetail(item.id)"
+              @click.stop="viewDetail(item.id)"
             >
-              查看详情
+              详情
             </button>
           </div>
         </div>
@@ -289,6 +287,7 @@ const totalScore = ref(100)
 
 const selectedQuestionIds = ref(new Set())
 const selectedQuestionOrder = ref([])
+const isHydrating = ref(true)
 const questionWeights = ref({})
 const expandQuestionList = ref(false)
 const step = ref(1)
@@ -309,7 +308,7 @@ const hydrateFilters = async () => {
   const chapterId = String(route.query.chapterId ?? '') || stored?.chapterId || ''
   if (!courseId) return
   selectedCourseId.value = courseId
-  await handleCourseChange()
+  await handleCourseChange({ keepSelection: true })
   selectedTextbookId.value = textbookId || ''
   selectedChapterId.value = chapterId || ''
 }
@@ -338,7 +337,7 @@ const hydrateForm = async () => {
     const payload = JSON.parse(raw)
     if (payload?.selectedCourseId) {
       selectedCourseId.value = payload.selectedCourseId
-      await handleCourseChange()
+      await handleCourseChange({ keepSelection: true })
     }
     selectedTextbookId.value = payload?.selectedTextbookId ?? selectedTextbookId.value
     selectedChapterId.value = payload?.selectedChapterId ?? selectedChapterId.value
@@ -361,6 +360,11 @@ const hydrateForm = async () => {
     selectedQuestionOrder.value = order.length ? order : ids
     questionWeights.value = payload?.questionWeights ?? {}
     expandQuestionList.value = payload?.expandQuestionList ?? false
+
+    const stepFromQuery = Number(route.query.step ?? 0)
+    if ([1, 2, 3].includes(stepFromQuery)) {
+      step.value = stepFromQuery
+    }
   } catch {
     // ignore
   }
@@ -388,11 +392,14 @@ const persistForm = () => {
 onMounted(async () => {
   await refreshProfile()
   await fetchCourses()
+  isHydrating.value = true
   await hydrateFilters()
   await hydrateForm()
+  isHydrating.value = false
 })
 
 watch([selectedCourseId, selectedTextbookId, selectedChapterId], () => {
+  if (isHydrating.value) return
   persistFilters()
 })
 
@@ -416,6 +423,7 @@ watch(
     expandQuestionList,
   ],
   () => {
+    if (isHydrating.value) return
     persistForm()
   },
   { deep: true },
@@ -430,10 +438,14 @@ const fetchCourses = async () => {
   }
 }
 
-const handleCourseChange = async () => {
+const handleCourseChange = async (options = { keepSelection: false }) => {
   selectedTextbookId.value = ''
   selectedChapterId.value = ''
-  selectedQuestionIds.value = new Set()
+  if (!options.keepSelection) {
+    selectedQuestionIds.value = new Set()
+    selectedQuestionOrder.value = []
+    questionWeights.value = {}
+  }
   questionError.value = ''
   if (!selectedCourseId.value) {
     textbooks.value = []
@@ -734,7 +746,16 @@ const getWeightLabel = (question) => {
 }
 
 const viewDetail = (questionId) => {
-  router.push(`/teacher/question-bank/questions/${questionId}`)
+  router.push({
+    path: `/teacher/question-bank/questions/${questionId}`,
+    query: {
+      from: 'publish',
+      step: String(step.value),
+      courseId: selectedCourseId.value || undefined,
+      textbookId: selectedTextbookId.value || undefined,
+      chapterId: selectedChapterId.value || undefined,
+    },
+  })
 }
 
 const handlePublish = async () => {
@@ -890,6 +911,11 @@ const handlePublish = async () => {
 }
 
 .qb-title-text {
+  white-space: nowrap;
+}
+
+.qb-detail-btn {
+  margin-left: auto;
   white-space: nowrap;
 }
 

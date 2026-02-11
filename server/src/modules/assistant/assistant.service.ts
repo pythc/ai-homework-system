@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { AssistantChatDto } from './dto/assistant-chat.dto';
 import { AssistantStatsDto } from './dto/assistant-stats.dto';
 import { ScoreEntity } from '../manual-grading/entities/score.entity';
@@ -170,18 +170,26 @@ export class AssistantService {
     }
 
     const weekStart = this.getWeekStartKey();
-    let record = await this.usageRepo.findOne({
-      where: { userId: user.sub, weekStart },
-    });
-
-    if (!record) {
-      record = this.usageRepo.create({
-        userId: user.sub,
-        role: user.role,
-        weekStart,
-        usedTokens: 0,
+    let record: AssistantTokenUsageEntity | null = null;
+    try {
+      record = await this.usageRepo.findOne({
+        where: { userId: user.sub, weekStart },
       });
-      record = await this.usageRepo.save(record);
+
+      if (!record) {
+        record = this.usageRepo.create({
+          userId: user.sub,
+          role: user.role,
+          weekStart,
+          usedTokens: 0,
+        });
+        record = await this.usageRepo.save(record);
+      }
+    } catch (err) {
+      if (err instanceof QueryFailedError) {
+        return { allowed: false, usedTokens: 0, limitTokens: 0 };
+      }
+      throw err;
     }
 
     const limitTokens =
@@ -235,20 +243,27 @@ export class AssistantService {
     if (!tokens) return;
 
     const weekStart = this.getWeekStartKey();
-    let record = await this.usageRepo.findOne({
-      where: { userId: user.sub, weekStart },
-    });
-    if (!record) {
-      record = this.usageRepo.create({
-        userId: user.sub,
-        role: user.role,
-        weekStart,
-        usedTokens: 0,
+    try {
+      let record = await this.usageRepo.findOne({
+        where: { userId: user.sub, weekStart },
       });
+      if (!record) {
+        record = this.usageRepo.create({
+          userId: user.sub,
+          role: user.role,
+          weekStart,
+          usedTokens: 0,
+        });
+      }
+      record.usedTokens += tokens;
+      record.updatedAt = new Date();
+      await this.usageRepo.save(record);
+    } catch (err) {
+      if (err instanceof QueryFailedError) {
+        return;
+      }
+      throw err;
     }
-    record.usedTokens += tokens;
-    record.updatedAt = new Date();
-    await this.usageRepo.save(record);
   }
 
   async getStats(dto: AssistantStatsDto, user: AssistantUserPayload) {
