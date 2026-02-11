@@ -48,6 +48,30 @@ export class CourseController {
     return this.courseService.getCourse(courseId, req.user ?? {});
   }
 
+  @Get(':courseId/summary')
+  async getCourseSummary(
+    @Param('courseId') courseId: string,
+    @Req() req: { user?: { sub?: string; role?: UserRole; schoolId?: string } },
+  ) {
+    return this.courseService.getCourseSummary(courseId, req.user ?? {});
+  }
+
+  @Get(':courseId/students')
+  async listCourseStudents(
+    @Param('courseId') courseId: string,
+    @Req() req: { user?: { sub?: string; role?: UserRole; schoolId?: string } },
+  ) {
+    return this.courseService.listCourseStudents(courseId, req.user ?? {});
+  }
+
+  @Get(':courseId/gradebook')
+  async getCourseGradebook(
+    @Param('courseId') courseId: string,
+    @Req() req: { user?: { sub?: string; role?: UserRole; schoolId?: string } },
+  ) {
+    return this.courseService.getCourseGradebook(courseId, req.user ?? {});
+  }
+
   @Patch(':courseId')
   async updateCourse(
     @Param('courseId') courseId: string,

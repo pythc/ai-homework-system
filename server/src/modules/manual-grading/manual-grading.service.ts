@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
 import { UpdateGradingDto } from './dto/update-grading.dto';
 import { GraderType, ScoreEntity } from './entities/score.entity';
@@ -110,25 +110,179 @@ export class ManualGradingService {
         's.id AS "scoreId"',
         's.totalScore AS "totalScore"',
         's.updatedAt AS "updatedAt"',
+        's.scoreDetail AS "scoreDetail"',
         'v.id AS "submissionVersionId"',
         'v.assignmentId AS "assignmentId"',
         'a.title AS "assignmentTitle"',
+        'a.course_id AS "courseId"',
+        'a.total_score AS "assignmentTotalScore"',
+        'c.name AS "courseName"',
+      ])
+      .getRawMany();
+
+    const snapshotIds = Array.from(
+      new Set(
+        rows
+          .map((row: any) => row.scoreDetail?.assignmentSnapshotId)
+          .filter(Boolean),
+      ),
+    );
+    const snapshots = snapshotIds.length
+      ? await this.snapshotRepo.find({ where: { id: In(snapshotIds) } })
+      : [];
+    const snapshotMap = new Map(
+      snapshots.map((snapshot) => [
+        snapshot.id,
+        this.buildSnapshotInfo(snapshot),
+      ]),
+    );
+
+    const grouped = new Map<
+      string,
+      {
+        assignmentId: string;
+        assignmentTitle: string;
+        courseId: string;
+        courseName: string | null;
+        assignmentTotalScore: number;
+        weightedTotal: number;
+        updatedAt: Date;
+      }
+    >();
+
+    for (const row of rows) {
+      const assignmentId = row.assignmentId;
+      const assignmentTotalScore = Number(row.assignmentTotalScore ?? 0);
+      const detail = row.scoreDetail ?? {};
+      const snapshotInfo = snapshotMap.get(detail.assignmentSnapshotId);
+      const questionIndex = this.resolveQuestionIndex(detail);
+      const maxScore = snapshotInfo?.questionMaxScore.get(questionIndex) ?? 0;
+      const weight =
+        snapshotInfo?.questionWeight.get(questionIndex) ??
+        (snapshotInfo?.defaultWeight ?? 0);
+      const normalized = maxScore > 0 ? Number(row.totalScore ?? 0) / maxScore : 0;
+      const weighted =
+        assignmentTotalScore > 0
+          ? normalized * (weight / 100) * assignmentTotalScore
+          : 0;
+
+      if (!grouped.has(assignmentId)) {
+        grouped.set(assignmentId, {
+          assignmentId,
+          assignmentTitle: row.assignmentTitle,
+          courseId: row.courseId,
+          courseName: row.courseName ?? null,
+          assignmentTotalScore,
+          weightedTotal: 0,
+          updatedAt: row.updatedAt,
+        });
+      }
+      const group = grouped.get(assignmentId)!;
+      group.weightedTotal += weighted;
+      if (row.updatedAt && group.updatedAt < row.updatedAt) {
+        group.updatedAt = row.updatedAt;
+      }
+    }
+
+    return {
+      items: Array.from(grouped.values()).map((group) => ({
+        scoreId: group.assignmentId,
+        submissionVersionId: null,
+        assignmentId: group.assignmentId,
+        assignmentTitle: group.assignmentTitle,
+        courseId: group.courseId,
+        courseName: group.courseName ?? null,
+        totalScore: Number(group.weightedTotal.toFixed(2)),
+        updatedAt: group.updatedAt,
+      })),
+    };
+  }
+
+  async getAssignmentFinalGrading(studentId: string, assignmentId: string) {
+    if (!studentId || !assignmentId) {
+      throw new BadRequestException('缺少参数');
+    }
+
+    const rows = await this.scoreRepo
+      .createQueryBuilder('s')
+      .innerJoin(SubmissionVersionEntity, 'v', 'v.id = s.submissionVersionId')
+      .innerJoin(AssignmentEntity, 'a', 'a.id = v.assignmentId')
+      .innerJoin('courses', 'c', 'c.id = a.course_id')
+      .where('v.studentId = :studentId', { studentId })
+      .andWhere('v.assignmentId = :assignmentId', { assignmentId })
+      .andWhere('s.isFinal = :isFinal', { isFinal: true })
+      .select([
+        's.id AS "scoreId"',
+        's.totalScore AS "totalScore"',
+        's.updatedAt AS "updatedAt"',
+        's.scoreDetail AS "scoreDetail"',
+        'v.id AS "submissionVersionId"',
+        'v.questionId AS "questionId"',
+        'a.title AS "assignmentTitle"',
+        'a.total_score AS "assignmentTotalScore"',
         'a.course_id AS "courseId"',
         'c.name AS "courseName"',
       ])
       .getRawMany();
 
+    if (!rows.length) {
+      throw new NotFoundException('成绩未生成');
+    }
+
+    const assignmentTitle = rows[0].assignmentTitle;
+    const assignmentTotalScore = Number(rows[0].assignmentTotalScore ?? 0);
+    const courseId = rows[0].courseId;
+    const courseName = rows[0].courseName ?? null;
+
+    const snapshotId = rows[0].scoreDetail?.assignmentSnapshotId;
+    const snapshot = snapshotId
+      ? await this.snapshotRepo.findOne({ where: { id: snapshotId } })
+      : null;
+    const snapshotInfo = snapshot ? this.buildSnapshotInfo(snapshot) : null;
+
+    const weightedTotal = rows.reduce((sum: number, row: any) => {
+      const detail = row.scoreDetail ?? {};
+      const questionIndex = this.resolveQuestionIndex(detail);
+      const maxScore = snapshotInfo?.questionMaxScore.get(questionIndex) ?? 0;
+      const weight =
+        snapshotInfo?.questionWeight.get(questionIndex) ??
+        (snapshotInfo?.defaultWeight ?? 0);
+      const normalized = maxScore > 0 ? Number(row.totalScore ?? 0) / maxScore : 0;
+      return sum + normalized * (weight / 100) * assignmentTotalScore;
+    }, 0);
+
+    const questions = rows.map((row: any) => {
+      const detail = row.scoreDetail ?? {};
+      const questionIndex = this.resolveQuestionIndex(detail);
+      const maxScore = snapshotInfo?.questionMaxScore.get(questionIndex) ?? 0;
+      const weight =
+        snapshotInfo?.questionWeight.get(questionIndex) ??
+        (snapshotInfo?.defaultWeight ?? 0);
+      const questionPrompt = snapshotInfo?.questionPrompt.get(questionIndex) ?? '';
+      return {
+        questionId: row.questionId,
+        questionIndex,
+        promptText: questionPrompt,
+        weight,
+        maxScore,
+        score: Number(row.totalScore ?? 0),
+        source: detail?.source ?? null,
+        items: detail?.items ?? [],
+        finalComment: detail?.finalComment ?? null,
+      };
+    });
+
     return {
-      items: rows.map((row: any) => ({
-        scoreId: row.scoreId,
-        submissionVersionId: row.submissionVersionId,
-        assignmentId: row.assignmentId,
-        assignmentTitle: row.assignmentTitle,
-        courseId: row.courseId,
-        courseName: row.courseName ?? null,
-        totalScore: Number(row.totalScore),
-        updatedAt: row.updatedAt,
-      })),
+      assignmentId,
+      assignmentTitle,
+      courseId,
+      courseName,
+      totalScore: assignmentTotalScore,
+      weightedScore: Number(weightedTotal.toFixed(2)),
+      updatedAt: rows
+        .map((row: any) => row.updatedAt)
+        .reduce((max: Date, cur: Date) => (cur > max ? cur : max)),
+      questions,
     };
   }
 
@@ -193,6 +347,60 @@ export class ManualGradingService {
     }
 
     return rubricMap;
+  }
+
+  private buildSnapshotInfo(snapshot: AssignmentSnapshotEntity) {
+    const snapshotPayload = snapshot.snapshot as {
+      questions?: Array<{
+        questionIndex?: number;
+        prompt?: { text?: string };
+        rubric?: Array<{ rubricItemKey?: string; maxScore?: number }>;
+        weight?: number;
+      }>;
+    };
+    const questions = Array.isArray(snapshotPayload.questions)
+      ? snapshotPayload.questions
+      : [];
+    const questionMaxScore = new Map<number, number>();
+    const questionWeight = new Map<number, number>();
+    const questionPrompt = new Map<number, string>();
+    let weightSum = 0;
+    let count = 0;
+
+    for (const question of questions) {
+      const index = Number(question.questionIndex);
+      if (!Number.isFinite(index)) {
+        continue;
+      }
+      count += 1;
+      const rubricItems = Array.isArray(question.rubric)
+        ? question.rubric
+        : [];
+      const maxScore = rubricItems.reduce((acc, item) => {
+        const max = typeof item?.maxScore === 'number' ? item.maxScore : 0;
+        return acc + max;
+      }, 0);
+      questionMaxScore.set(index, maxScore);
+      const weight = Number(question.weight ?? 0);
+      if (Number.isFinite(weight) && weight > 0) {
+        questionWeight.set(index, weight);
+        weightSum += weight;
+      }
+      questionPrompt.set(index, question.prompt?.text ?? '');
+    }
+
+    let defaultWeight = 0;
+    if (count > 0 && weightSum === 0) {
+      defaultWeight = 100 / count;
+    }
+    return { questionMaxScore, questionWeight, questionPrompt, defaultWeight };
+  }
+
+  private resolveQuestionIndex(scoreDetail: any) {
+    const items = Array.isArray(scoreDetail?.items) ? scoreDetail.items : [];
+    const first = items[0];
+    const index = Number(first?.questionIndex ?? scoreDetail?.questionIndex ?? 0);
+    return Number.isFinite(index) ? index : 0;
   }
 
   private validateItems(

@@ -33,6 +33,17 @@ export class SubmissionController {
     return this.submissionService.listAssignmentSubmissions(assignmentId, payload);
   }
 
+  @Get('by-assignment/:assignmentId/missing')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async listMissingByAssignment(
+    @Param('assignmentId') assignmentId: string,
+    @Req() req: { user?: { sub?: string; role?: UserRole; schoolId?: string } },
+  ) {
+    const payload = req.user as { sub: string; role: UserRole; schoolId: string };
+    return this.submissionService.listMissingSubmissions(assignmentId, payload);
+  }
+
   @Get('latest/:assignmentId')
   @UseGuards(JwtAuthGuard)
   async listLatestByAssignment(

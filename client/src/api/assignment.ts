@@ -20,6 +20,8 @@ export type TeacherAssignmentSummary = AssignmentSummary & {
   submissionCount: number
   gradedCount: number
   pendingCount: number
+  unsubmittedCount?: number
+  studentCount?: number
 }
 
 type TeacherAssignmentListResponse = {
@@ -30,6 +32,7 @@ export type AssignmentSnapshotQuestion = {
   questionIndex: number
   questionId: string
   prompt?: { text?: string }
+  parentPrompt?: { text?: string }
   standardAnswer?: { text?: string }
   rubric?: Array<{ rubricItemKey: string; maxScore: number; criteria: string }>
 }
@@ -92,10 +95,38 @@ export async function createAssignment(payload: CreateAssignmentRequest) {
   })
 }
 
-export async function publishAssignment(assignmentId: string) {
+export async function updateAssignmentMeta(
+  assignmentId: string,
+  payload: Partial<CreateAssignmentRequest>,
+) {
+  const token = getAccessToken()
+  return httpRequest<AssignmentSummary>(`/assignments/${assignmentId}`, {
+    method: 'PATCH',
+    token,
+    body: payload,
+  })
+}
+
+export async function replaceAssignmentQuestions(
+  assignmentId: string,
+  selectedQuestionIds: string[],
+) {
+  const token = getAccessToken()
+  return httpRequest<AssignmentSummary>(`/assignments/${assignmentId}/questions`, {
+    method: 'PUT',
+    token,
+    body: { selectedQuestionIds },
+  })
+}
+
+export async function publishAssignment(
+  assignmentId: string,
+  payload?: { questionWeights: Array<{ questionId: string; weight: number }> },
+) {
   const token = getAccessToken()
   return httpRequest<{ assignment: AssignmentSummary }>(`/assignments/${assignmentId}/publish`, {
     method: 'POST',
     token,
+    body: payload,
   })
 }

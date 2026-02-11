@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MinLength } from 'class-validator';
 import { AssignmentStatus } from '../entities/assignment.entity';
 
 export class UpdateAssignmentDto {
@@ -22,4 +22,8 @@ export class UpdateAssignmentDto {
   @IsOptional()
   @IsBoolean()
   aiEnabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  totalScore?: number;
 }

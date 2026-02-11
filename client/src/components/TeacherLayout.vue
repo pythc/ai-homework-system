@@ -18,6 +18,13 @@
           个人主页
         </RouterLink>
         <RouterLink
+          to="/teacher/courses"
+          class="nav-item"
+          :class="{ active: isActive('/teacher/courses') }"
+        >
+          我的课程
+        </RouterLink>
+        <RouterLink
           to="/teacher/grading"
           class="nav-item"
           :class="{ active: isActive('/teacher/grading') }"
