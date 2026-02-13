@@ -8,9 +8,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'crypto';
-import * as xlsx from 'xlsx';
+import ExcelJS from 'exceljs';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { AuthSessionEntity } from './entities/auth-session.entity';
 import { AccountType, UserEntity, UserRole, UserStatus } from './entities/user.entity';
@@ -121,13 +121,34 @@ export class AuthService {
     return saved;
   }
 
-  async registerBulkFromExcel(buffer: Buffer, schoolId: string) {
-    const workbook = xlsx.read(buffer, { type: 'buffer' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = xlsx.utils.sheet_to_json(sheet, {
-      header: 1,
-      defval: '',
-    }) as Array<Array<unknown>>;
+  async registerBulkFromExcel(
+    buffer: Buffer,
+    schoolId: string,
+    extension: string,
+  ) {
+    let rows: Array<Array<unknown>> = [];
+
+    if (extension !== '.xlsx') {
+      throw new BadRequestException('仅支持 .xlsx 文件');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      rows = [];
+    } else {
+      sheet.eachRow({ includeEmpty: true }, (row) => {
+        const values = Array.isArray(row.values) ? row.values : [];
+        const normalized = values.slice(1).map((cell) => {
+          if (cell && typeof cell === 'object' && 'text' in cell) {
+            return (cell as { text?: string }).text ?? '';
+          }
+          return cell ?? '';
+        });
+        rows.push(normalized);
+      });
+    }
 
     const results = {
       total: Math.max(rows.length - 1, 0),
