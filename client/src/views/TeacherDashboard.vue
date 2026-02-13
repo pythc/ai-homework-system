@@ -128,17 +128,11 @@ const courseGroups = computed(() => {
   return Array.from(map.values())
 })
 
-const gradingTotal = computed(() => gradingList.value.length)
-
 const goGrading = (assignmentId: string, courseId?: string) => {
   router.push({
     path: `/teacher/grading/${assignmentId}`,
     query: courseId ? { courseId } : undefined,
   })
-}
-
-const goGradingOverview = () => {
-  router.push('/teacher/grading')
 }
 
 const goCourses = () => {

@@ -167,10 +167,12 @@ const buildCellMap = (cells: any[]) => {
         ? 'AI'
         : null
     const key = `${cell.assignmentId}:${cell.questionId}`
-    if (!map[cell.studentId]) {
-      map[cell.studentId] = {}
+    const studentId = cell.studentId
+    if (!studentId) return
+    if (!map[studentId]) {
+      map[studentId] = {}
     }
-    map[cell.studentId][key] = {
+    map[studentId][key] = {
       submissionVersionId: cell.submissionVersionId,
       assignmentId: cell.assignmentId,
       questionId: cell.questionId,
