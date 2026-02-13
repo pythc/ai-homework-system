@@ -13,6 +13,9 @@ import StudentScoreDetail from '../views/StudentScoreDetail.vue'
 import StudentAssistant from '../views/StudentAssistant.vue'
 import StudentAssignmentSubmit from '../views/StudentAssignmentSubmit.vue'
 import TeacherDashboard from '../views/TeacherDashboard.vue'
+import TeacherCourses from '../views/TeacherCourses.vue'
+import TeacherCourseOverview from '../views/TeacherCourseOverview.vue'
+import TeacherCourseGradebook from '../views/TeacherCourseGradebook.vue'
 import TeacherAssignmentPublish from '../views/TeacherAssignmentPublish.vue'
 import TeacherGrading from '../views/TeacherGrading.vue'
 import TeacherGradingOverview from '../views/TeacherGradingOverview.vue'
@@ -72,7 +75,7 @@ const routes: RouteRecordRaw[] = [
     component: StudentScoresCourse,
   },
   {
-    path: '/student/scores/:submissionVersionId',
+    path: '/student/scores/:assignmentId',
     component: StudentScoreDetail,
   },
   {
@@ -83,6 +86,18 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/teacher',
     component: TeacherDashboard,
+  },
+  {
+    path: '/teacher/courses',
+    component: TeacherCourses,
+  },
+  {
+    path: '/teacher/courses/:courseId',
+    component: TeacherCourseOverview,
+  },
+  {
+    path: '/teacher/courses/:courseId/gradebook',
+    component: TeacherCourseGradebook,
   },
   {
     path: '/teacher/assignments/publish',

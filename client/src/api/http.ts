@@ -25,6 +25,26 @@ function isAuthPath(path: string) {
   return path.includes('/auth/login') || path.includes('/auth/refresh')
 }
 
+function decodeJwtPayload(token: string): { exp?: number } | null {
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    const json = atob(padded)
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
+function isExpiringSoon(token: string, thresholdSeconds = 120) {
+  const payload = decodeJwtPayload(token)
+  if (!payload?.exp) return false
+  const now = Math.floor(Date.now() / 1000)
+  return payload.exp - now <= thresholdSeconds
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise
   refreshPromise = (async () => {
@@ -73,7 +93,13 @@ export async function httpRequest<T>(path: string, options: RequestOptions = {})
   if (body !== undefined && !isFormData && !finalHeaders.has('Content-Type')) {
     finalHeaders.set('Content-Type', 'application/json')
   }
-  const resolvedToken = token ?? getAccessToken()
+  let resolvedToken = token ?? getAccessToken()
+  if (!skipRefresh && !isAuthPath(path) && resolvedToken && isExpiringSoon(resolvedToken)) {
+    const newToken = await refreshAccessToken()
+    if (newToken) {
+      resolvedToken = newToken
+    }
+  }
   if (resolvedToken && !finalHeaders.has('Authorization')) {
     finalHeaders.set('Authorization', `Bearer ${resolvedToken}`)
   }

@@ -33,12 +33,14 @@
             </div>
             <div class="task-deadline">{{ task.deadline }}</div>
           </div>
-          <div class="task-progress">
-            <div class="progress-meta">
-              <span>{{ task.level }}</span>
+          <div class="task-foot">
+            <div class="task-progress">
+              <div class="progress-meta">
+                <span>{{ task.level }}</span>
+              </div>
             </div>
+            <button class="task-action" @click="goSubmissions(task.id)">查看提交</button>
           </div>
-          <button class="task-action" @click="goSubmissions(task.id)">查看提交</button>
         </div>
         <div v-if="!gradingList.length" class="task-empty">
           {{ gradingError || '暂无作业' }}
@@ -132,5 +134,16 @@ onMounted(async () => {
   font-size: 12px;
   color: rgba(26, 29, 51, 0.7);
   cursor: pointer;
+}
+
+.task-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-card .task-progress {
+  margin-bottom: 0;
 }
 </style>

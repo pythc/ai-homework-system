@@ -17,7 +17,10 @@
     </template>
 
     <section class="panel glass qb-detail">
-      <div class="panel-title">题目</div>
+      <div class="panel-title panel-title-row">
+        <div>题目</div>
+        <button class="ghost-action" @click="goBack">返回</button>
+      </div>
       <div v-if="question" class="detail-body">
         <div class="detail-row" />
 
@@ -82,13 +85,14 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getQuestionBankQuestion } from '../api/questionBank'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 const route = useRoute()
+const router = useRouter()
 const loadError = ref('')
 const question = ref(null)
 const questionKey = computed(() => String(route.params.questionId ?? ''))
@@ -129,4 +133,39 @@ const renderTextHtml = (value) => {
 }
 
 const renderMedia = (value) => normalizeTextBlock(value).media
+
+const goBack = () => {
+  if (route.query.from === 'publish') {
+    router.push({
+      path: '/teacher/assignments/publish',
+      query: {
+        step: route.query.step,
+        courseId: route.query.courseId,
+        textbookId: route.query.textbookId,
+        chapterId: route.query.chapterId,
+      },
+    })
+    return
+  }
+  router.back()
+}
 </script>
+
+<style scoped>
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ghost-action {
+  border: none;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.7);
+  cursor: pointer;
+}
+</style>

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { AssignmentService } from './assignment.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
+import { PublishAssignmentDto } from './dto/publish-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { UpdateAssignmentQuestionsDto } from './dto/update-assignment-questions.dto';
 import { JwtAuthGuard } from '../auth/auth.guard';
@@ -71,8 +72,11 @@ export class AssignmentController {
   }
 
   @Post(':assignmentId/publish')
-  async publishAssignment(@Param('assignmentId') assignmentId: string) {
-    return this.assignmentService.publishAssignment(assignmentId);
+  async publishAssignment(
+    @Param('assignmentId') assignmentId: string,
+    @Body() body: PublishAssignmentDto,
+  ) {
+    return this.assignmentService.publishAssignment(assignmentId, body);
   }
 
   @Get(':assignmentId/snapshot')

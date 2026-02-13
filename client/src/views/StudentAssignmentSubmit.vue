@@ -9,26 +9,49 @@
     <section class="panel glass">
       <div class="panel-title">作业提交</div>
       <div v-if="loading" class="task-empty">加载题目中...</div>
-      <div v-else class="submit-list">
-        <div v-for="question in questions" :key="question.questionId" class="submit-card">
-          <div class="submit-title">
-            第 {{ question.questionIndex }} 题
-          </div>
+      <div v-else class="submit-layout">
+        <aside class="question-sidebar">
+          <div class="sidebar-title">题号</div>
+          <button
+            v-for="(question, index) in questions"
+            :key="question.questionId"
+            class="sidebar-item"
+            :class="{
+              active: index === currentIndex,
+              done: Boolean(submittedMap[question.questionId]),
+            }"
+            @click="goQuestion(index)"
+          >
+            {{ question.questionIndex }}
+          </button>
+        </aside>
+
+        <div class="submit-list">
+          <div v-if="currentQuestion" class="submit-card">
+            <div class="submit-title">
+              第 {{ currentQuestion.questionIndex }} 题
+            </div>
+          <div
+            v-if="currentQuestion.parentPromptText"
+            class="submit-prompt parent-prompt"
+            v-mathjax
+            v-html="renderTextHtml(currentQuestion.parentPromptText)"
+          />
           <div
             class="submit-prompt"
             v-mathjax
-            v-html="renderTextHtml(question.promptText)"
+            v-html="renderTextHtml(currentQuestion.promptText)"
           />
-          <div v-if="question.promptMedia.length" class="submit-media">
+          <div v-if="currentQuestion.promptMedia.length" class="submit-media">
             <img
-              v-for="(img, index) in question.promptMedia"
+              v-for="(img, index) in currentQuestion.promptMedia"
               :key="index"
               :src="img.url"
               :alt="img.caption || 'image'"
             />
           </div>
           <textarea
-            v-model="answers[question.questionId]"
+            v-model="answers[currentQuestion.questionId]"
             class="submit-textarea"
             placeholder="输入文字答案（可留空，仅上传图片也可以）"
             :disabled="isFinalized"
@@ -39,40 +62,55 @@
               accept="image/*"
               multiple
               :disabled="isFinalized"
-              @change="onFileChange($event, question.questionId)"
+              @change="onFileChange($event, currentQuestion.questionId)"
             />
             <div class="submit-upload-hint">
               每题最多 4 张图片
             </div>
           </div>
-          <div v-if="getFileCount(question.questionId) > 0" class="submit-files">
-            已选择 {{ getFileCount(question.questionId) }} 张图片
+          <div v-if="getFileCount(currentQuestion.questionId) > 0" class="submit-files">
+            已选择 {{ getFileCount(currentQuestion.questionId) }} 张图片
           </div>
 
-          <div v-if="submittedMap[question.questionId]" class="submit-preview">
+          <div v-if="submittedMap[currentQuestion.questionId]" class="submit-preview">
             <div class="preview-title">已提交内容</div>
-            <div v-if="submittedMap[question.questionId]?.contentText" class="preview-text">
-              {{ submittedMap[question.questionId]?.contentText }}
+            <div v-if="submittedMap[currentQuestion.questionId]?.contentText" class="preview-text">
+              {{ submittedMap[currentQuestion.questionId]?.contentText }}
             </div>
             <div v-else class="preview-empty">未填写文字答案</div>
-            <div v-if="submittedMap[question.questionId]?.fileUrls?.length" class="preview-media">
+            <div v-if="submittedMap[currentQuestion.questionId]?.fileUrls?.length" class="preview-media">
               <img
-                v-for="(img, index) in submittedMap[question.questionId]?.fileUrls ?? []"
+                v-for="(img, index) in submittedMap[currentQuestion.questionId]?.fileUrls ?? []"
                 :key="index"
                 :src="resolveFileUrl(img)"
                 alt="submission image"
               />
             </div>
           </div>
-
-        </div>
-        <div class="submit-actions">
-          <button class="task-action" :disabled="submitting || isFinalized" @click="submit">
-            {{ isFinalized ? '已评分不可再提交' : submitting ? '提交中...' : '提交作业' }}
-          </button>
-          <div v-if="error" class="submit-error">{{ error }}</div>
-          <div v-if="success" class="submit-success">提交成功</div>
-          <div v-if="isFinalized" class="submit-lock">老师已确认最终成绩，无法再次提交。</div>
+          </div>
+          <div v-if="questions.length > 1" class="question-nav">
+            <button class="nav-btn" :disabled="currentIndex === 0" @click="prevQuestion">
+              上一题
+            </button>
+            <div class="nav-info">
+              {{ currentIndex + 1 }} / {{ questions.length }}
+            </div>
+            <button
+              class="nav-btn"
+              :disabled="currentIndex === questions.length - 1"
+              @click="nextQuestion"
+            >
+              下一题
+            </button>
+          </div>
+          <div class="submit-actions">
+            <button class="task-action" :disabled="submitting || isFinalized" @click="submit">
+              {{ isFinalized ? '已评分不可再提交' : submitting ? '提交中...' : '提交作业' }}
+            </button>
+            <div v-if="error" class="submit-error">{{ error }}</div>
+            <div v-if="success" class="submit-success">提交成功</div>
+            <div v-if="isFinalized" class="submit-lock">老师已确认最终成绩，无法再次提交。</div>
+          </div>
         </div>
       </div>
     </section>
@@ -100,6 +138,7 @@ type SubmitQuestion = {
   questionId: string
   questionIndex: number
   promptText: string
+  parentPromptText?: string
   promptMedia: Array<{ url: string; caption?: string }>
 }
 
@@ -110,6 +149,7 @@ type SubmittedItem = {
 }
 
 const questions = ref<SubmitQuestion[]>([])
+const currentIndex = ref(0)
 const answers = ref<Record<string, string>>({})
 const filesByQuestion = ref<Record<string, File[]>>({})
 const submittedMap = ref<Record<string, SubmittedItem>>({})
@@ -155,13 +195,16 @@ const loadSnapshot = async () => {
     console.log('snapshotQuestions', snapshotQuestions)
     questions.value = snapshotQuestions.map((item) => {
       const prompt = normalizePrompt(item.prompt)
+      const parentPrompt = normalizePrompt((item as any).parentPrompt)
       return {
         questionId: item.questionId,
         questionIndex: item.questionIndex,
         promptText: prompt.text,
+        parentPromptText: parentPrompt.text || '',
         promptMedia: prompt.media,
       }
     })
+    currentIndex.value = 0
     questions.value.forEach((question) => {
       if (!(question.questionId in answers.value)) {
         answers.value[question.questionId] = ''
@@ -205,6 +248,21 @@ const onFileChange = (event: Event, questionId: string) => {
 
 const getFileCount = (questionId: string) =>
   filesByQuestion.value[questionId]?.length ?? 0
+
+const currentQuestion = computed(() => questions.value[currentIndex.value] ?? null)
+
+const prevQuestion = () => {
+  if (currentIndex.value > 0) currentIndex.value -= 1
+}
+
+const nextQuestion = () => {
+  if (currentIndex.value < questions.value.length - 1) currentIndex.value += 1
+}
+
+const goQuestion = (index: number) => {
+  if (index < 0 || index >= questions.value.length) return
+  currentIndex.value = index
+}
 
 const validate = () => {
   for (const question of questions.value) {
@@ -269,6 +327,51 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.submit-layout {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.question-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.sidebar-title {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
+  font-weight: 600;
+}
+
+.sidebar-item {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 0;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(26, 29, 51, 0.7);
+  cursor: pointer;
+}
+
+.sidebar-item.active {
+  background: linear-gradient(135deg, rgba(90, 140, 255, 0.85), rgba(120, 200, 230, 0.85));
+  color: #ffffff;
+}
+
+.sidebar-item.done {
+  border: 1px solid rgba(120, 200, 170, 0.6);
+}
+
 .submit-list {
   display: grid;
   gap: 16px;
@@ -345,6 +448,50 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.7);
   display: grid;
   gap: 8px;
+}
+
+.parent-prompt {
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+
+.question-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.nav-btn {
+  border: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+}
+
+.nav-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.nav-info {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
+}
+
+@media (max-width: 960px) {
+  .submit-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .question-sidebar {
+    position: static;
+    grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  }
 }
 
 .preview-title {

@@ -16,7 +16,32 @@
       </div>
     </template>
 
-    <section class="panel glass">
+    <section class="panel glass step-panel">
+      <div class="panel-title">发布流程</div>
+      <div class="stepper">
+        <button class="step-item" :class="{ active: step === 1 }" @click="step = 1">
+          1. 作业信息
+        </button>
+        <button
+          class="step-item"
+          :class="{ active: step === 2 }"
+          :disabled="!canEnterStep2"
+          @click="step = 2"
+        >
+          2. 题库筛选
+        </button>
+        <button
+          class="step-item"
+          :class="{ active: step === 3 }"
+          :disabled="!canEnterStep3"
+          @click="step = 3"
+        >
+          3. 权重与发布
+        </button>
+      </div>
+    </section>
+
+    <section v-if="step === 1" class="panel glass">
       <div class="panel-title">作业信息</div>
       <div class="form-grid">
         <div class="form-row">
@@ -40,6 +65,12 @@
             <input v-model="deadline" type="datetime-local" />
           </div>
           <div class="form-field">
+            <label>作业总分</label>
+            <input v-model.number="totalScore" type="number" min="1" step="1" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-field">
             <label>AI 辅助批改</label>
             <div class="checkbox-row">
               <input id="ai-enabled" v-model="aiEnabled" type="checkbox" />
@@ -52,9 +83,14 @@
           <textarea v-model="description" placeholder="可选：填写作业要求或说明" />
         </div>
       </div>
+      <div class="step-actions">
+        <button class="primary-btn" type="button" :disabled="!canEnterStep2" @click="step = 2">
+          下一步
+        </button>
+      </div>
     </section>
 
-    <section class="panel glass">
+    <section v-if="step === 2" class="panel glass">
       <div class="panel-title">
         题库筛选
         <span class="badge">{{ selectedQuestionIds.size }} 题已选择</span>
@@ -92,7 +128,7 @@
           </div>
         </div>
       </div>
-      <div class="qb-list" style="margin-top: 14px;">
+      <div class="qb-list" :class="{ 'qb-list-scroll': !expandQuestionList }" style="margin-top: 14px;">
         <div
           v-for="item in visibleQuestions"
           :key="item.id"
@@ -126,16 +162,18 @@
               v-mathjax
               v-html="renderStemHtml(item)"
             />
-          </div>
-          <div class="qb-item-meta">
-            <!-- <span>{{ item.questionType }}</span>
-            <span>{{ item.nodeType }}</span> -->
+            <span
+              v-if="item.nodeType === 'LEAF' && getQuestionPreview(item)"
+              class="qb-preview-inline"
+              v-mathjax
+              v-html="getQuestionPreview(item)"
+            />
             <button
-              class="qb-action"
+              class="qb-action qb-detail-btn"
               type="button"
-              @click="viewDetail(item.id)"
+              @click.stop="viewDetail(item.id)"
             >
-              查看详情
+              详情
             </button>
           </div>
         </div>
@@ -143,18 +181,73 @@
           {{ questionError || '暂无题目' }}
         </div>
       </div>
+      <div v-if="filteredQuestions.length > 12" class="qb-footer">
+        <button class="qb-toggle" type="button" @click="expandQuestionList = !expandQuestionList">
+          {{ expandQuestionList ? '收起列表' : '展开全部' }}
+        </button>
+        <div class="helper-text">可滚动浏览更多题目</div>
+      </div>
+      <div class="step-actions">
+        <button class="primary-btn ghost" type="button" @click="step = 1">
+          上一步
+        </button>
+        <button class="primary-btn" type="button" :disabled="!canEnterStep3" @click="step = 3">
+          下一步
+        </button>
+      </div>
     </section>
 
-    <section class="panel glass">
+    <section v-if="step === 3" class="panel glass">
+      <div class="panel-title">
+        题目权重
+        <span class="badge">合计 {{ weightSum.toFixed(2) }}%</span>
+      </div>
+      <div v-if="!orderedSelectedQuestions.length" class="empty-box">请先选择题目</div>
+      <div v-else class="weight-list">
+        <div
+          v-for="(question, index) in orderedSelectedQuestions"
+          :key="question.id"
+          class="weight-row"
+        >
+          <div class="weight-title">
+            <div class="weight-index">第 {{ index + 1 }} 题</div>
+            <div v-if="getParentPromptText(question)" class="weight-parent" v-mathjax>
+              <div v-html="getParentPromptText(question)" />
+            </div>
+            <div class="weight-label" v-mathjax v-html="getWeightLabel(question)" />
+          </div>
+          <input
+            v-model.number="questionWeights[question.id]"
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            class="weight-input"
+          />
+          <span class="weight-suffix">%</span>
+        </div>
+        <div class="weight-actions">
+          <button class="primary-btn" type="button" @click="autoBalanceWeights">
+            平均分配
+          </button>
+          <span class="helper-text">权重合计需为 100%</span>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="step === 3" class="panel glass">
       <div class="panel-title">发布</div>
       <div class="form-actions">
         <button
           class="primary-btn"
           type="button"
-          :disabled="submitLoading"
+          :disabled="submitLoading || !canPublish"
           @click="handlePublish"
         >
           {{ submitLoading ? '发布中...' : '发布作业' }}
+        </button>
+        <button class="primary-btn ghost" type="button" @click="step = 2">
+          上一步
         </button>
         <span class="helper-text">发布后学生可在作业库看到</span>
       </div>
@@ -190,8 +283,14 @@ const title = ref('')
 const description = ref('')
 const deadline = ref('')
 const aiEnabled = ref(true)
+const totalScore = ref(100)
 
 const selectedQuestionIds = ref(new Set())
+const selectedQuestionOrder = ref([])
+const isHydrating = ref(true)
+const questionWeights = ref({})
+const expandQuestionList = ref(false)
+const step = ref(1)
 
 const questionError = ref('')
 const submitError = ref('')
@@ -199,6 +298,7 @@ const submitSuccess = ref('')
 const submitLoading = ref(false)
 
 const STORAGE_KEY = 'teacher.assignment.publish.filters'
+const FORM_KEY = 'teacher.assignment.publish.form'
 
 const hydrateFilters = async () => {
   const raw = sessionStorage.getItem(STORAGE_KEY)
@@ -208,7 +308,7 @@ const hydrateFilters = async () => {
   const chapterId = String(route.query.chapterId ?? '') || stored?.chapterId || ''
   if (!courseId) return
   selectedCourseId.value = courseId
-  await handleCourseChange()
+  await handleCourseChange({ keepSelection: true })
   selectedTextbookId.value = textbookId || ''
   selectedChapterId.value = chapterId || ''
 }
@@ -230,15 +330,104 @@ const persistFilters = () => {
   })
 }
 
+const hydrateForm = async () => {
+  const raw = sessionStorage.getItem(FORM_KEY)
+  if (!raw) return
+  try {
+    const payload = JSON.parse(raw)
+    if (payload?.selectedCourseId) {
+      selectedCourseId.value = payload.selectedCourseId
+      await handleCourseChange({ keepSelection: true })
+    }
+    selectedTextbookId.value = payload?.selectedTextbookId ?? selectedTextbookId.value
+    selectedChapterId.value = payload?.selectedChapterId ?? selectedChapterId.value
+    title.value = payload?.title ?? title.value
+    description.value = payload?.description ?? description.value
+    deadline.value = payload?.deadline ?? deadline.value
+    aiEnabled.value =
+      typeof payload?.aiEnabled === 'boolean' ? payload.aiEnabled : aiEnabled.value
+    totalScore.value =
+      typeof payload?.totalScore === 'number' ? payload.totalScore : totalScore.value
+    step.value = payload?.step ?? step.value
+
+    const ids = Array.isArray(payload?.selectedQuestionIds)
+      ? payload.selectedQuestionIds
+      : []
+    const order = Array.isArray(payload?.selectedQuestionOrder)
+      ? payload.selectedQuestionOrder
+      : []
+    selectedQuestionIds.value = new Set(ids)
+    selectedQuestionOrder.value = order.length ? order : ids
+    questionWeights.value = payload?.questionWeights ?? {}
+    expandQuestionList.value = payload?.expandQuestionList ?? false
+
+    const stepFromQuery = Number(route.query.step ?? 0)
+    if ([1, 2, 3].includes(stepFromQuery)) {
+      step.value = stepFromQuery
+    }
+  } catch {
+    // ignore
+  }
+}
+
+const persistForm = () => {
+  const payload = {
+    selectedCourseId: selectedCourseId.value,
+    selectedTextbookId: selectedTextbookId.value,
+    selectedChapterId: selectedChapterId.value,
+    title: title.value,
+    description: description.value,
+    deadline: deadline.value,
+    aiEnabled: aiEnabled.value,
+    totalScore: totalScore.value,
+    step: step.value,
+    selectedQuestionIds: Array.from(selectedQuestionIds.value),
+    selectedQuestionOrder: selectedQuestionOrder.value,
+    questionWeights: questionWeights.value,
+    expandQuestionList: expandQuestionList.value,
+  }
+  sessionStorage.setItem(FORM_KEY, JSON.stringify(payload))
+}
+
 onMounted(async () => {
   await refreshProfile()
   await fetchCourses()
+  isHydrating.value = true
   await hydrateFilters()
+  await hydrateForm()
+  isHydrating.value = false
 })
 
 watch([selectedCourseId, selectedTextbookId, selectedChapterId], () => {
+  if (isHydrating.value) return
   persistFilters()
 })
+
+watch(selectedQuestionIds, () => {
+  syncWeights()
+})
+
+watch(
+  [
+    selectedCourseId,
+    selectedTextbookId,
+    selectedChapterId,
+    title,
+    description,
+    deadline,
+    aiEnabled,
+    totalScore,
+    step,
+    selectedQuestionIds,
+    questionWeights,
+    expandQuestionList,
+  ],
+  () => {
+    if (isHydrating.value) return
+    persistForm()
+  },
+  { deep: true },
+)
 
 const fetchCourses = async () => {
   try {
@@ -249,10 +438,14 @@ const fetchCourses = async () => {
   }
 }
 
-const handleCourseChange = async () => {
+const handleCourseChange = async (options = { keepSelection: false }) => {
   selectedTextbookId.value = ''
   selectedChapterId.value = ''
-  selectedQuestionIds.value = new Set()
+  if (!options.keepSelection) {
+    selectedQuestionIds.value = new Set()
+    selectedQuestionOrder.value = []
+    questionWeights.value = {}
+  }
   questionError.value = ''
   if (!selectedCourseId.value) {
     textbooks.value = []
@@ -291,6 +484,15 @@ const chapterOptions = computed(() => {
     })
 })
 
+const chapterIdsByTextbook = computed(() => {
+  if (!selectedTextbookId.value) return new Set()
+  return new Set(
+    chapters.value
+      .filter((chapter) => chapter.textbookId === selectedTextbookId.value)
+      .map((chapter) => chapter.id),
+  )
+})
+
 const getQuestionLabel = (item) => {
   const title = item.title?.trim()
   if (title) return title
@@ -300,9 +502,11 @@ const getQuestionLabel = (item) => {
 }
 
 const filteredQuestions = computed(() => {
-  if (!selectedTextbookId.value || !selectedChapterId.value) return []
+  if (!selectedChapterId.value) return []
   return questions.value
-    .filter((item) => item.chapterId === selectedChapterId.value)
+    .filter((item) => {
+      return item.chapterId === selectedChapterId.value
+    })
     .map((item) => ({
       ...item,
       label: getQuestionLabel(item),
@@ -337,7 +541,7 @@ const flattenedQuestions = computed(() => {
 
 const visibleQuestions = computed(() => {
   const byId = new Map(flattenedQuestions.value.map((item) => [item.id, item]))
-  return flattenedQuestions.value.filter((item) => {
+  const list = flattenedQuestions.value.filter((item) => {
     let parentId = item.parentId ?? ''
     while (parentId) {
       if (!expandedIds.value.has(parentId)) return false
@@ -347,32 +551,46 @@ const visibleQuestions = computed(() => {
     }
     return true
   })
+  if (expandQuestionList.value) return list
+  return list.slice(0, 12)
 })
+
 
 const toggleQuestion = (id) => {
   const item = questions.value.find((q) => q.id === id)
   if (item?.nodeType !== 'LEAF') return
   const next = new Set(selectedQuestionIds.value)
+  const order = [...selectedQuestionOrder.value]
   if (next.has(id)) {
     next.delete(id)
+    const index = order.indexOf(id)
+    if (index >= 0) order.splice(index, 1)
   } else {
     next.add(id)
+    order.push(id)
   }
   selectedQuestionIds.value = next
+  selectedQuestionOrder.value = order
 }
 
 const selectAllVisible = () => {
   const next = new Set(selectedQuestionIds.value)
+  const order = [...selectedQuestionOrder.value]
   for (const item of visibleQuestions.value) {
     if (item.nodeType === 'LEAF') {
       next.add(item.id)
+      if (!order.includes(item.id)) {
+        order.push(item.id)
+      }
     }
   }
   selectedQuestionIds.value = next
+  selectedQuestionOrder.value = order
 }
 
 const clearSelection = () => {
   selectedQuestionIds.value = new Set()
+  selectedQuestionOrder.value = []
 }
 
 const toggleExpand = (questionId) => {
@@ -391,14 +609,153 @@ const getStemText = (item) => {
   return item.stem.text ?? ''
 }
 
+const getQuestionPreviewText = (item) => {
+  if (!item) return ''
+  const stem = getStemText(item)
+  if (stem) return stem
+  if (typeof item.prompt === 'string') return item.prompt
+  if (item.prompt?.text) return item.prompt.text
+  if (item.description) return item.description
+  return ''
+}
+
+const getQuestionPreview = (item) => {
+  const text = getQuestionPreviewText(item)
+  if (!text) return ''
+  return text.replace(/\n/g, '<br />')
+}
+
 const renderStemHtml = (item) => {
   const text = getStemText(item)
   if (!text) return ''
   return text.replace(/\n/g, '<br />')
 }
 
+const questionById = computed(() => new Map(questions.value.map((item) => [item.id, item])))
+
+const orderedSelectedQuestions = computed(() => {
+  const map = questionById.value
+  return selectedQuestionOrder.value
+    .map((id) => map.get(id))
+    .filter((item) => item && item.nodeType === 'LEAF')
+})
+
+const weightSum = computed(() =>
+  Object.values(questionWeights.value).reduce(
+    (sum, value) => sum + (Number(value) || 0),
+    0,
+  ),
+)
+
+const canEnterStep2 = computed(() => {
+  if (!selectedCourseId.value) return false
+  if (!title.value.trim()) return false
+  return true
+})
+
+const canEnterStep3 = computed(() => {
+  if (selectedQuestionIds.value.size > 0) return true
+  if (selectedQuestionOrder.value.length > 0) return true
+  return questions.value.some((item) => selectedQuestionIds.value.has(item.id))
+})
+
+const canPublish = computed(() => {
+  if (!selectedQuestionIds.value.size) return false
+  if (!Number.isFinite(Number(totalScore.value)) || Number(totalScore.value) <= 0) return false
+  return Math.abs(weightSum.value - 100) <= 0.01
+})
+
+const syncWeights = () => {
+  const ids = Array.from(selectedQuestionIds.value)
+  const next = { ...questionWeights.value }
+  let changed = false
+
+  for (const id of ids) {
+    if (next[id] === undefined) {
+      next[id] = 0
+      changed = true
+    }
+  }
+  for (const id of Object.keys(next)) {
+    if (!selectedQuestionIds.value.has(id)) {
+      delete next[id]
+      changed = true
+    }
+  }
+  const hasAny = ids.length > 0
+  const sum = Object.values(next).reduce((acc, val) => acc + (Number(val) || 0), 0)
+  if (hasAny && sum === 0) {
+    const equal = Number((100 / ids.length).toFixed(2))
+    ids.forEach((id, index) => {
+      next[id] =
+        index === ids.length - 1
+          ? Number((100 - equal * (ids.length - 1)).toFixed(2))
+          : equal
+    })
+    changed = true
+  }
+
+  if (changed) {
+    questionWeights.value = next
+  }
+
+  const order = selectedQuestionOrder.value.filter((id) =>
+    selectedQuestionIds.value.has(id),
+  )
+  if (order.length !== selectedQuestionOrder.value.length) {
+    selectedQuestionOrder.value = order
+  }
+}
+
+const autoBalanceWeights = () => {
+  const ids = [...selectedQuestionOrder.value].filter((id) =>
+    selectedQuestionIds.value.has(id),
+  )
+  if (!ids.length) return
+  const equal = Number((100 / ids.length).toFixed(2))
+  const next = {}
+  ids.forEach((id, index) => {
+    next[id] =
+      index === ids.length - 1
+        ? Number((100 - equal * (ids.length - 1)).toFixed(2))
+        : equal
+  })
+  questionWeights.value = next
+}
+
+const getParentPromptText = (question) => {
+  if (!question?.parentId) return ''
+  const map = questionById.value
+  let current = map.get(question.parentId)
+  while (current) {
+    const text =
+      (typeof current.stem === 'string' ? current.stem : current.stem?.text) ||
+      (typeof current.prompt === 'string' ? current.prompt : current.prompt?.text) ||
+      current.description ||
+      ''
+    if (text) return text.replace(/\n/g, '<br />')
+    current = current.parentId ? map.get(current.parentId) : null
+  }
+  return ''
+}
+
+const getWeightLabel = (question) => {
+  const text = getQuestionPreviewText(question)
+  if (!text) return getQuestionLabel(question)
+  return text.replace(/\n/g, '<br />')
+}
+
 const viewDetail = (questionId) => {
-  router.push(`/teacher/question-bank/questions/${questionId}`)
+  router.push({
+    path: `/teacher/question-bank/questions/${questionId}`,
+    query: {
+      from: 'publish',
+      step: String(step.value),
+      courseId: selectedCourseId.value || undefined,
+      textbookId: selectedTextbookId.value || undefined,
+      chapterId: selectedChapterId.value || undefined,
+    },
+  })
 }
 
 const handlePublish = async () => {
@@ -426,11 +783,31 @@ const handlePublish = async () => {
       title: title.value.trim(),
       description: description.value.trim() || undefined,
       deadline: deadline.value || undefined,
+      totalScore: Number(totalScore.value) || 100,
       aiEnabled: aiEnabled.value,
       selectedQuestionIds: Array.from(selectedQuestionIds.value),
     })
-    await publishAssignment(created.id)
+    const assignmentId = created.id
+    const weightsPayload = Array.from(selectedQuestionIds.value).map((id) => ({
+      questionId: id,
+      weight: Number(questionWeights.value[id] ?? 0),
+    }))
+    await publishAssignment(assignmentId, { questionWeights: weightsPayload })
     submitSuccess.value = '作业发布成功'
+    sessionStorage.removeItem(FORM_KEY)
+    selectedCourseId.value = ''
+    selectedTextbookId.value = ''
+    selectedChapterId.value = ''
+    title.value = ''
+    description.value = ''
+    deadline.value = ''
+    aiEnabled.value = true
+    totalScore.value = 100
+    selectedQuestionIds.value = new Set()
+    selectedQuestionOrder.value = []
+    questionWeights.value = {}
+    expandQuestionList.value = false
+    step.value = 1
   } catch (err) {
     submitError.value = err instanceof Error ? err.message : '发布失败'
   } finally {
@@ -438,3 +815,159 @@ const handlePublish = async () => {
   }
 }
 </script>
+
+<style scoped>
+.weight-list {
+  display: grid;
+  gap: 10px;
+}
+
+.weight-row {
+  display: grid;
+  grid-template-columns: 1fr 120px auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.weight-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: rgba(26, 29, 51, 0.85);
+}
+
+.weight-index {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
+}
+
+.weight-label {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.weight-parent {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.65);
+  margin-top: 2px;
+}
+
+.weight-input {
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+
+.weight-suffix {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
+}
+
+.weight-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.qb-list-scroll {
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.qb-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.qb-preview {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.65);
+  line-height: 1.5;
+  padding-left: 22px;
+}
+
+.qb-preview-inline {
+  margin-left: 12px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.7);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.qb-item-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.qb-title-text {
+  white-space: nowrap;
+}
+
+.qb-detail-btn {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.qb-toggle {
+  border: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.step-panel {
+  padding-bottom: 16px;
+}
+
+.stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.step-item {
+  border: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-weight: 600;
+  color: rgba(26, 29, 51, 0.7);
+}
+
+.step-item.active {
+  background: linear-gradient(135deg, rgba(90, 140, 255, 0.85), rgba(120, 200, 230, 0.85));
+  color: #ffffff;
+}
+
+.step-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.step-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.primary-btn.ghost {
+  background: rgba(255, 255, 255, 0.7);
+  color: rgba(26, 29, 51, 0.8);
+  box-shadow: none;
+}
+</style>

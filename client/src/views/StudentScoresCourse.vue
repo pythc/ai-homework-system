@@ -62,7 +62,7 @@ const scoreList = computed(() =>
     .filter((item) => item.courseId === courseId.value)
     .map((item) => ({
       scoreId: item.scoreId,
-      submissionVersionId: item.submissionVersionId,
+      assignmentId: item.assignmentId,
       title: item.assignmentTitle,
       totalScore: item.totalScore,
       updatedAt: formatScoreDate(item.updatedAt),
@@ -74,8 +74,8 @@ const courseTitle = computed(() => {
   return course?.courseName ? `课程：${course.courseName}` : '课程成绩'
 })
 
-const viewDetail = (score: { submissionVersionId: string }) => {
-  router.push(`/student/scores/${score.submissionVersionId}`)
+const viewDetail = (score: { assignmentId: string }) => {
+  router.push(`/student/scores/${score.assignmentId}`)
 }
 
 const goBack = () => {
