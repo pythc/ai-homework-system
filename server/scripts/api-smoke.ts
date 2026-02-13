@@ -9,6 +9,7 @@ async function main() {
   }).compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
+  app.setGlobalPrefix('api/v1');
   await app.init();
 
   const server = app.getHttpServer();
