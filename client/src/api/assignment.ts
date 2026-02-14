@@ -22,6 +22,9 @@ export type TeacherAssignmentSummary = AssignmentSummary & {
   pendingCount: number
   unsubmittedCount?: number
   studentCount?: number
+  submittedStudentCount?: number
+  pendingStudentCount?: number
+  gradedStudentCount?: number
 }
 
 type TeacherAssignmentListResponse = {

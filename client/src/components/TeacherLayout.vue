@@ -54,16 +54,19 @@
         </RouterLink>
       </nav>
 
-      <div v-if="usage.limitTokens" class="token-usage">
-        <div class="token-usage-title">本周模型用量</div>
-        <div class="token-usage-bar">
-          <div
-            class="token-usage-progress"
-            :style="{ width: `${usagePercent}%` }"
-          />
-        </div>
-        <div class="token-usage-text">
-          {{ usage.usedTokens }} / {{ usage.limitTokens }}
+      <div class="sidebar-footer">
+        <button class="logout-btn" type="button" @click="handleLogout">登出</button>
+        <div v-if="usage.limitTokens" class="token-usage">
+          <div class="token-usage-title">本周模型用量</div>
+          <div class="token-usage-bar">
+            <div
+              class="token-usage-progress"
+              :style="{ width: `${usagePercent}%` }"
+            />
+          </div>
+          <div class="token-usage-text">
+            {{ usage.usedTokens }} / {{ usage.limitTokens }}
+          </div>
         </div>
       </div>
     </aside>
@@ -86,8 +89,9 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { fetchAssistantUsage } from '../api/assistant'
+import { clearAuth } from '../auth/storage'
 
 defineProps({
   title: { type: String, required: true },
@@ -103,6 +107,7 @@ defineSlots<{
 }>()
 
 const route = useRoute()
+const router = useRouter()
 const isActive = (path: string, exact = false) => {
   if (exact) return route.path === path
   return route.path === path || route.path.startsWith(`${path}/`)
@@ -140,6 +145,13 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('assistant-usage-refresh', handleUsageRefresh)
 })
+
+const handleLogout = () => {
+  clearAuth()
+  sessionStorage.clear()
+  localStorage.clear()
+  window.location.replace('/login')
+}
 </script>
 
 <style src="../styles/teacher-layout.css"></style>

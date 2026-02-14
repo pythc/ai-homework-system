@@ -40,16 +40,19 @@
         </RouterLink>
       </nav>
 
-      <div v-if="usage.limitTokens" class="token-usage">
-        <div class="token-usage-title">本周模型用量</div>
-        <div class="token-usage-bar">
-          <div
-            class="token-usage-progress"
-            :style="{ width: `${usagePercent}%` }"
-          />
-        </div>
-        <div class="token-usage-text">
-          {{ usage.usedTokens }} / {{ usage.limitTokens }}
+      <div class="sidebar-footer">
+        <button class="logout-btn" type="button" @click="handleLogout">登出</button>
+        <div v-if="usage.limitTokens" class="token-usage">
+          <div class="token-usage-title">本周模型用量</div>
+          <div class="token-usage-bar">
+            <div
+              class="token-usage-progress"
+              :style="{ width: `${usagePercent}%` }"
+            />
+          </div>
+          <div class="token-usage-text">
+            {{ usage.usedTokens }} / {{ usage.limitTokens }}
+          </div>
         </div>
       </div>
     </aside>
@@ -72,8 +75,9 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { fetchAssistantUsage } from '../api/assistant'
+import { clearAuth } from '../auth/storage'
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -84,6 +88,7 @@ const props = defineProps({
 })
 
 const route = useRoute()
+const router = useRouter()
 const isActive = (path) => route.path === path
 
 const usage = ref({
@@ -119,6 +124,12 @@ onBeforeUnmount(() => {
   window.removeEventListener('assistant-usage-refresh', handleUsageRefresh)
 })
 
+const handleLogout = () => {
+  clearAuth()
+  sessionStorage.clear()
+  localStorage.clear()
+  window.location.replace('/login')
+}
 </script>
 
 <style src="../styles/student-layout.css"></style>

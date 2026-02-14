@@ -54,7 +54,7 @@
             </div>
             <div class="task-foot">
               <div class="task-metrics">
-                <span class="metric-tag">未批改 {{ task.pendingCount }}</span>
+                <span class="metric-tag">待批改 {{ task.pendingCount }}</span>
                 <span class="metric-tag">未提交 {{ task.unsubmittedCount }}</span>
               </div>
               <button class="task-action" @click="goGrading(task.id, task.courseId)">
@@ -95,16 +95,26 @@ const formatDeadline = (deadline: string | null | undefined) => {
 }
 
 const gradingList = computed(() =>
-  gradingItems.value.map((item) => ({
-    id: item.id,
-    title: item.title,
-    courseId: item.courseId,
-    course: item.courseName ?? item.courseId ?? '--',
-    courseName: item.courseName ?? '',
-    deadline: formatDeadline(item.deadline),
-    pendingCount: Number(item.pendingCount ?? 0),
-    unsubmittedCount: Number(item.unsubmittedCount ?? 0),
-  })),
+  gradingItems.value.map((item) => {
+    const submittedStudentCount = Number(
+      item.submittedStudentCount ?? item.submissionCount ?? 0,
+    )
+    const pendingCount = Number(
+      item.pendingStudentCount ??
+        Math.min(Number(item.pendingCount ?? 0), submittedStudentCount),
+    )
+    const unsubmittedCount = Number(item.unsubmittedCount ?? 0)
+    return {
+      id: item.id,
+      title: item.title,
+      courseId: item.courseId,
+      course: item.courseName ?? item.courseId ?? '--',
+      courseName: item.courseName ?? '',
+      deadline: formatDeadline(item.deadline),
+      pendingCount,
+      unsubmittedCount,
+    }
+  }),
 )
 
 const courseGroups = computed(() => {

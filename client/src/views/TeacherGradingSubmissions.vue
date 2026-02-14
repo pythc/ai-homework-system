@@ -69,7 +69,7 @@
       <div v-if="statusFilter !== 'MISSING'" class="submission-list">
         <div
           v-for="item in pagedSubmissions"
-          :key="item.submissionVersionId"
+          :key="item.studentId"
           class="submission-row"
         >
           <div class="submission-main">
@@ -77,7 +77,7 @@
               {{ item.student.name || item.student.account || '学生' }}
             </div>
             <div class="submission-meta">
-              学号 {{ item.student.account || '-' }}
+              学号 {{ formatStudentAccount(item.student) }}
             </div>
             <div class="submission-meta">
               提交 {{ formatTime(item.submittedAt) }}
@@ -86,7 +86,7 @@
           <div class="submission-status" :class="item.isFinal ? 'graded' : 'pending'">
             {{ item.isFinal ? '已批改' : '未批改' }}
           </div>
-          <button class="task-action ghost" @click="goGrading(item.submissionVersionId)">
+          <button class="task-action ghost" @click="goGrading(item.submissionVersionId, item.studentId)">
             批改
           </button>
         </div>
@@ -114,7 +114,7 @@
               {{ student.name || student.account || '学生' }}
             </div>
             <div class="submission-meta">
-              学号 {{ student.account || '-' }}
+              学号 {{ formatStudentAccount(student) }}
             </div>
           </div>
           <div class="submission-status pending">未提交</div>
@@ -156,10 +156,59 @@ const formatTime = (value?: string) => {
   return date.toLocaleString('zh-CN')
 }
 
+const formatStudentAccount = (student?: { account?: string | null; studentId?: string }) => {
+  const account = student?.account ?? ''
+  if (/^\d+$/.test(account)) return account
+  const fallback = student?.studentId ?? ''
+  if (/^\d+$/.test(fallback)) return fallback
+  return '-'
+}
+
+const mergedSubmissions = computed(() => {
+  const map = new Map<
+    string,
+    {
+      studentId: string
+      student: any
+      submittedAt?: string
+      isFinal: boolean
+      submissionVersionId: string
+      items: any[]
+    }
+  >()
+  submissions.value.forEach((item: any) => {
+    const studentId = item.student?.studentId
+    if (!studentId) return
+    if (!map.has(studentId)) {
+      map.set(studentId, {
+        studentId,
+        student: item.student,
+        submittedAt: item.submittedAt,
+        isFinal: Boolean(item.isFinal ?? item.status === 'FINAL'),
+        submissionVersionId: item.submissionVersionId,
+        items: [item],
+      })
+      return
+    }
+    const group = map.get(studentId)
+    group.items.push(item)
+    const prevTime = new Date(group.submittedAt ?? 0).getTime()
+    const nextTime = new Date(item.submittedAt ?? 0).getTime()
+    if (nextTime >= prevTime) {
+      group.submittedAt = item.submittedAt
+      group.submissionVersionId = item.submissionVersionId
+    }
+    if (!Boolean(item.isFinal ?? item.status === 'FINAL')) {
+      group.isFinal = false
+    }
+  })
+  return Array.from(map.values())
+})
+
 const filteredSubmissions = computed(() => {
   if (statusFilter.value === 'MISSING') return []
   const keyword = searchText.value.trim()
-  let list = submissions.value
+  let list = mergedSubmissions.value
   if (statusFilter.value === 'PENDING') {
     list = list.filter((item: any) => !item.isFinal)
   } else if (statusFilter.value === 'GRADED') {
@@ -188,11 +237,14 @@ const pagedSubmissions = computed(() => {
   return filteredSubmissions.value.slice(start, start + pageSize.value)
 })
 
-const goGrading = (submissionVersionId: string) => {
+const goGrading = (submissionVersionId: string, studentId?: string) => {
   if (!assignmentId.value || !submissionVersionId) return
   router.push({
     path: `/teacher/grading/${assignmentId.value}/submission/${submissionVersionId}`,
-    query: courseId.value ? { courseId: courseId.value } : undefined,
+    query: {
+      ...(courseId.value ? { courseId: courseId.value } : {}),
+      ...(studentId ? { studentId } : {}),
+    },
   })
 }
 

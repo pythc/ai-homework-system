@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
-import { setCurrentAuthScope } from '../auth/storage'
+import { getAccessToken, setCurrentAuthScope } from '../auth/storage'
 
 import Login from '../views/Login.vue'
 import ResetPassword from '../views/ResetPassword.vue'
@@ -199,6 +199,13 @@ router.beforeEach((to) => {
     setCurrentAuthScope('admin')
   } else if (path.startsWith('/student')) {
     setCurrentAuthScope('student')
+  }
+  if (path === '/login' || path === '/reset-password') return true
+  if (path.startsWith('/student') || path.startsWith('/teacher') || path.startsWith('/admin')) {
+    const token = getAccessToken()
+    if (!token) {
+      return '/login'
+    }
   }
   return true
 })

@@ -108,12 +108,28 @@
           </div>
           <div class="form-field">
             <label>章节</label>
-            <select v-model="selectedChapterId">
-              <option value="">请选择章节</option>
-              <option v-for="chapter in chapterOptions" :key="chapter.id" :value="chapter.id">
-                {{ chapter.label }}
-              </option>
-            </select>
+            <div class="form-row">
+              <div class="form-field">
+                <select v-model="selectedParentChapterId" @change="handleParentChapterChange">
+                  <option value="">请选择大章节</option>
+                  <option
+                    v-for="chapter in parentChapterOptions"
+                    :key="chapter.id"
+                    :value="chapter.id"
+                  >
+                    {{ chapter.title }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-field">
+                <select v-model="selectedChapterId">
+                  <option value="">请选择小章节</option>
+                  <option v-for="chapter in childChapterOptions" :key="chapter.id" :value="chapter.id">
+                    {{ chapter.title }}
+                  </option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
         <div class="question-select-actions">
@@ -154,7 +170,7 @@
               class="qb-title-text"
               @click="item.isExpandable ? toggleExpand(item.id) : viewDetail(item.id)"
             >
-              {{ item.title || '未命名' }}
+              {{ getItemTitle(item) }}
             </span>
             <span
               v-if="item.isExpandable && getStemText(item)"
@@ -277,6 +293,7 @@ const expandedIds = ref(new Set())
 
 const selectedCourseId = ref('')
 const selectedTextbookId = ref('')
+const selectedParentChapterId = ref('')
 const selectedChapterId = ref('')
 
 const title = ref('')
@@ -305,11 +322,14 @@ const hydrateFilters = async () => {
   const stored = raw ? JSON.parse(raw) : null
   const courseId = String(route.query.courseId ?? '') || stored?.courseId || ''
   const textbookId = String(route.query.textbookId ?? '') || stored?.textbookId || ''
+  const parentChapterId =
+    String(route.query.parentChapterId ?? '') || stored?.parentChapterId || ''
   const chapterId = String(route.query.chapterId ?? '') || stored?.chapterId || ''
   if (!courseId) return
   selectedCourseId.value = courseId
   await handleCourseChange({ keepSelection: true })
   selectedTextbookId.value = textbookId || ''
+  selectedParentChapterId.value = parentChapterId || ''
   selectedChapterId.value = chapterId || ''
 }
 
@@ -317,6 +337,7 @@ const persistFilters = () => {
   const payload = {
     courseId: selectedCourseId.value,
     textbookId: selectedTextbookId.value,
+    parentChapterId: selectedParentChapterId.value,
     chapterId: selectedChapterId.value,
   }
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
@@ -325,6 +346,7 @@ const persistFilters = () => {
       ...route.query,
       courseId: payload.courseId || undefined,
       textbookId: payload.textbookId || undefined,
+      parentChapterId: payload.parentChapterId || undefined,
       chapterId: payload.chapterId || undefined,
     },
   })
@@ -340,7 +362,15 @@ const hydrateForm = async () => {
       await handleCourseChange({ keepSelection: true })
     }
     selectedTextbookId.value = payload?.selectedTextbookId ?? selectedTextbookId.value
+    selectedParentChapterId.value =
+      payload?.selectedParentChapterId ?? selectedParentChapterId.value
     selectedChapterId.value = payload?.selectedChapterId ?? selectedChapterId.value
+    if (selectedChapterId.value && !selectedParentChapterId.value) {
+      const match = chapters.value.find((item) => item.id === selectedChapterId.value)
+      if (match?.parentId) {
+        selectedParentChapterId.value = match.parentId
+      }
+    }
     title.value = payload?.title ?? title.value
     description.value = payload?.description ?? description.value
     deadline.value = payload?.deadline ?? deadline.value
@@ -374,6 +404,7 @@ const persistForm = () => {
   const payload = {
     selectedCourseId: selectedCourseId.value,
     selectedTextbookId: selectedTextbookId.value,
+    selectedParentChapterId: selectedParentChapterId.value,
     selectedChapterId: selectedChapterId.value,
     title: title.value,
     description: description.value,
@@ -398,7 +429,7 @@ onMounted(async () => {
   isHydrating.value = false
 })
 
-watch([selectedCourseId, selectedTextbookId, selectedChapterId], () => {
+watch([selectedCourseId, selectedTextbookId, selectedParentChapterId, selectedChapterId], () => {
   if (isHydrating.value) return
   persistFilters()
 })
@@ -411,6 +442,7 @@ watch(
   [
     selectedCourseId,
     selectedTextbookId,
+    selectedParentChapterId,
     selectedChapterId,
     title,
     description,
@@ -440,6 +472,7 @@ const fetchCourses = async () => {
 
 const handleCourseChange = async (options = { keepSelection: false }) => {
   selectedTextbookId.value = ''
+  selectedParentChapterId.value = ''
   selectedChapterId.value = ''
   if (!options.keepSelection) {
     selectedQuestionIds.value = new Set()
@@ -458,31 +491,44 @@ const handleCourseChange = async (options = { keepSelection: false }) => {
     textbooks.value = response.textbooks ?? []
     chapters.value = response.chapters ?? []
     questions.value = await listQuestionBank(selectedCourseId.value)
+    if (selectedChapterId.value && !selectedParentChapterId.value) {
+      const match = chapters.value.find((item) => item.id === selectedChapterId.value)
+      if (match?.parentId) {
+        selectedParentChapterId.value = match.parentId
+      }
+    }
   } catch (err) {
     questionError.value = err instanceof Error ? err.message : '加载题库失败'
   }
 }
 
 const handleTextbookChange = () => {
+  selectedParentChapterId.value = ''
   selectedChapterId.value = ''
 }
 
-const chapterOptions = computed(() => {
-  const items = chapters.value.filter((chapter) =>
-    selectedTextbookId.value ? chapter.textbookId === selectedTextbookId.value : false,
+const parentChapterOptions = computed(() => {
+  if (!selectedTextbookId.value) return []
+  const items = chapters.value.filter(
+    (chapter) => chapter.textbookId === selectedTextbookId.value,
   )
   if (!items.length) return []
-  const byId = new Map(items.map((item) => [item.id, item]))
-  const isParent = new Set(items.map((item) => item.parentId).filter(Boolean))
+  const parentIds = new Set(items.map((item) => item.parentId).filter(Boolean))
   return items
-    .filter((item) => !isParent.has(item.id))
-    .sort((a, b) => a.orderNo - b.orderNo)
-    .map((item) => {
-      const parent = item.parentId ? byId.get(item.parentId) : null
-      const label = parent ? `${parent.title} / ${item.title}` : item.title
-      return { id: item.id, label }
-    })
+    .filter((item) => parentIds.has(item.id) || !item.parentId)
+    .sort((a, b) => (a.orderNo ?? 0) - (b.orderNo ?? 0))
 })
+
+const childChapterOptions = computed(() => {
+  if (!selectedParentChapterId.value) return []
+  return chapters.value
+    .filter((chapter) => chapter.parentId === selectedParentChapterId.value)
+    .sort((a, b) => (a.orderNo ?? 0) - (b.orderNo ?? 0))
+})
+
+const handleParentChapterChange = () => {
+  selectedChapterId.value = ''
+}
 
 const chapterIdsByTextbook = computed(() => {
   if (!selectedTextbookId.value) return new Set()
@@ -529,9 +575,10 @@ const flattenedQuestions = computed(() => {
   const result = []
   const walk = (parentId, depth) => {
     const children = byParent.get(parentId) ?? []
-    for (const child of children) {
+    for (const [index, child] of children.entries()) {
       const isExpandable = (byParent.get(child.id) ?? []).length > 0
-      result.push({ ...child, depth, isExpandable })
+      const displayOrder = child.orderNo ?? index + 1
+      result.push({ ...child, depth, isExpandable, displayOrder })
       walk(child.id, depth + 1)
     }
   }
@@ -629,6 +676,12 @@ const renderStemHtml = (item) => {
   const text = getStemText(item)
   if (!text) return ''
   return text.replace(/\n/g, '<br />')
+}
+
+const getItemTitle = (item) => {
+  if (item?.title) return item.title
+  if (item?.depth > 0) return `（${item.displayOrder ?? 1}）`
+  return '未命名'
 }
 
 const questionById = computed(() => new Map(questions.value.map((item) => [item.id, item])))
@@ -753,6 +806,7 @@ const viewDetail = (questionId) => {
       step: String(step.value),
       courseId: selectedCourseId.value || undefined,
       textbookId: selectedTextbookId.value || undefined,
+      parentChapterId: selectedParentChapterId.value || undefined,
       chapterId: selectedChapterId.value || undefined,
     },
   })
@@ -906,12 +960,21 @@ const handlePublish = async () => {
 
 .qb-item-title {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: 8px;
+}
+
+.qb-item-title input[type='checkbox'] {
+  align-self: center;
 }
 
 .qb-title-text {
   white-space: nowrap;
+  line-height: 1.6;
+}
+
+.qb-stem {
+  line-height: 1.6;
 }
 
 .qb-detail-btn {

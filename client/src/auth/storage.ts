@@ -84,34 +84,18 @@ export function getAccessToken(scope = getCurrentAuthScope()) {
   const storage = getActiveStorage()
   const scopedKey = getScopedKey(ACCESS_TOKEN_KEY, scope)
   if (storage) {
-    return (
-      storage.getItem(scopedKey) ??
-      storage.getItem(ACCESS_TOKEN_KEY)
-    )
+    return storage.getItem(scopedKey)
   }
-  return (
-    localStorage.getItem(scopedKey) ??
-    sessionStorage.getItem(scopedKey) ??
-    localStorage.getItem(ACCESS_TOKEN_KEY) ??
-    sessionStorage.getItem(ACCESS_TOKEN_KEY)
-  )
+  return localStorage.getItem(scopedKey) ?? sessionStorage.getItem(scopedKey)
 }
 
 export function getRefreshToken(scope = getCurrentAuthScope()) {
   const storage = getActiveStorage()
   const scopedKey = getScopedKey(REFRESH_TOKEN_KEY, scope)
   if (storage) {
-    return (
-      storage.getItem(scopedKey) ??
-      storage.getItem(REFRESH_TOKEN_KEY)
-    )
+    return storage.getItem(scopedKey)
   }
-  return (
-    localStorage.getItem(scopedKey) ??
-    sessionStorage.getItem(scopedKey) ??
-    localStorage.getItem(REFRESH_TOKEN_KEY) ??
-    sessionStorage.getItem(REFRESH_TOKEN_KEY)
-  )
+  return localStorage.getItem(scopedKey) ?? sessionStorage.getItem(scopedKey)
 }
 
 export function setTokens(
@@ -141,11 +125,8 @@ export function getStoredUser(scope = getCurrentAuthScope()): StoredUser | null 
   const storage = getActiveStorage()
   const scopedKey = getScopedKey(USER_KEY, scope)
   const raw = storage
-    ? storage.getItem(scopedKey) ?? storage.getItem(USER_KEY)
-    : localStorage.getItem(scopedKey) ??
-      sessionStorage.getItem(scopedKey) ??
-      localStorage.getItem(USER_KEY) ??
-      sessionStorage.getItem(USER_KEY)
+    ? storage.getItem(scopedKey)
+    : localStorage.getItem(scopedKey) ?? sessionStorage.getItem(scopedKey)
   if (!raw) return null
   try {
     return JSON.parse(raw) as StoredUser

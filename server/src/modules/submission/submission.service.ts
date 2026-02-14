@@ -346,6 +346,15 @@ export class SubmissionService {
       .getRawOne<{ max: string | null }>();
     const nextSubmitNo = (latest?.max ? Number(latest.max) : 0) + 1;
 
+    const existingVersions = await this.versionRepo.find({
+      where: { assignmentId, studentId },
+      select: ['id', 'fileUrl'],
+    });
+    const existingVersionIds = existingVersions.map((item) => item.id);
+    const existingFiles = existingVersions
+      .flatMap((item) => this.parseFileUrls(item.fileUrl ?? ''))
+      .filter(Boolean);
+
     const results: Array<{
       questionId: string;
       submissionVersionId: string;
@@ -356,6 +365,22 @@ export class SubmissionService {
       await this.dataSource.transaction(async (manager) => {
         const submissionRepo = manager.getRepository(SubmissionEntity);
         const versionRepo = manager.getRepository(SubmissionVersionEntity);
+        if (existingVersionIds.length > 0) {
+          await manager.query(
+            `DELETE FROM scores WHERE submission_version_id = ANY($1)`,
+            [existingVersionIds],
+          );
+          await manager.query(
+            `DELETE FROM ai_gradings WHERE submission_version_id = ANY($1)`,
+            [existingVersionIds],
+          );
+          await manager.query(
+            `DELETE FROM ai_jobs WHERE submission_version_id = ANY($1)`,
+            [existingVersionIds],
+          );
+          await versionRepo.delete({ id: In(existingVersionIds) });
+          await submissionRepo.delete({ assignmentId, studentId });
+        }
 
         for (const questionId of requiredIds) {
           let submission = await submissionRepo.findOne({
@@ -408,6 +433,13 @@ export class SubmissionService {
         savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
       );
       throw error;
+    }
+
+    if (existingFiles.length > 0) {
+      const uniqueFiles = Array.from(new Set(existingFiles));
+      await Promise.all(
+        uniqueFiles.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
+      );
     }
 
     if (assignment.aiEnabled) {
