@@ -45,6 +45,10 @@ export class AiGradingWorkerService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
+    if (process.env.DISABLE_AI_WORKER === 'true') {
+      this.logger.warn('AI grading worker disabled by env.');
+      return;
+    }
     void this.queue.startWorker((jobId) => this.handleJob(jobId));
   }
 
