@@ -4,6 +4,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 
 async function main() {
+  process.env.DISABLE_AI_WORKER = 'true';
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
