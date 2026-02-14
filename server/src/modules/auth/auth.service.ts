@@ -137,7 +137,7 @@ export class AuthService {
       buffer.byteOffset,
       buffer.byteOffset + buffer.byteLength,
     ) as ArrayBuffer;
-    await workbook.xlsx.load(arrayBuffer);
+    await workbook.xlsx.load(arrayBuffer as unknown as any);
     const sheet = workbook.worksheets[0];
     if (!sheet) {
       rows = [];
