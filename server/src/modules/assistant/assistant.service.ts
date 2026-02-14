@@ -1,18 +1,9 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { AssistantChatDto } from './dto/assistant-chat.dto';
 import { AssistantStatsDto } from './dto/assistant-stats.dto';
-import { ScoreEntity } from '../manual-grading/entities/score.entity';
-import { SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
-import { AssignmentEntity } from '../assignment/entities/assignment.entity';
-import { CourseEntity } from '../assignment/entities/course.entity';
-import { UserEntity, UserRole } from '../auth/entities/user.entity';
+import { UserRole } from '../auth/entities/user.entity';
 import { AssistantClient } from './assistant.client';
 import { AssistantTokenUsageEntity } from './entities/assistant-token-usage.entity';
 import type { Response } from 'express';
@@ -27,16 +18,7 @@ interface AssistantUserPayload {
 @Injectable()
 export class AssistantService {
   constructor(
-    @InjectRepository(ScoreEntity)
-    private readonly scoreRepo: Repository<ScoreEntity>,
-    @InjectRepository(SubmissionVersionEntity)
-    private readonly versionRepo: Repository<SubmissionVersionEntity>,
-    @InjectRepository(AssignmentEntity)
-    private readonly assignmentRepo: Repository<AssignmentEntity>,
-    @InjectRepository(CourseEntity)
-    private readonly courseRepo: Repository<CourseEntity>,
-    @InjectRepository(UserEntity)
-    private readonly userRepo: Repository<UserEntity>,
+    private readonly dataSource: DataSource,
     @InjectRepository(AssistantTokenUsageEntity)
     private readonly usageRepo: Repository<AssistantTokenUsageEntity>,
     private readonly assistantClient: AssistantClient,
@@ -275,15 +257,23 @@ export class AssistantService {
       throw new ForbiddenException('管理员暂不支持该功能');
     }
 
-    const userRecord = await this.userRepo.findOne({ where: { id: user.sub } });
-    const userInfo = userRecord
+    const userRow = await this.dataSource.query(
+      `SELECT id, name, account, account_type, role, school_id, email
+       FROM assistant.v_users
+       WHERE id = $1
+       LIMIT 1`,
+      [user.sub],
+    );
+    const record = userRow?.[0];
+    const userInfo = record
       ? {
-          userId: userRecord.id,
-          name: userRecord.name ?? null,
-          account: userRecord.account,
-          accountType: userRecord.accountType,
-          role: userRecord.role,
-          schoolId: userRecord.schoolId,
+          userId: record.id,
+          name: record.name ?? null,
+          account: record.account ?? null,
+          accountType: record.account_type ?? null,
+          role: record.role ?? user.role,
+          schoolId: record.school_id ?? user.schoolId ?? null,
+          email: record.email ?? null,
         }
       : {
           userId: user.sub,
@@ -292,88 +282,71 @@ export class AssistantService {
           accountType: null,
           role: user.role,
           schoolId: user.schoolId ?? null,
+          email: null,
         };
 
-    const qb = this.scoreRepo
-      .createQueryBuilder('s')
-      .innerJoin(SubmissionVersionEntity, 'v', 'v.id = s.submissionVersionId')
-      .innerJoin(AssignmentEntity, 'a', 'a.id = v.assignmentId')
-      .innerJoin(CourseEntity, 'c', 'c.id = a.courseId')
-      .where('s.isFinal = :isFinal', { isFinal: true });
+    const clauses: string[] = ['s.is_final = true'];
+    const params: Array<string> = [];
 
     if (user.role === UserRole.STUDENT) {
-      qb.andWhere('v.studentId = :studentId', { studentId: user.sub });
+      params.push(user.sub);
+      clauses.push(`v.student_id = $${params.length}`);
     }
 
-    if (user.role === UserRole.TEACHER) {
-      if (dto.courseId) {
-        const course = await this.courseRepo.findOne({
-          where: { id: dto.courseId },
-        });
-        if (!course) {
-          throw new NotFoundException('课程不存在');
-        }
-        if (course.teacherId !== user.sub) {
-          throw new ForbiddenException('无权查看该课程');
-        }
-        qb.andWhere('a.courseId = :courseId', { courseId: dto.courseId });
-      } else {
-        const courses = await this.courseRepo.find({
-          where: { teacherId: user.sub },
-        });
-        const courseIds = courses.map((c) => c.id);
-        if (!courseIds.length) {
-        return {
-          stats: { count: 0 },
-          scope: {
-            role: user.role,
-            courseId: null,
-            assignmentId: null,
-            user: userInfo,
-          },
-        };
-      }
-      qb.andWhere('a.courseId IN (:...courseIds)', { courseIds });
-    }
-    }
-
-    if (dto.courseId && user.role !== UserRole.TEACHER) {
-      qb.andWhere('a.courseId = :courseId', { courseId: dto.courseId });
+    if (dto.courseId) {
+      params.push(dto.courseId);
+      clauses.push(`a.course_id = $${params.length}`);
     }
 
     if (dto.assignmentId) {
-      qb.andWhere('v.assignmentId = :assignmentId', {
-        assignmentId: dto.assignmentId,
-      });
+      params.push(dto.assignmentId);
+      clauses.push(`v.assignment_id = $${params.length}`);
     }
 
-    const statsRow = await qb
-      .clone()
-      .select('COUNT(*)', 'count')
-      .addSelect('AVG(s.totalScore)', 'avg')
-      .addSelect('MIN(s.totalScore)', 'min')
-      .addSelect('MAX(s.totalScore)', 'max')
-      .getRawOne();
+    const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const baseSql = `
+      FROM assistant.v_scores s
+      JOIN assistant.v_submission_versions v ON v.id = s.submission_version_id
+      JOIN assistant.v_assignments a ON a.id = v.assignment_id
+      JOIN assistant.v_courses c ON c.id = a.course_id
+      ${whereSql}
+    `;
 
-    const count = Number(statsRow?.count ?? 0);
-    const avg = statsRow?.avg !== null && statsRow?.avg !== undefined ? Number(statsRow.avg) : null;
-    const min = statsRow?.min !== null && statsRow?.min !== undefined ? Number(statsRow.min) : null;
-    const max = statsRow?.max !== null && statsRow?.max !== undefined ? Number(statsRow.max) : null;
+    const statsRows = await this.dataSource.query(
+      `SELECT
+         COUNT(*)::int AS count,
+         AVG(s.total_score)::float AS avg,
+         MIN(s.total_score)::float AS min,
+         MAX(s.total_score)::float AS max
+       ${baseSql}`,
+      params,
+    );
 
-    const trendRows = await qb
-      .clone()
-      .select('a.id', 'assignmentId')
-      .addSelect('a.title', 'assignmentTitle')
-      .addSelect('AVG(s.totalScore)', 'value')
-      .groupBy('a.id')
-      .addGroupBy('a.title')
-      .orderBy('a.createdAt', 'ASC')
-      .getRawMany();
+    const statsRow = statsRows?.[0] ?? {};
+    const count = Number(statsRow.count ?? 0);
+    const avg =
+      statsRow.avg !== null && statsRow.avg !== undefined ? Number(statsRow.avg) : null;
+    const min =
+      statsRow.min !== null && statsRow.min !== undefined ? Number(statsRow.min) : null;
+    const max =
+      statsRow.max !== null && statsRow.max !== undefined ? Number(statsRow.max) : null;
 
-    const byAssignment = trendRows.map((row: any) => ({
+    const trendRows = await this.dataSource.query(
+      `SELECT
+         a.id AS "assignmentId",
+         a.title AS "assignmentTitle",
+         AVG(s.total_score)::float AS value,
+         MIN(a.created_at) AS "createdAt"
+       ${baseSql}
+       GROUP BY a.id, a.title
+       ORDER BY MIN(a.created_at) ASC`,
+      params,
+    );
+
+    const byAssignment = (trendRows ?? []).map((row: any) => ({
       assignmentId: row.assignmentId,
       assignmentTitle: row.assignmentTitle,
-      avgScore: Number(row.value),
+      avgScore: row.value !== null && row.value !== undefined ? Number(row.value) : null,
     }));
 
     return {

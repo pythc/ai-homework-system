@@ -107,8 +107,8 @@ export class AuthController {
       throw new BadRequestException('请上传Excel文件');
     }
     const ext = path.extname(file.originalname).toLowerCase();
-    if (ext !== '.xlsx' && ext !== '.xls') {
-      throw new BadRequestException('仅支持 .xlsx 或 .xls 文件');
+    if (ext !== '.xlsx') {
+      throw new BadRequestException('仅支持 .xlsx 文件');
     }
     if (!file.buffer || file.buffer.length === 0) {
       throw new BadRequestException('文件内容为空');
@@ -123,6 +123,7 @@ export class AuthController {
     const result = await this.authService.registerBulkFromExcel(
       file.buffer,
       schoolId,
+      ext,
     );
     return {
       code: 201,
