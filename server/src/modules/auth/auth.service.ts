@@ -133,7 +133,11 @@ export class AuthService {
     }
 
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(Buffer.from(buffer));
+    const arrayBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer;
+    await workbook.xlsx.load(arrayBuffer as unknown as any);
     const sheet = workbook.worksheets[0];
     if (!sheet) {
       rows = [];
