@@ -1,5 +1,8 @@
-import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '../auth/entities/user.entity';
 import { ManualGradingService } from './manual-grading.service';
 
 @Controller('scores')
@@ -23,6 +26,18 @@ export class ScoreController {
     return this.manualGradingService.getAssignmentFinalGrading(
       studentId ?? '',
       assignmentId,
+    );
+  }
+
+  @Post('publish')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async publishAssignmentScores(
+    @Body() body: { assignmentId?: string; studentId?: string },
+  ) {
+    return this.manualGradingService.publishAssignmentScores(
+      String(body.assignmentId ?? ''),
+      String(body.studentId ?? ''),
     );
   }
 }

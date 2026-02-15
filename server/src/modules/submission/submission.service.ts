@@ -512,6 +512,7 @@ export class SubmissionService {
           v.file_url AS "fileUrl",
           v.submitted_at AS "submittedAt",
           (sc.id IS NOT NULL) AS "isFinal",
+          s.score_published AS "scorePublished",
           u.id AS "studentId",
           u.name AS "studentName",
           u.account AS "studentAccount"
@@ -541,6 +542,7 @@ export class SubmissionService {
         contentText: row.contentText ?? '',
         fileUrls: this.toPublicFileUrls(this.parseFileUrls(row.fileUrl ?? '')),
         submittedAt: row.submittedAt,
+        scorePublished: row.scorePublished === true || row.scorePublished === 1,
         student: {
           studentId: row.studentId,
           name: row.studentName ?? null,

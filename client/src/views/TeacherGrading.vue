@@ -1,7 +1,7 @@
 <template>
   <TeacherLayout
     title="作业批改"
-    subtitle="查看 AI 结果并确认最终成绩"
+    subtitle="查看 AI 结果并保存本题成绩，完成后发布成绩"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="作业批改"
@@ -187,13 +187,13 @@
                     :max="item.maxScore"
                     v-model.number="item.score"
                     @blur="clampScore(idx)"
-                    :disabled="!selectedSubmission || selectedSubmission.isFinal"
+                    :disabled="!canEditCurrent"
                   />
                   <textarea
                     class="grading-textarea"
                     v-model="item.reason"
                     placeholder="评分理由（可选）"
-                    :disabled="!selectedSubmission || selectedSubmission.isFinal"
+                    :disabled="!canEditCurrent"
                   />
                 </div>
                 <div class="grading-total">本题得分：{{ totalScore }}</div>
@@ -201,10 +201,10 @@
                   class="grading-comment"
                   v-model="finalComment"
                   placeholder="本题评语（可选）"
-                  :disabled="!selectedSubmission || selectedSubmission.isFinal"
+                  :disabled="!canEditCurrent"
                 />
-                <div class="grading-actions">
-                  <template v-if="selectedSubmission && !selectedSubmission.isFinal">
+              <div class="grading-actions">
+                  <template v-if="selectedSubmission && canEditCurrent">
                     <button class="task-action" :disabled="saving" @click="submitGrading(false)">
                       {{ saving ? '提交中...' : '确认本题成绩' }}
                     </button>
@@ -212,13 +212,33 @@
                       直接采用 AI
                     </button>
                   </template>
-                  <div v-else-if="selectedSubmission" class="graded-hint">已确认本题成绩</div>
-                  <div v-else class="graded-hint">该学生未提交，无法评分</div>
-                  <div v-if="saveError" class="ai-error">{{ saveError }}</div>
-                  <div v-if="saveSuccess" class="ai-success">已保存最终成绩</div>
+                  <template v-else-if="selectedSubmission && selectedSubmission.isFinal">
+                    <div class="graded-hint">已确认本题成绩</div>
+                    <button class="task-action ghost" type="button" @click="startEdit">
+                      修改成绩
+                    </button>
+                  </template>
+                <div v-else class="graded-hint">该学生未提交，无法评分</div>
+                <div v-if="saveError" class="ai-error">{{ saveError }}</div>
+                <div v-if="saveSuccess" class="ai-success">已保存本题成绩</div>
+              </div>
+              <div class="publish-actions">
+                <button
+                  class="task-action"
+                  type="button"
+                  :disabled="publishLoading || !allFinalForStudent || publishLocked"
+                  @click="publishScores"
+                >
+                  {{ publishLoading ? '发布中...' : '发布成绩' }}
+                </button>
+                <div v-if="publishError" class="ai-error">{{ publishError }}</div>
+                <div v-if="publishSuccess" class="ai-success">已发布成绩</div>
+                <div v-if="!allFinalForStudent" class="graded-hint">
+                  需先确认该学生全部题目成绩
                 </div>
               </div>
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -234,7 +254,8 @@ import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getAssignmentSnapshot } from '../api/assignment'
 import { listSubmissionsByAssignment } from '../api/teacherGrading'
 import { getAiJobStatus, getAiGradingResult } from '../api/aiGrading'
-import { submitFinalGrading } from '../api/grading'
+import { getFinalGrading, submitFinalGrading } from '../api/grading'
+import { publishAssignmentScores } from '../api/score'
 import { API_BASE_URL } from '../api/http'
 import type { AiGradingResult } from '../api/aiGrading'
 import type { AssignmentSnapshotQuestion } from '../api/assignment'
@@ -381,6 +402,11 @@ const finalComment = ref('')
 const saving = ref(false)
 const saveError = ref('')
 const saveSuccess = ref(false)
+const editingOverride = ref(false)
+const publishLoading = ref(false)
+const publishError = ref('')
+const publishSuccess = ref(false)
+const publishOverrideByStudent = ref<Record<string, { published: boolean; dirty: boolean }>>({})
 
 const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
 
@@ -399,10 +425,14 @@ const renderMath = (text?: string) => {
 
 const selectQuestion = (questionId: string) => {
   selectedQuestionId.value = questionId
+  editingOverride.value = false
+  saveSuccess.value = false
 }
 
 const selectStudent = (studentId: string) => {
   selectedStudentId.value = studentId
+  editingOverride.value = false
+  saveSuccess.value = false
 }
 
 const toggleGroup = (key: string) => {
@@ -428,6 +458,44 @@ const totalScore = computed(() =>
   gradingItems.value.reduce((sum, item) => sum + (Number(item.score) || 0), 0),
 )
 
+const allFinalForStudent = computed(() => {
+  if (!selectedStudentId.value) return false
+  if (!questions.value.length) return false
+  return questions.value.every((question) => {
+    const key = `${selectedStudentId.value}::${question.questionId}`
+    const submission = submissionByKey.value.get(key)
+    return submission && Boolean(submission.isFinal ?? submission.status === 'FINAL')
+  })
+})
+
+const basePublishedForStudent = (studentId: string) => {
+  if (!studentId) return false
+  if (!questions.value.length) return false
+  return questions.value.every((question) => {
+    const key = `${studentId}::${question.questionId}`
+    const submission = submissionByKey.value.get(key)
+    return submission && submission.scorePublished === true
+  })
+}
+
+const publishStateForStudent = computed(() => {
+  const studentId = selectedStudentId.value
+  if (!studentId) return { published: false, dirty: false }
+  const override = publishOverrideByStudent.value[studentId]
+  if (override) return override
+  return { published: basePublishedForStudent(studentId), dirty: false }
+})
+
+const publishLocked = computed(
+  () => publishStateForStudent.value.published && !publishStateForStudent.value.dirty,
+)
+
+const canEditCurrent = computed(() => {
+  if (!selectedSubmission.value) return false
+  if (!selectedSubmission.value.isFinal) return true
+  return editingOverride.value
+})
+
 const clampScore = (index: number) => {
   const item = gradingItems.value[index]
   if (!item) return
@@ -451,6 +519,29 @@ const buildGradingItems = (
       reason: options.useAiReasons ? aiItem?.reason ?? '' : '',
     }
   })
+}
+
+const loadFinalForSubmission = async (submissionId: string, questionId: string) => {
+  const question = questionMap.value[questionId]
+  if (!question) return
+  try {
+    const result = await getFinalGrading(submissionId)
+    const items = result?.items ?? []
+    gradingItems.value = question.rubric.map((rule) => {
+      const matched = items.find((it) => it.rubricItemKey === rule.rubricItemKey)
+      return {
+        questionIndex: question.questionIndex,
+        rubricItemKey: rule.rubricItemKey,
+        maxScore: rule.maxScore,
+        score: typeof matched?.score === 'number' ? matched.score : Number(matched?.score ?? 0),
+        reason: matched?.reason ?? '',
+      }
+    })
+    finalComment.value = result?.finalComment ?? ''
+  } catch (err) {
+    gradingItems.value = buildGradingItems(question, aiPanel.value.result)
+    finalComment.value = ''
+  }
 }
 
 const pollAiResult = async (submissionId: string) => {
@@ -565,10 +656,54 @@ const submitGrading = async (forceAiAdopt: boolean) => {
       items,
     })
     saveSuccess.value = true
+    submission.isFinal = true
+    submission.status = 'FINAL'
+    if (selectedStudentId.value) {
+      const prev = publishOverrideByStudent.value[selectedStudentId.value]
+      publishOverrideByStudent.value[selectedStudentId.value] = {
+        published: prev?.published ?? basePublishedForStudent(selectedStudentId.value),
+        dirty: true,
+      }
+    }
+    editingOverride.value = false
   } catch (err) {
     saveError.value = err instanceof Error ? err.message : '保存失败'
   } finally {
     saving.value = false
+  }
+}
+
+const startEdit = () => {
+  editingOverride.value = true
+}
+
+const publishScores = async () => {
+  if (!assignmentId.value || !selectedStudentId.value) return
+  if (!allFinalForStudent.value) {
+    publishError.value = '题目未全部确认'
+    return
+  }
+  if (publishLocked.value) {
+    publishError.value = '成绩已发布'
+    return
+  }
+  publishLoading.value = true
+  publishError.value = ''
+  publishSuccess.value = false
+  try {
+    await publishAssignmentScores(assignmentId.value, selectedStudentId.value)
+    publishSuccess.value = true
+    const studentId = selectedStudentId.value
+    submissions.value.forEach((item) => {
+      if (item.student?.studentId === studentId) {
+        item.scorePublished = true
+      }
+    })
+    publishOverrideByStudent.value[studentId] = { published: true, dirty: false }
+  } catch (err) {
+    publishError.value = err instanceof Error ? err.message : '发布失败'
+  } finally {
+    publishLoading.value = false
   }
 }
 
@@ -587,7 +722,12 @@ watch(
   () => selectedSubmission.value,
   async (submission) => {
     if (submission) {
-      await loadAiForSubmission(submission.submissionVersionId, submission.questionId)
+      if (submission.isFinal && !editingOverride.value) {
+        await loadFinalForSubmission(submission.submissionVersionId, submission.questionId)
+      } else {
+        await loadAiForSubmission(submission.submissionVersionId, submission.questionId)
+      }
+      editingOverride.value = false
       return
     }
     aiPanel.value = { statusLabel: '未加载', error: '', result: null }
@@ -595,6 +735,13 @@ watch(
     finalComment.value = ''
   },
   { immediate: true },
+)
+
+watch(
+  () => selectedQuestionId.value,
+  () => {
+    saveSuccess.value = false
+  },
 )
 
 const loadData = async () => {
@@ -631,8 +778,6 @@ const loadData = async () => {
   )
   if (routeMatch) {
     selectedStudentId.value = routeMatch.student?.studentId ?? ''
-    selectedQuestionId.value = routeMatch.questionId ?? ''
-    return
   }
   if (routeStudentId.value) {
     const match = students.value.find((student) => student.studentId === routeStudentId.value)
@@ -1104,6 +1249,12 @@ watch([assignmentId, submissionVersionId], async () => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.publish-actions {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
 }
 
 .graded-hint {

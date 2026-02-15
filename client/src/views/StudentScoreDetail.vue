@@ -64,7 +64,6 @@
                   <div v-if="submittedMap[currentQuestion.questionId]?.contentText" class="detail-text">
                     {{ submittedMap[currentQuestion.questionId]?.contentText }}
                   </div>
-                  <div v-else class="empty-box">未填写文字答案</div>
                   <div
                     v-if="submittedMap[currentQuestion.questionId]?.fileUrls?.length"
                     class="detail-media"
