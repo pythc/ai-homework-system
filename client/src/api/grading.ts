@@ -25,10 +25,12 @@ export async function submitFinalGrading(
   submissionVersionId: string,
   payload: SubmitGradingInput,
 ) {
+  const token = getAccessToken('teacher')
   return httpRequest<SubmitGradingResponse>(
     `/submissions/${submissionVersionId}/grading`,
     {
       method: 'PUT',
+      token,
       body: payload,
     },
   )
@@ -50,8 +52,10 @@ type FinalGradingResponse = {
 }
 
 export async function getFinalGrading(submissionVersionId: string) {
+  const token = getAccessToken('teacher')
   return httpRequest<FinalGradingResponse>(
     `/submissions/${submissionVersionId}/grading`,
-    { method: 'GET' },
+    { method: 'GET', token },
   )
 }
+import { getAccessToken } from '../auth/storage'

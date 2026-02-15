@@ -7,6 +7,7 @@ export type TeacherSubmissionItem = {
   submitNo: number
   aiStatus: string
   status: string
+  scorePublished?: boolean
   contentText: string
   fileUrls: string[]
   submittedAt: string

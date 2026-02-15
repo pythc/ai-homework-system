@@ -101,10 +101,12 @@ export class ManualGradingService {
     const rows = await this.scoreRepo
       .createQueryBuilder('s')
       .innerJoin(SubmissionVersionEntity, 'v', 'v.id = s.submissionVersionId')
+      .innerJoin('submissions', 'sub', 'sub.id = v.submissionId')
       .innerJoin(AssignmentEntity, 'a', 'a.id = v.assignmentId')
       .innerJoin('courses', 'c', 'c.id = a.course_id')
       .where('v.studentId = :studentId', { studentId })
       .andWhere('s.isFinal = :isFinal', { isFinal: true })
+      .andWhere('sub.score_published = true')
       .orderBy('s.updatedAt', 'DESC')
       .select([
         's.id AS "scoreId"',
@@ -147,6 +149,8 @@ export class ManualGradingService {
         assignmentTotalScore: number;
         weightedTotal: number;
         updatedAt: Date;
+        gradedCount: number;
+        questionCount: number;
       }
     >();
 
@@ -175,26 +179,31 @@ export class ManualGradingService {
           assignmentTotalScore,
           weightedTotal: 0,
           updatedAt: row.updatedAt,
+          gradedCount: 0,
+          questionCount: snapshotInfo?.questionCount ?? 0,
         });
       }
       const group = grouped.get(assignmentId)!;
       group.weightedTotal += weighted;
+      group.gradedCount += 1;
       if (row.updatedAt && group.updatedAt < row.updatedAt) {
         group.updatedAt = row.updatedAt;
       }
     }
 
     return {
-      items: Array.from(grouped.values()).map((group) => ({
-        scoreId: group.assignmentId,
-        submissionVersionId: null,
-        assignmentId: group.assignmentId,
-        assignmentTitle: group.assignmentTitle,
-        courseId: group.courseId,
-        courseName: group.courseName ?? null,
-        totalScore: Number(group.weightedTotal.toFixed(2)),
-        updatedAt: group.updatedAt,
-      })),
+      items: Array.from(grouped.values())
+        .filter((group) => group.questionCount > 0 && group.gradedCount >= group.questionCount)
+        .map((group) => ({
+          scoreId: group.assignmentId,
+          submissionVersionId: null,
+          assignmentId: group.assignmentId,
+          assignmentTitle: group.assignmentTitle,
+          courseId: group.courseId,
+          courseName: group.courseName ?? null,
+          totalScore: Number(group.weightedTotal.toFixed(2)),
+          updatedAt: group.updatedAt,
+        })),
     };
   }
 
@@ -206,11 +215,13 @@ export class ManualGradingService {
     const rows = await this.scoreRepo
       .createQueryBuilder('s')
       .innerJoin(SubmissionVersionEntity, 'v', 'v.id = s.submissionVersionId')
+      .innerJoin('submissions', 'sub', 'sub.id = v.submissionId')
       .innerJoin(AssignmentEntity, 'a', 'a.id = v.assignmentId')
       .innerJoin('courses', 'c', 'c.id = a.course_id')
       .where('v.studentId = :studentId', { studentId })
       .andWhere('v.assignmentId = :assignmentId', { assignmentId })
       .andWhere('s.isFinal = :isFinal', { isFinal: true })
+      .andWhere('sub.score_published = true')
       .select([
         's.id AS "scoreId"',
         's.totalScore AS "totalScore"',
@@ -239,6 +250,9 @@ export class ManualGradingService {
       ? await this.snapshotRepo.findOne({ where: { id: snapshotId } })
       : null;
     const snapshotInfo = snapshot ? this.buildSnapshotInfo(snapshot) : null;
+    if (snapshotInfo?.questionCount && rows.length < snapshotInfo.questionCount) {
+      throw new NotFoundException('成绩未生成');
+    }
 
     const weightedTotal = rows.reduce((sum: number, row: any) => {
       const detail = row.scoreDetail ?? {};
@@ -284,6 +298,45 @@ export class ManualGradingService {
         .reduce((max: Date, cur: Date) => (cur > max ? cur : max)),
       questions,
     };
+  }
+
+  async publishAssignmentScores(assignmentId: string, studentId: string) {
+    if (!assignmentId || !studentId) {
+      throw new BadRequestException('缺少参数');
+    }
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    const requiredCount = assignment.selectedQuestionIds?.length ?? 0;
+    if (requiredCount === 0) {
+      throw new BadRequestException('作业题目为空');
+    }
+
+    const finalCount = await this.scoreRepo
+      .createQueryBuilder('s')
+      .innerJoin(SubmissionVersionEntity, 'v', 'v.id = s.submissionVersionId')
+      .where('v.assignmentId = :assignmentId', { assignmentId })
+      .andWhere('v.studentId = :studentId', { studentId })
+      .andWhere('s.isFinal = :isFinal', { isFinal: true })
+      .getCount();
+
+    if (finalCount < requiredCount) {
+      throw new BadRequestException('题目未全部评分');
+    }
+
+    await this.scoreRepo.manager.query(
+      `
+        UPDATE submissions
+        SET score_published = true, updated_at = now()
+        WHERE assignment_id = $1 AND student_id = $2
+      `,
+      [assignmentId, studentId],
+    );
+
+    return { status: 'PUBLISHED' };
   }
 
   private async resolveSnapshot(version: SubmissionVersionEntity) {
@@ -393,7 +446,13 @@ export class ManualGradingService {
     if (count > 0 && weightSum === 0) {
       defaultWeight = 100 / count;
     }
-    return { questionMaxScore, questionWeight, questionPrompt, defaultWeight };
+    return {
+      questionMaxScore,
+      questionWeight,
+      questionPrompt,
+      defaultWeight,
+      questionCount: count,
+    };
   }
 
   private resolveQuestionIndex(scoreDetail: any) {

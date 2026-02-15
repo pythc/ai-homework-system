@@ -45,7 +45,8 @@ export class SubmissionController {
   }
 
   @Get('latest/:assignmentId')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
   async listLatestByAssignment(
     @Param('assignmentId') assignmentId: string,
     @Req() req: { user?: { sub?: string } },
@@ -68,7 +69,8 @@ export class SubmissionController {
   }
 
   @Post('upload')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
   @UseInterceptors(AnyFilesInterceptor())
   async uploadSubmission(
     @UploadedFiles() files: Express.Multer.File[],

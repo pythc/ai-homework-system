@@ -326,7 +326,9 @@ export class AssignmentService {
           COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NOT NULL) AS "gradedCount",
           COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NULL) AS "pendingCount",
           COUNT(DISTINCT cs.student_id) AS "studentCount",
-          COUNT(DISTINCT sub.student_id) AS "submittedStudentCount"
+          COUNT(DISTINCT sub.student_id) AS "submittedStudentCount",
+          COUNT(DISTINCT sub.student_id) FILTER (WHERE v.id IS NOT NULL AND sc.id IS NULL)
+            AS "pendingStudentCount"
         FROM assignments a
         INNER JOIN courses c ON c.id = a.course_id
         LEFT JOIN submissions sub ON sub.assignment_id = a.id
@@ -357,6 +359,12 @@ export class AssignmentService {
         gradedCount: Number(row.gradedCount ?? 0),
         pendingCount: Number(row.pendingCount ?? 0),
         studentCount: Number(row.studentCount ?? 0),
+        submittedStudentCount: Number(row.submittedStudentCount ?? 0),
+        pendingStudentCount: Number(row.pendingStudentCount ?? 0),
+        gradedStudentCount: Math.max(
+          Number(row.submittedStudentCount ?? 0) - Number(row.pendingStudentCount ?? 0),
+          0,
+        ),
         unsubmittedCount: Math.max(
           Number(row.studentCount ?? 0) - Number(row.submittedStudentCount ?? 0),
           0,

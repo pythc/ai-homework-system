@@ -20,6 +20,9 @@ export class SubmissionEntity {
   @Column({ name: 'current_version_id', type: 'uuid', nullable: true })
   currentVersionId?: string | null;
 
+  @Column({ name: 'score_published', type: 'boolean', default: false })
+  scorePublished!: boolean;
+
   @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
   createdAt!: Date;
 

@@ -71,6 +71,26 @@
           <div v-if="getFileCount(currentQuestion.questionId) > 0" class="submit-files">
             已选择 {{ getFileCount(currentQuestion.questionId) }} 张图片
           </div>
+          <div v-if="getSelectedPreviews(currentQuestion.questionId).length" class="submit-preview">
+            <div class="preview-title">本次已选图片</div>
+            <div class="preview-media">
+              <div
+                v-for="(item, index) in getSelectedPreviews(currentQuestion.questionId)"
+                :key="item"
+                class="preview-item"
+              >
+                <img :src="item" alt="selected image" />
+                <button
+                  class="preview-remove"
+                  type="button"
+                  :disabled="isFinalized"
+                  @click="removeSelectedFile(currentQuestion.questionId, index)"
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          </div>
 
           <div v-if="submittedMap[currentQuestion.questionId]" class="submit-preview">
             <div class="preview-title">已提交内容</div>
@@ -152,6 +172,7 @@ const questions = ref<SubmitQuestion[]>([])
 const currentIndex = ref(0)
 const answers = ref<Record<string, string>>({})
 const filesByQuestion = ref<Record<string, File[]>>({})
+const previewUrls = ref<Record<string, string[]>>({})
 const submittedMap = ref<Record<string, SubmittedItem>>({})
 const isFinalized = ref(false)
 
@@ -242,12 +263,28 @@ const onFileChange = (event: Event, questionId: string) => {
   const input = event.target as HTMLInputElement | null
   if (!input?.files) return
   const files = Array.from(input.files)
-  filesByQuestion.value[questionId] = files.slice(0, 4)
+  const limited = files.slice(0, 4)
+  filesByQuestion.value[questionId] = limited
+  previewUrls.value[questionId] = limited.map((file) => URL.createObjectURL(file))
   input.value = ''
 }
 
 const getFileCount = (questionId: string) =>
   filesByQuestion.value[questionId]?.length ?? 0
+
+const getSelectedPreviews = (questionId: string) =>
+  previewUrls.value[questionId] ?? []
+
+const removeSelectedFile = (questionId: string, index: number) => {
+  const files = filesByQuestion.value[questionId] ?? []
+  const urls = previewUrls.value[questionId] ?? []
+  const removed = urls[index]
+  if (removed) URL.revokeObjectURL(removed)
+  files.splice(index, 1)
+  urls.splice(index, 1)
+  filesByQuestion.value[questionId] = [...files]
+  previewUrls.value[questionId] = [...urls]
+}
 
 const currentQuestion = computed(() => questions.value[currentIndex.value] ?? null)
 
@@ -310,6 +347,8 @@ const submit = async () => {
       }
       void aiEnabled
     })
+    previewUrls.value = {}
+    filesByQuestion.value = {}
     success.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : '提交失败'
@@ -448,6 +487,28 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.7);
   display: grid;
   gap: 8px;
+}
+
+.preview-item {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.preview-remove {
+  border: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.85);
+  color: #c84c4c;
+  border: 1px solid rgba(200, 76, 76, 0.35);
+}
+
+.preview-remove:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .parent-prompt {

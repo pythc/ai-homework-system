@@ -35,7 +35,7 @@
             <span v-if="item.isExpandable" class="qb-expand">
               {{ expandedIds.has(item.id) ? '▾' : '▸' }}
             </span>
-            {{ item.title || '未命名' }}
+            {{ getItemTitle(item) }}
             <span
               v-if="item.isExpandable && getStemText(item)"
               class="qb-stem"
@@ -100,9 +100,10 @@ const flattenedQuestions = computed(() => {
   const result = []
   const walk = (parentId, depth) => {
     const children = byParent.get(parentId) ?? []
-    for (const child of children) {
+    for (const [index, child] of children.entries()) {
       const isExpandable = (byParent.get(child.id) ?? []).length > 0
-      result.push({ ...child, depth, isExpandable })
+      const displayOrder = child.orderNo ?? index + 1
+      result.push({ ...child, depth, isExpandable, displayOrder })
       walk(child.id, depth + 1)
     }
   }
@@ -144,6 +145,12 @@ const renderStemHtml = (item) => {
   const text = getStemText(item)
   if (!text) return ''
   return text.replace(/\n/g, '<br />')
+}
+
+const getItemTitle = (item) => {
+  if (item?.title) return item.title
+  if (item?.depth > 0) return `（${item.displayOrder ?? 1}）`
+  return '未命名'
 }
 
 const goQuestionDetail = (questionId) => {

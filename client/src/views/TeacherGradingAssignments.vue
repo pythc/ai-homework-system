@@ -38,6 +38,7 @@
               <div class="progress-meta">
                 <span>{{ task.level }}</span>
               </div>
+              <!-- debug removed -->
             </div>
             <button class="task-action" @click="goSubmissions(task.id)">查看提交</button>
           </div>
@@ -75,17 +76,29 @@ const gradingList = computed(() =>
   gradingItems.value
     .filter((item) => item.courseId === courseId.value)
     .map((item) => {
-      const pendingCount = Number(item.pendingCount ?? 0)
-      const graded = pendingCount === 0 && Number(item.submissionCount ?? 0) > 0
+      const submittedStudentCount = Number(
+        item.submittedStudentCount ?? item.submissionCount ?? 0,
+      )
+      const pendingCount = Number(
+        item.pendingStudentCount ??
+          Math.min(Number(item.pendingCount ?? 0), submittedStudentCount),
+      )
+      const gradedCount = Number(
+        item.gradedStudentCount ?? item.gradedCount ?? 0,
+      )
+      const hasSubmissions = Number(
+        submittedStudentCount,
+      ) > 0
+      const graded = pendingCount === 0 && hasSubmissions
       return {
         id: item.id,
         title: item.title,
         course: item.courseName ?? item.courseId ?? '--',
         deadline: formatDeadline(item.deadline),
         level: graded
-          ? `已批改 (${item.gradedCount ?? 0})`
+          ? `已批改 ${gradedCount}`
           : pendingCount > 0
-            ? `待批改 (${pendingCount})`
+            ? `待批改 ${pendingCount}`
             : '暂无提交',
       }
     }),
@@ -146,4 +159,5 @@ onMounted(async () => {
 .task-card .task-progress {
   margin-bottom: 0;
 }
+
 </style>

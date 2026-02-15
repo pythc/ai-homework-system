@@ -37,15 +37,18 @@ export type AiGradingResult = {
 }
 
 export async function getAiJobStatus(submissionVersionId: string) {
+  const token = getAccessToken('teacher')
   return httpRequest<AiJobStatusResponse>(
     `/submissions/${submissionVersionId}/ai-grading/job`,
-    { method: 'GET' },
+    { method: 'GET', token },
   )
 }
 
 export async function getAiGradingResult(submissionVersionId: string) {
+  const token = getAccessToken('teacher')
   return httpRequest<AiGradingResult>(
     `/submissions/${submissionVersionId}/ai-grading`,
-    { method: 'GET' },
+    { method: 'GET', token },
   )
 }
+import { getAccessToken } from '../auth/storage'

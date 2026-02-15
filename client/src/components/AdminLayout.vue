@@ -39,6 +39,10 @@
           查看题库
         </RouterLink>
       </nav>
+
+      <div class="sidebar-footer">
+        <button class="logout-btn" type="button" @click="handleLogout">登出</button>
+      </div>
     </aside>
 
     <main class="content">
@@ -58,7 +62,8 @@
 </template>
 
 <script setup>
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { clearAuth } from '../auth/storage'
 
 defineProps({
   title: { type: String, required: true },
@@ -69,7 +74,15 @@ defineProps({
 })
 
 const route = useRoute()
+const router = useRouter()
 const isActive = (path) => route.path === path
+
+const handleLogout = () => {
+  clearAuth()
+  sessionStorage.clear()
+  localStorage.clear()
+  window.location.replace('/login')
+}
 </script>
 
 <style src="../styles/admin-layout.css"></style>

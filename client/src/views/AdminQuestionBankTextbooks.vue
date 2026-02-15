@@ -29,7 +29,6 @@
           <div class="qb-item-title">{{ book.title }}</div>
           <div class="qb-item-meta">
             <span>{{ book.subject }}</span>
-            <span>{{ book.externalId }}</span>
           </div>
         </button>
         <div v-if="!textbooks.length" class="empty-box">

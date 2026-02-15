@@ -50,3 +50,12 @@ export async function getAssignmentScoreDetail(assignmentId: string) {
     token,
   })
 }
+
+export async function publishAssignmentScores(assignmentId: string, studentId: string) {
+  const token = getAccessToken('teacher')
+  return httpRequest<{ status: string }>('/scores/publish', {
+    method: 'POST',
+    token,
+    body: { assignmentId, studentId },
+  })
+}
