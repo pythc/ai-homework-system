@@ -9,9 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "katex": "^0.16.28",
-    "markdown-it": "^14.1.0",
-    "markdown-it-katex": "^2.0.3",
     "marked": "^15.0.6",
     "mathjax": "^4.1.0",
     "vue": "^3.5.24",
