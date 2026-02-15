@@ -74,6 +74,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
           REDIS_URL: redis://localhost:6379
+          DISABLE_AI_WORKER: true
         run: npm run test:api
 
       - name: Build server
