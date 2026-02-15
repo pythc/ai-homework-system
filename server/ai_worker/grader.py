@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import hashlib
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
 from typing import Dict, List, Optional
+
+try:
+    import redis  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    redis = None
 
 
 SYSTEM_PROMPT = """你是“作业AI批改引擎（AI Grading Engine）”。你将对“单个学生的一道题”进行批改：输入包含该题的题目/标准答案/评分细则 rubric，以及该学生该题的作业图片（≤4张，可能含手写文字、公式、图表）。你的输出会被后端直接保存并作为 AI Grading 展示给教师复核与采纳。
@@ -139,15 +145,108 @@ SYSTEM_PROMPT = """你是“作业AI批改引擎（AI Grading Engine）”。你
 - 不要输出多套备选答案，只输出一份最终 JSON。
 """
 
+SYSTEM_PROMPT_VERSION = "v1"
+PREFIX_CACHE_ENABLED = (
+    os.getenv("AI_GRADING_PREFIX_CACHE_ENABLED", "true").lower() != "false"
+)
+PREFIX_CACHE_TTL_SECONDS = int(
+    os.getenv("AI_GRADING_PREFIX_CACHE_TTL_SECONDS", "604800")
+)
+CACHE_AVAILABLE = True
+REDIS_URL = os.getenv("AI_GRADING_PREFIX_CACHE_REDIS_URL") or os.getenv(
+    "REDIS_URL", ""
+)
+REDIS_KEY_PREFIX = os.getenv(
+    "AI_GRADING_PREFIX_CACHE_KEY_PREFIX", "ai-grading:prefix:"
+)
+REDIS_AVAILABLE = True
+_redis_client = None
+
 
 def normalize_base_url(base_url: str) -> str:
     return base_url.rstrip("/")
 
 
-def load_json_text(path: str) -> str:
+class ApiError(RuntimeError):
+    def __init__(self, status: int, body: str):
+        super().__init__(f"HTTP {status} error: {body}")
+        self.status = status
+        self.body = body
+
+
+def load_json_payload(path: str) -> Dict:
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        return json.load(f)
+
+
+def load_json_text(path: str) -> str:
+    data = load_json_payload(path)
     return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def get_redis_client():
+    global _redis_client, REDIS_AVAILABLE
+    if not REDIS_AVAILABLE or not REDIS_URL or redis is None:
+        return None
+    if _redis_client is None:
+        try:
+            _redis_client = redis.Redis.from_url(
+                REDIS_URL, decode_responses=True
+            )
+        except Exception:
+            REDIS_AVAILABLE = False
+            return None
+    return _redis_client
+
+
+def build_prefix_cache_key(
+    *, model: str, question_payload: Dict, options_payload: Dict
+) -> str:
+    payload = {
+        "model": model,
+        "system_prompt_version": SYSTEM_PROMPT_VERSION,
+        "question": question_payload,
+        "options": options_payload,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def get_cached_prefix_id(cache_key: str) -> Optional[str]:
+    client = get_redis_client()
+    if not client:
+        return None
+    try:
+        value = client.get(f"{REDIS_KEY_PREFIX}{cache_key}")
+        if isinstance(value, str) and value:
+            return value
+    except Exception:
+        return None
+    return None
+
+
+def set_cached_prefix_id(cache_key: str, response_id: str) -> None:
+    client = get_redis_client()
+    if not client:
+        return
+    try:
+        client.set(
+            f"{REDIS_KEY_PREFIX}{cache_key}",
+            response_id,
+            ex=PREFIX_CACHE_TTL_SECONDS if PREFIX_CACHE_TTL_SECONDS > 0 else None,
+        )
+    except Exception:
+        return
+
+
+def clear_cached_prefix_id(cache_key: str) -> None:
+    client = get_redis_client()
+    if not client:
+        return
+    try:
+        client.delete(f"{REDIS_KEY_PREFIX}{cache_key}")
+    except Exception:
+        return
 
 
 def guess_mime(path: str) -> str:
@@ -187,6 +286,59 @@ def build_messages(json_text: str, image_data_urls: List[str]) -> List[Dict]:
     ]
 
 
+def extract_question_payload(json_payload: Dict) -> Dict:
+    question = json_payload.get("question") or {}
+    return {
+        "questionIndex": question.get("questionIndex"),
+        "prompt": question.get("prompt"),
+        "standardAnswer": question.get("standardAnswer"),
+        "rubric": question.get("rubric") or [],
+    }
+
+
+def extract_options_payload(json_payload: Dict) -> Dict:
+    options = json_payload.get("options") or {}
+    return {
+        "returnStudentMarkdown": options.get("returnStudentMarkdown", False),
+        "minConfidence": options.get("minConfidence", 0.75),
+    }
+
+
+def extract_student_payload(json_payload: Dict, question_payload: Dict) -> Dict:
+    return {
+        "submissionVersionId": json_payload.get("submissionVersionId"),
+        "studentAnswerText": json_payload.get("studentAnswerText") or "",
+        "questionIndex": question_payload.get("questionIndex"),
+    }
+
+
+def build_prefix_messages(question_payload: Dict, options_payload: Dict) -> List[Dict]:
+    payload = {
+        "question": question_payload,
+        "options": options_payload,
+    }
+    user_text = "题目与评分细则：\n" + json.dumps(payload, ensure_ascii=False)
+    system_message = {
+        "role": "system",
+        "content": [{"type": "input_text", "text": SYSTEM_PROMPT}],
+    }
+    user_message = {
+        "role": "user",
+        "content": [{"type": "input_text", "text": user_text}],
+    }
+    return [system_message, user_message]
+
+
+def build_suffix_messages(
+    student_payload: Dict, image_data_urls: List[str]
+) -> List[Dict]:
+    user_text = "学生作答：\n" + json.dumps(student_payload, ensure_ascii=False)
+    user_content = [{"type": "input_text", "text": user_text}]
+    for image_url in image_data_urls:
+        user_content.append({"type": "input_image", "image_url": image_url})
+    return [{"role": "user", "content": user_content}]
+
+
 def request_chat_completion(
     *, base_url: str, api_key: str, payload: Dict
 ) -> Dict:
@@ -203,12 +355,67 @@ def request_chat_completion(
             body = resp.read()
     except urllib.error.HTTPError as exc:
         err_body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"HTTP {exc.code} error from {url}: {err_body}"
-        ) from exc
+        raise ApiError(exc.code, err_body) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Request failed: {exc}") from exc
     return json.loads(body.decode("utf-8"))
+
+
+def should_fallback_cache_error(body: str) -> bool:
+    text = (body or "").lower()
+    if "cached response" in text:
+        return True
+    if "previous_response_id" in text:
+        return True
+    if "cache" in text and "invalidparameter" in text:
+        return True
+    if "cache" in text and "not consistent" in text:
+        return True
+    return False
+
+
+def ensure_prefix_response_id(
+    *,
+    cache_key: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    question_payload: Dict,
+    options_payload: Dict,
+) -> Optional[str]:
+    global CACHE_AVAILABLE
+    if not PREFIX_CACHE_ENABLED or not CACHE_AVAILABLE:
+        return None
+    cached = get_cached_prefix_id(cache_key)
+    if cached:
+        return cached
+
+    prefix_messages = build_prefix_messages(question_payload, options_payload)
+    payload = {
+        "model": model,
+        "input": prefix_messages,
+        "caching": {"type": "enabled", "prefix": True},
+        "temperature": 0,
+    }
+    try:
+        response = request_chat_completion(
+            base_url=base_url, api_key=api_key, payload=payload
+        )
+    except ApiError as exc:
+        if exc.status == 403 and "accessdenied.cacheservice" in exc.body.lower():
+            CACHE_AVAILABLE = False
+            print(
+                "Cache service not enabled; fallback to no-cache.",
+                file=sys.stderr,
+            )
+            return None
+        raise
+
+    response_id = response.get("id")
+    if isinstance(response_id, str) and response_id:
+        set_cached_prefix_id(cache_key, response_id)
+        return response_id
+    return None
 
 
 def extract_content(response: Dict) -> str:
@@ -284,26 +491,87 @@ def main() -> int:
     )
     model = args.model or os.getenv("ARK_MODEL", "doubao-seed-1-8-251228")
 
-    json_text = load_json_text(args.json)
+    json_payload = load_json_payload(args.json)
+    if not isinstance(json_payload, dict):
+        json_payload = {}
+    json_text = json.dumps(json_payload, ensure_ascii=False, indent=2)
     image_paths = args.image or []
     if len(image_paths) > 4:
         print("Too many images; provide up to 4.", file=sys.stderr)
         return 2
     image_data_urls = [encode_image_data_url(path) for path in image_paths]
-    messages = build_messages(json_text, image_data_urls)
+    full_messages = build_messages(json_text, image_data_urls)
 
-    # Compose the Responses API payload.
-    payload = {
-        "model": model,
-        "input": messages,
-        "temperature": args.temperature,
-    }
+    question_payload = extract_question_payload(json_payload)
+    options_payload = extract_options_payload(json_payload)
+    student_payload = extract_student_payload(json_payload, question_payload)
+
+    cache_key = None
+    prefix_response_id = None
+    has_question_content = any(
+        [
+            question_payload.get("prompt"),
+            question_payload.get("standardAnswer"),
+            question_payload.get("rubric"),
+        ]
+    )
+    if has_question_content and PREFIX_CACHE_ENABLED:
+        cache_key = build_prefix_cache_key(
+            model=model,
+            question_payload=question_payload,
+            options_payload=options_payload,
+        )
+        try:
+            prefix_response_id = ensure_prefix_response_id(
+                cache_key=cache_key,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                question_payload=question_payload,
+                options_payload=options_payload,
+            )
+        except ApiError as exc:
+            raise RuntimeError(f"Prefix cache warmup failed: {exc.body}") from exc
+
+    if prefix_response_id:
+        suffix_messages = build_suffix_messages(student_payload, image_data_urls)
+        payload = {
+            "model": model,
+            "input": suffix_messages,
+            "temperature": args.temperature,
+            "previous_response_id": prefix_response_id,
+        }
+        if CACHE_AVAILABLE:
+            payload["caching"] = {"type": "enabled"}
+    else:
+        payload = {
+            "model": model,
+            "input": full_messages,
+            "temperature": args.temperature,
+        }
+
     if args.max_tokens:
         payload["max_output_tokens"] = args.max_tokens
 
-    response = request_chat_completion(
-        base_url=base_url, api_key=api_key, payload=payload
-    )
+    try:
+        response = request_chat_completion(
+            base_url=base_url, api_key=api_key, payload=payload
+        )
+    except ApiError as exc:
+        if prefix_response_id and cache_key and should_fallback_cache_error(exc.body):
+            clear_cached_prefix_id(cache_key)
+            fallback_payload = {
+                "model": model,
+                "input": full_messages,
+                "temperature": args.temperature,
+            }
+            if args.max_tokens:
+                fallback_payload["max_output_tokens"] = args.max_tokens
+            response = request_chat_completion(
+                base_url=base_url, api_key=api_key, payload=fallback_payload
+            )
+        else:
+            raise RuntimeError(f"Model call failed: {exc.body}") from exc
     content = extract_content(response)
 
     if args.out:

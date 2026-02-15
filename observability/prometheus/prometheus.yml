@@ -1,28 +1,19 @@
 global:
-  scrape_interval: 15s
+  scrape_interval: 60s
 
 scrape_configs:
-  - job_name: "server"
+  - job_name: server
     metrics_path: /metrics
     static_configs:
-      - targets: ["server:3000"]
+      - targets: ["host.docker.internal:3000"]
 
-  - job_name: "assistant_service"
+  - job_name: assistant_service
     metrics_path: /metrics
     static_configs:
-      - targets: ["assistant_service:4100"]
-
-  # Optional exporters (uncomment when enabled)
-  # - job_name: "redis"
-  #   static_configs:
-  #     - targets: ["redis-exporter:9121"]
-  #
-  # - job_name: "postgres"
-  #   static_configs:
-  #     - targets: ["postgres-exporter:9187"]
+      - targets: ["host.docker.internal:4100"]
 
 remote_write:
-  - url: ${GRAFANA_CLOUD_REMOTE_WRITE_URL}
+  - url: https://prometheus-prod-37-prod-ap-southeast-1.grafana.net/api/prom/push
     basic_auth:
-      username: ${GRAFANA_CLOUD_USERNAME}
-      password: ${GRAFANA_CLOUD_API_KEY}
+      username: "${GRAFANA_CLOUD_USERNAME}"
+      password: "${GRAFANA_CLOUD_API_KEY}"

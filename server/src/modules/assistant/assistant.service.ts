@@ -25,7 +25,7 @@ export class AssistantService {
   ) {}
 
   async chat(dto: AssistantChatDto, user: AssistantUserPayload) {
-    const stats = await this.getStats(dto, user);
+    const stats = await this.getStats(dto, user, dto.question);
     const quota = await this.getUsageSummary(user);
     if (!quota.allowed) {
       return {
@@ -49,7 +49,7 @@ export class AssistantService {
   }
 
   async chatStream(dto: AssistantChatDto, user: AssistantUserPayload, res: Response) {
-    const stats = await this.getStats(dto, user);
+    const stats = await this.getStats(dto, user, dto.question);
     const quota = await this.getUsageSummary(user);
 
     if (!quota.allowed) {
@@ -203,10 +203,31 @@ export class AssistantService {
     const total =
       Number((usage as any).total_tokens ?? (usage as any).totalTokens ?? 0);
     if (Number.isFinite(total) && total > 0) return total;
-    const input = Number((usage as any).input_tokens ?? 0);
-    const output = Number((usage as any).output_tokens ?? 0);
+    const input = Number(
+      (usage as any).input_tokens ?? (usage as any).prompt_tokens ?? 0,
+    );
+    const output = Number(
+      (usage as any).output_tokens ?? (usage as any).completion_tokens ?? 0,
+    );
     const sum = input + output;
     return Number.isFinite(sum) ? sum : 0;
+  }
+
+  private shouldIncludeByAssignment(question: string, dto: AssistantStatsDto) {
+    if (dto.assignmentId || dto.courseId) return true;
+    if (!question) return false;
+    const keywords = [
+      '趋势',
+      '作业分布',
+      '每次作业',
+      '作业统计',
+      '作业情况',
+      '作业成绩',
+      '按作业',
+      '分布',
+      '走势',
+    ];
+    return keywords.some((keyword) => question.includes(keyword));
   }
 
   private estimateTokens(text: string) {
@@ -248,7 +269,11 @@ export class AssistantService {
     }
   }
 
-  async getStats(dto: AssistantStatsDto, user: AssistantUserPayload) {
+  async getStats(
+    dto: AssistantStatsDto,
+    user: AssistantUserPayload,
+    question?: string,
+  ) {
     if (!user?.sub || !user.role) {
       throw new BadRequestException('缺少用户信息');
     }
@@ -331,23 +356,29 @@ export class AssistantService {
     const max =
       statsRow.max !== null && statsRow.max !== undefined ? Number(statsRow.max) : null;
 
-    const trendRows = await this.dataSource.query(
-      `SELECT
-         a.id AS "assignmentId",
-         a.title AS "assignmentTitle",
-         AVG(s.total_score)::float AS value,
-         MIN(a.created_at) AS "createdAt"
-       ${baseSql}
-       GROUP BY a.id, a.title
-       ORDER BY MIN(a.created_at) ASC`,
-      params,
+    const includeByAssignment = this.shouldIncludeByAssignment(
+      question ?? '',
+      dto,
     );
 
-    const byAssignment = (trendRows ?? []).map((row: any) => ({
-      assignmentId: row.assignmentId,
-      assignmentTitle: row.assignmentTitle,
-      avgScore: row.value !== null && row.value !== undefined ? Number(row.value) : null,
-    }));
+    const byAssignment = includeByAssignment
+      ? (await this.dataSource.query(
+          `SELECT
+             a.id AS "assignmentId",
+             a.title AS "assignmentTitle",
+             AVG(s.total_score)::float AS value,
+             MIN(a.created_at) AS "createdAt"
+           ${baseSql}
+           GROUP BY a.id, a.title
+           ORDER BY MIN(a.created_at) ASC`,
+          params,
+        )).map((row: any) => ({
+          assignmentId: row.assignmentId,
+          assignmentTitle: row.assignmentTitle,
+          avgScore:
+            row.value !== null && row.value !== undefined ? Number(row.value) : null,
+        }))
+      : [];
 
     return {
       stats: {
@@ -355,7 +386,7 @@ export class AssistantService {
         avg,
         min,
         max,
-        byAssignment,
+        ...(includeByAssignment ? { byAssignment } : {}),
       },
       scope: {
         role: user.role,

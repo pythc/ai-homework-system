@@ -15,9 +15,10 @@ class AssistantImageDto {
   @IsString()
   name!: string;
 
-  @ApiProperty({ description: '图片 dataUrl（base64）' })
+  @ApiPropertyOptional({ description: '图片 dataUrl（base64）' })
+  @IsOptional()
   @IsString()
-  dataUrl!: string;
+  dataUrl?: string;
 
   @ApiPropertyOptional({ description: '图片URL（上传后地址）' })
   @IsOptional()
