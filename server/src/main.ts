@@ -11,6 +11,8 @@ import { json, urlencoded } from 'express';
 import * as express from 'express';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { collectDefaultMetrics, Histogram, register } from 'prom-client';
+import { collectDefaultMetrics, Histogram, register } from 'prom-client';
 
 async function seedTestUser(dataSource: DataSource) {
   if (process.env.SEED_TEST_USER !== 'true') {
@@ -78,6 +80,67 @@ async function bootstrap() {
     origin: true,
     credentials: true,
   });
+  const metricsEnabled = process.env.ENABLE_METRICS !== 'false';
+  if (metricsEnabled) {
+    collectDefaultMetrics();
+    const httpHistogram = new Histogram({
+      name: 'http_request_duration_ms',
+      help: 'HTTP request duration in ms',
+      labelNames: ['method', 'route', 'status_code'],
+      buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+    });
+
+    app.use((req, res, next) => {
+      if (req.path === '/metrics') {
+        return next();
+      }
+      const end = httpHistogram.startTimer({
+        method: req.method,
+        route: req.path,
+      });
+      res.on('finish', () => {
+        end({ status_code: res.statusCode });
+      });
+      next();
+    });
+
+    const expressApp = app.getHttpAdapter().getInstance();
+    expressApp.get('/metrics', async (_req: any, res: any) => {
+      res.setHeader('Content-Type', register.contentType);
+      res.end(await register.metrics());
+    });
+  }
+
+  const metricsEnabled = process.env.ENABLE_METRICS !== 'false';
+  if (metricsEnabled) {
+    collectDefaultMetrics();
+    const httpHistogram = new Histogram({
+      name: 'http_request_duration_ms',
+      help: 'HTTP request duration in ms',
+      labelNames: ['method', 'route', 'status_code'],
+      buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+    });
+
+    app.use((req, res, next) => {
+      if (req.path === '/metrics') {
+        return next();
+      }
+      const end = httpHistogram.startTimer({
+        method: req.method,
+        route: req.path,
+      });
+      res.on('finish', () => {
+        end({ status_code: res.statusCode });
+      });
+      next();
+    });
+
+    const expressApp = app.getHttpAdapter().getInstance();
+    expressApp.get('/metrics', async (_req: any, res: any) => {
+      res.setHeader('Content-Type', register.contentType);
+      res.end(await register.metrics());
+    });
+  }
   const cwdUploads = join(process.cwd(), 'uploads');
   const repoUploads = join(process.cwd(), 'server', 'uploads');
   const uploadRoot = existsSync(cwdUploads) ? cwdUploads : repoUploads;

@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "server"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["server:3000"]
+
+  - job_name: "assistant_service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["assistant_service:4100"]
+
+  # Optional exporters (uncomment when enabled)
+  # - job_name: "redis"
+  #   static_configs:
+  #     - targets: ["redis-exporter:9121"]
+  #
+  # - job_name: "postgres"
+  #   static_configs:
+  #     - targets: ["postgres-exporter:9187"]
+
+remote_write:
+  - url: ${GRAFANA_CLOUD_REMOTE_WRITE_URL}
+    basic_auth:
+      username: ${GRAFANA_CLOUD_USERNAME}
+      password: ${GRAFANA_CLOUD_API_KEY}

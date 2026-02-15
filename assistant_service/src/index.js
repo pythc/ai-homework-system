@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import { collectDefaultMetrics, Histogram, register } from 'prom-client';
+import { collectDefaultMetrics, Histogram, register } from 'prom-client';
 
 const {
   ASSISTANT_PORT = 4100,
@@ -16,6 +18,66 @@ if (!ARK_API_KEY) {
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
+
+const metricsEnabled = process.env.ENABLE_METRICS !== 'false';
+if (metricsEnabled) {
+  collectDefaultMetrics();
+  const httpHistogram = new Histogram({
+    name: 'http_request_duration_ms',
+    help: 'HTTP request duration in ms',
+    labelNames: ['method', 'route', 'status_code'],
+    buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+  });
+
+  app.use((req, res, next) => {
+    if (req.path === '/metrics') {
+      return next();
+    }
+    const end = httpHistogram.startTimer({
+      method: req.method,
+      route: req.path,
+    });
+    res.on('finish', () => {
+      end({ status_code: res.statusCode });
+    });
+    next();
+  });
+
+  app.get('/metrics', async (_req, res) => {
+    res.setHeader('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  });
+}
+
+const metricsEnabled = process.env.ENABLE_METRICS !== 'false';
+if (metricsEnabled) {
+  collectDefaultMetrics();
+  const httpHistogram = new Histogram({
+    name: 'http_request_duration_ms',
+    help: 'HTTP request duration in ms',
+    labelNames: ['method', 'route', 'status_code'],
+    buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+  });
+
+  app.use((req, res, next) => {
+    if (req.path === '/metrics') {
+      return next();
+    }
+    const end = httpHistogram.startTimer({
+      method: req.method,
+      route: req.path,
+    });
+    res.on('finish', () => {
+      end({ status_code: res.statusCode });
+    });
+    next();
+  });
+
+  app.get('/metrics', async (_req, res) => {
+    res.setHeader('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  });
+}
 
 const normalizeBaseUrl = (url) => (url ? url.replace(/\/+$/, '') : '');
 const baseUrl = normalizeBaseUrl(ASSISTANT_BASE_URL);
