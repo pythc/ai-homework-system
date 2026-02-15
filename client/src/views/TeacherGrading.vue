@@ -527,7 +527,8 @@ const loadFinalForSubmission = async (submissionId: string, questionId: string) 
   try {
     const result = await getFinalGrading(submissionId)
     const items = result?.items ?? []
-    gradingItems.value = question.rubric.map((rule) => {
+    const rubric = question.rubric ?? []
+    gradingItems.value = rubric.map((rule) => {
       const matched = items.find((it) => it.rubricItemKey === rule.rubricItemKey)
       return {
         questionIndex: question.questionIndex,
@@ -785,11 +786,17 @@ const loadData = async () => {
       selectedStudentId.value = match.studentId
     }
   }
-  if (!selectedQuestionId.value && questions.value.length) {
-    selectedQuestionId.value = questions.value[0].questionId
+  if (!selectedQuestionId.value) {
+    const firstQuestion = questions.value[0]
+    if (firstQuestion) {
+      selectedQuestionId.value = firstQuestion.questionId
+    }
   }
-  if (!selectedStudentId.value && students.value.length) {
-    selectedStudentId.value = students.value[0].studentId
+  if (!selectedStudentId.value) {
+    const firstStudent = students.value[0]
+    if (firstStudent) {
+      selectedStudentId.value = firstStudent.studentId
+    }
   }
 }
 

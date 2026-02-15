@@ -128,9 +128,20 @@ const result = ref<any | null>(null)
 const currentIndex = ref(0)
 const submittedMap = ref<Record<string, { contentText?: string; fileUrls?: string[] }>>({})
 
+type ScoreDetailQuestion = {
+  questionId: string
+  questionIndex: number
+  promptText: string
+  weight: number
+  maxScore: number
+  score: number
+  items?: Array<{ rubricItemKey?: string; score?: number; reason?: string }>
+  finalComment?: string | null
+}
+
 const assignmentId = computed(() => String(route.params.assignmentId ?? ''))
 const sortedQuestions = computed(() => {
-  const questions = (result.value?.questions ?? []) as Array<{ questionIndex: number }>
+  const questions = (result.value?.questions ?? []) as ScoreDetailQuestion[]
   return [...questions].sort((a, b) => a.questionIndex - b.questionIndex)
 })
 const currentQuestion = computed(() => {

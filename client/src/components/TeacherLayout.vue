@@ -89,7 +89,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { fetchAssistantUsage } from '../api/assistant'
 import { clearAuth } from '../auth/storage'
 
@@ -107,7 +107,6 @@ defineSlots<{
 }>()
 
 const route = useRoute()
-const router = useRouter()
 const isActive = (path: string, exact = false) => {
   if (exact) return route.path === path
   return route.path === path || route.path.startsWith(`${path}/`)

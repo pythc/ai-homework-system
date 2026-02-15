@@ -191,6 +191,7 @@ const mergedSubmissions = computed(() => {
       return
     }
     const group = map.get(studentId)
+    if (!group) return
     group.items.push(item)
     const prevTime = new Date(group.submittedAt ?? 0).getTime()
     const nextTime = new Date(item.submittedAt ?? 0).getTime()
