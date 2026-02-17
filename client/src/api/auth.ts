@@ -96,6 +96,14 @@ type BulkRegisterResult = {
   created: number
   skipped: number
   errors: Array<{ row: number; reason: string; account?: string }>
+  course?: {
+    id: string
+    name: string
+    semester: string
+    status: 'ACTIVE' | 'ARCHIVED'
+    teacherId: string
+  } | null
+  enrolled?: number
 }
 
 type BulkRegisterResponse = {
@@ -104,9 +112,21 @@ type BulkRegisterResponse = {
   data: BulkRegisterResult
 }
 
-export async function registerBulkUsers(file: File) {
+export async function registerBulkUsers(
+  file: File,
+  payload: {
+    schoolId: string
+    courseName: string
+    semester: string
+    status: 'ACTIVE' | 'ARCHIVED'
+  },
+) {
   const form = new FormData()
   form.append('file', file)
+  form.append('schoolId', payload.schoolId)
+  form.append('courseName', payload.courseName)
+  form.append('semester', payload.semester)
+  form.append('status', payload.status)
   return httpRequest<BulkRegisterResponse>('/auth/register/bulk', {
     method: 'POST',
     body: form,

@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AssignmentService } from './assignment.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { PublishAssignmentDto } from './dto/publish-assignment.dto';
@@ -77,6 +88,17 @@ export class AssignmentController {
     @Body() body: PublishAssignmentDto,
   ) {
     return this.assignmentService.publishAssignment(assignmentId, body);
+  }
+
+  @Delete(':assignmentId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async deleteAssignment(
+    @Param('assignmentId') assignmentId: string,
+    @Req() req: any,
+  ) {
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.assignmentService.deleteAssignment(assignmentId, payload);
   }
 
   @Get(':assignmentId/snapshot')

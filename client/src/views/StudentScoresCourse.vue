@@ -19,12 +19,20 @@
           <div class="grade-main">
             <div class="grade-head">
               <div class="grade-title">{{ score.title }}</div>
-              <div class="grade-score-inline">{{ score.totalScore }}</div>
+              <div class="grade-score-inline">{{ score.totalScoreLabel }}</div>
             </div>
-            <div class="grade-sub">评分日期 {{ score.updatedAt }}</div>
+            <div class="grade-sub">
+              {{ score.subLabel }}
+            </div>
           </div>
           <div class="grade-actions">
-            <button class="grade-action" @click="viewDetail(score)">查看详情</button>
+            <button
+              class="grade-action"
+              :disabled="!score.canView"
+              @click="viewDetail(score)"
+            >
+              查看详情
+            </button>
           </div>
         </div>
         <div v-if="!scoreList.length" class="grade-empty">
@@ -50,7 +58,7 @@ const route = useRoute()
 
 const courseId = computed(() => String(route.params.courseId ?? ''))
 
-const formatScoreDate = (value: string) => {
+const formatScoreDate = (value: string | null) => {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -64,8 +72,15 @@ const scoreList = computed(() =>
       scoreId: item.scoreId,
       assignmentId: item.assignmentId,
       title: item.assignmentTitle,
-      totalScore: item.totalScore,
-      updatedAt: formatScoreDate(item.updatedAt),
+      totalScoreLabel:
+        item.status === 'UNSUBMITTED' || item.totalScore === null
+          ? '未提交'
+          : item.totalScore,
+      subLabel:
+        item.status === 'UNSUBMITTED'
+          ? '状态：未提交'
+          : `评分日期 ${formatScoreDate(item.updatedAt)}`,
+      canView: true,
     })),
 )
 

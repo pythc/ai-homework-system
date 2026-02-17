@@ -77,7 +77,7 @@
                   </div>
                 </div>
 
-                <div v-if="currentQuestion.items?.length" class="detail-sub">
+                <div v-if="showAiDetail && currentQuestion.items?.length" class="detail-sub">
                   <div v-for="(sub, subIdx) in currentQuestion.items" :key="subIdx" class="detail-sub-item">
                     <div>评分项 {{ sub.rubricItemKey || '-' }}</div>
                     <div>得分 {{ sub.score ?? '-' }}</div>
@@ -129,12 +129,12 @@ const currentIndex = ref(0)
 const submittedMap = ref<Record<string, { contentText?: string; fileUrls?: string[] }>>({})
 
 type ScoreDetailQuestion = {
-  questionId: string
+  questionId: string | null
   questionIndex: number
   promptText: string
   weight: number
   maxScore: number
-  score: number
+  score: number | null
   items?: Array<{ rubricItemKey?: string; score?: number; reason?: string }>
   finalComment?: string | null
 }
@@ -150,6 +150,7 @@ const currentQuestion = computed(() => {
     Math.max(0, Math.min(currentIndex.value, sortedQuestions.value.length - 1))
   ]
 })
+const showAiDetail = computed(() => currentQuestion.value?.source === 'AI_ADOPTED')
 const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
 
 const renderMath = (text?: string | null) => {
