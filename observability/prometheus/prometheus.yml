@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 60s
+
+scrape_configs:
+  - job_name: server
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:3000"]
+
+  - job_name: assistant_service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:4100"]
+
+remote_write:
+  - url: https://prometheus-prod-37-prod-ap-southeast-1.grafana.net/api/prom/push
+    basic_auth:
+      username: "${GRAFANA_CLOUD_USERNAME}"
+      password: "${GRAFANA_CLOUD_API_KEY}"
