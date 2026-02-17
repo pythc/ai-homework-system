@@ -493,13 +493,6 @@ const canEditCurrent = computed(() => {
   return editingOverride.value
 })
 
-const clampScore = (index: number) => {
-  const item = gradingItems.value[index]
-  if (!item) return
-  if (item.score < 0) item.score = 0
-  if (item.score > item.maxScore) item.score = item.maxScore
-}
-
 const clampTotalScore = () => {
   if (totalScoreInput.value < 0) totalScoreInput.value = 0
   if (totalScoreInput.value > maxTotalScore.value) {
