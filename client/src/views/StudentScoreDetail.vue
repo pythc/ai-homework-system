@@ -35,7 +35,7 @@
               <div class="sidebar-title">题号</div>
               <button
                 v-for="(question, index) in sortedQuestions"
-                :key="question.questionId"
+                :key="question.questionId || index"
                 class="sidebar-item"
                 :class="{ active: index === currentIndex }"
                 @click="goQuestion(index)"
@@ -129,12 +129,13 @@ const currentIndex = ref(0)
 const submittedMap = ref<Record<string, { contentText?: string; fileUrls?: string[] }>>({})
 
 type ScoreDetailQuestion = {
-  questionId: string | null
+  questionId: string
   questionIndex: number
-  promptText: string
+  promptText?: string | null
   weight: number
   maxScore: number
   score: number | null
+  source?: 'AI_ADOPTED' | 'AI' | 'MANUAL' | null | string
   items?: Array<{ rubricItemKey?: string; score?: number; reason?: string }>
   finalComment?: string | null
 }
@@ -192,7 +193,9 @@ onMounted(async () => {
     const latest = await listLatestSubmissions(assignmentId.value)
     const map: Record<string, { contentText?: string; fileUrls?: string[] }> = {}
     latest?.items?.forEach((item) => {
-      map[item.questionId] = {
+      if (!item?.questionId) return
+      const key = String(item.questionId)
+      map[key] = {
         contentText: item.contentText,
         fileUrls: item.fileUrls,
       }
