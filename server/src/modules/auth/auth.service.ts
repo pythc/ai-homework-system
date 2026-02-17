@@ -10,7 +10,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'crypto';
 import ExcelJS from 'exceljs';
 import { DataSource, Repository } from 'typeorm';
-import * as XLSX from 'xlsx';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { AuthSessionEntity } from './entities/auth-session.entity';
@@ -138,46 +137,30 @@ export class AuthService {
   ) {
     let rows: Array<Array<unknown>> = [];
 
-    if (extension !== '.xlsx' && extension !== '.xls') {
-      throw new BadRequestException('仅支持 .xls 或 .xlsx 文件');
+    if (extension !== '.xlsx') {
+      throw new BadRequestException('仅支持 .xlsx 文件');
     }
 
-    if (extension === '.xlsx') {
-      const workbook = new ExcelJS.Workbook();
-      const arrayBuffer = buffer.buffer.slice(
-        buffer.byteOffset,
-        buffer.byteOffset + buffer.byteLength,
-      ) as ArrayBuffer;
-      await workbook.xlsx.load(arrayBuffer as unknown as any);
-      const sheet = workbook.worksheets[0];
-      if (!sheet) {
-        rows = [];
-      } else {
-        sheet.eachRow({ includeEmpty: true }, (row) => {
-          const values = Array.isArray(row.values) ? row.values : [];
-          const normalized = values.slice(1).map((cell) => {
-            if (cell && typeof cell === 'object' && 'text' in cell) {
-              return (cell as { text?: string }).text ?? '';
-            }
-            return cell ?? '';
-          });
-          rows.push(normalized);
-        });
-      }
+    const workbook = new ExcelJS.Workbook();
+    const arrayBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer;
+    await workbook.xlsx.load(arrayBuffer as unknown as any);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      rows = [];
     } else {
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = sheetName ? workbook.Sheets[sheetName] : undefined;
-      if (!sheet) {
-        rows = [];
-      } else {
-        const data = XLSX.utils.sheet_to_json(sheet, {
-          header: 1,
-          raw: false,
-          blankrows: true,
-        }) as Array<Array<unknown>>;
-        rows = data.map((row) => (Array.isArray(row) ? row : []));
-      }
+      sheet.eachRow({ includeEmpty: true }, (row) => {
+        const values = Array.isArray(row.values) ? row.values : [];
+        const normalized = values.slice(1).map((cell) => {
+          if (cell && typeof cell === 'object' && 'text' in cell) {
+            return (cell as { text?: string }).text ?? '';
+          }
+          return cell ?? '';
+        });
+        rows.push(normalized);
+      });
     }
 
     const results = {
