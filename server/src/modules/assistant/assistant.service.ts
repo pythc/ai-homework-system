@@ -310,39 +310,49 @@ export class AssistantService {
           email: null,
         };
 
-    const clauses: string[] = ['s.is_final = true'];
+    const awsClauses: string[] = [];
+    const outerClauses: string[] = [];
     const params: Array<string> = [];
 
     if (user.role === UserRole.STUDENT) {
       params.push(user.sub);
-      clauses.push(`v.student_id = $${params.length}`);
+      awsClauses.push(`aws.student_id = $${params.length}`);
     }
 
     if (dto.courseId) {
       params.push(dto.courseId);
-      clauses.push(`a.course_id = $${params.length}`);
+      outerClauses.push(`a.course_id = $${params.length}`);
     }
 
     if (dto.assignmentId) {
       params.push(dto.assignmentId);
-      clauses.push(`v.assignment_id = $${params.length}`);
+      awsClauses.push(`aws.assignment_id = $${params.length}`);
     }
 
-    const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const awsWhereSql = awsClauses.length ? `WHERE ${awsClauses.join(' AND ')}` : '';
+    const outerWhereSql =
+      outerClauses.length ? `WHERE ${outerClauses.join(' AND ')}` : '';
     const baseSql = `
-      FROM assistant.v_scores s
-      JOIN assistant.v_submission_versions v ON v.id = s.submission_version_id
-      JOIN assistant.v_assignments a ON a.id = v.assignment_id
-      JOIN assistant.v_courses c ON c.id = a.course_id
-      ${whereSql}
+      FROM (
+        SELECT DISTINCT ON (aws.assignment_id, aws.student_id)
+          aws.assignment_id,
+          aws.student_id,
+          aws.total_score
+        FROM assignment_weighted_scores aws
+        ${awsWhereSql}
+        ORDER BY aws.assignment_id, aws.student_id, aws.updated_at DESC
+      ) aws
+      JOIN assignments a ON a.id = aws.assignment_id
+      JOIN courses c ON c.id = a.course_id
+      ${outerWhereSql}
     `;
 
     const statsRows = await this.dataSource.query(
       `SELECT
-         COUNT(*)::int AS count,
-         AVG(s.total_score)::float AS avg,
-         MIN(s.total_score)::float AS min,
-         MAX(s.total_score)::float AS max
+         COUNT(DISTINCT aws.student_id)::int AS count,
+         AVG(aws.total_score)::float AS avg,
+         MIN(aws.total_score)::float AS min,
+         MAX(aws.total_score)::float AS max
        ${baseSql}`,
       params,
     );
@@ -356,29 +366,22 @@ export class AssistantService {
     const max =
       statsRow.max !== null && statsRow.max !== undefined ? Number(statsRow.max) : null;
 
-    const includeByAssignment = this.shouldIncludeByAssignment(
-      question ?? '',
-      dto,
+    const trendRows = await this.dataSource.query(
+      `SELECT
+         a.id AS "assignmentId",
+         a.title AS "assignmentTitle",
+         AVG(aws.total_score)::float AS value,
+         MIN(a.created_at) AS "createdAt"
+       ${baseSql}
+       GROUP BY a.id, a.title
+       ORDER BY MIN(a.created_at) ASC`,
+      params,
     );
-
-    const byAssignment = includeByAssignment
-      ? (await this.dataSource.query(
-          `SELECT
-             a.id AS "assignmentId",
-             a.title AS "assignmentTitle",
-             AVG(s.total_score)::float AS value,
-             MIN(a.created_at) AS "createdAt"
-           ${baseSql}
-           GROUP BY a.id, a.title
-           ORDER BY MIN(a.created_at) ASC`,
-          params,
-        )).map((row: any) => ({
-          assignmentId: row.assignmentId,
-          assignmentTitle: row.assignmentTitle,
-          avgScore:
-            row.value !== null && row.value !== undefined ? Number(row.value) : null,
-        }))
-      : [];
+    const byAssignment = (trendRows ?? []).map((row: any) => ({
+      assignmentId: row.assignmentId,
+      assignmentTitle: row.assignmentTitle,
+      avgScore: row.value !== null && row.value !== undefined ? Number(row.value) : null,
+    }));
 
     return {
       stats: {
@@ -386,7 +389,7 @@ export class AssistantService {
         avg,
         min,
         max,
-        ...(includeByAssignment ? { byAssignment } : {}),
+        byAssignment,
       },
       scope: {
         role: user.role,

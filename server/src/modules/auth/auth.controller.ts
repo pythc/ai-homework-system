@@ -28,6 +28,7 @@ import { ChangePasswordRequestDto, ChangePasswordResponseDto } from './dto/chang
 import { Roles } from './roles.decorator';
 import { RolesGuard } from './roles.guard';
 import { UserRole } from './entities/user.entity';
+import { CourseStatus } from '../assignment/entities/course.entity';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -120,10 +121,30 @@ export class AuthController {
       throw new BadRequestException('缺少schoolId');
     }
 
+    const body = req.body as {
+      schoolId?: string;
+      courseName?: string;
+      semester?: string;
+      status?: string;
+    };
+    if (body?.schoolId && body.schoolId !== schoolId) {
+      throw new BadRequestException('学校信息不匹配');
+    }
+    const courseName = String(body?.courseName ?? '').trim();
+    const semester = String(body?.semester ?? '').trim();
+    const status = String(body?.status ?? '').trim();
+    const statusValue =
+      status === CourseStatus.ARCHIVED ? CourseStatus.ARCHIVED : CourseStatus.ACTIVE;
+
     const result = await this.authService.registerBulkFromExcel(
       file.buffer,
       schoolId,
       ext,
+      {
+        name: courseName,
+        semester,
+        status: statusValue,
+      },
     );
     return {
       code: 201,

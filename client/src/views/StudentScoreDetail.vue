@@ -35,7 +35,7 @@
               <div class="sidebar-title">题号</div>
               <button
                 v-for="(question, index) in sortedQuestions"
-                :key="question.questionId"
+                :key="question.questionId || index"
                 class="sidebar-item"
                 :class="{ active: index === currentIndex }"
                 @click="goQuestion(index)"
@@ -77,7 +77,7 @@
                   </div>
                 </div>
 
-                <div v-if="currentQuestion.items?.length" class="detail-sub">
+                <div v-if="showAiDetail && currentQuestion.items?.length" class="detail-sub">
                   <div v-for="(sub, subIdx) in currentQuestion.items" :key="subIdx" class="detail-sub-item">
                     <div>评分项 {{ sub.rubricItemKey || '-' }}</div>
                     <div>得分 {{ sub.score ?? '-' }}</div>
@@ -131,10 +131,11 @@ const submittedMap = ref<Record<string, { contentText?: string; fileUrls?: strin
 type ScoreDetailQuestion = {
   questionId: string
   questionIndex: number
-  promptText: string
+  promptText?: string | null
   weight: number
   maxScore: number
-  score: number
+  score: number | null
+  source?: 'AI_ADOPTED' | 'AI' | 'MANUAL' | null | string
   items?: Array<{ rubricItemKey?: string; score?: number; reason?: string }>
   finalComment?: string | null
 }
@@ -150,6 +151,7 @@ const currentQuestion = computed(() => {
     Math.max(0, Math.min(currentIndex.value, sortedQuestions.value.length - 1))
   ]
 })
+const showAiDetail = computed(() => currentQuestion.value?.source === 'AI_ADOPTED')
 const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
 
 const renderMath = (text?: string | null) => {
@@ -191,7 +193,9 @@ onMounted(async () => {
     const latest = await listLatestSubmissions(assignmentId.value)
     const map: Record<string, { contentText?: string; fileUrls?: string[] }> = {}
     latest?.items?.forEach((item) => {
-      map[item.questionId] = {
+      if (!item?.questionId) return
+      const key = String(item.questionId)
+      map[key] = {
         contentText: item.contentText,
         fileUrls: item.fileUrls,
       }

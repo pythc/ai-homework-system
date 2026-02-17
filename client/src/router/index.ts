@@ -31,6 +31,8 @@ import TeacherQuestionBankQuestionDetail from '../views/TeacherQuestionBankQuest
 import AdminDashboard from '../views/AdminDashboard.vue'
 import AdminQuestionBank from '../views/AdminQuestionBank.vue'
 import AdminClassImport from '../views/AdminClassImport.vue'
+import AdminCourses from '../views/AdminCourses.vue'
+import AdminCourseDetail from '../views/AdminCourseDetail.vue'
 import AdminQuestionBankCourses from '../views/AdminQuestionBankCourses.vue'
 import AdminQuestionBankTextbooks from '../views/AdminQuestionBankTextbooks.vue'
 import AdminQuestionBankChapters from '../views/AdminQuestionBankChapters.vue'
@@ -159,6 +161,14 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/class-import',
     component: AdminClassImport,
+  },
+  {
+    path: '/admin/courses',
+    component: AdminCourses,
+  },
+  {
+    path: '/admin/courses/:courseId',
+    component: AdminCourseDetail,
   },
   {
     path: '/admin/question-bank/courses',

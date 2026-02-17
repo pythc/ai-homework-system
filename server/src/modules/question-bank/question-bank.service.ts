@@ -556,7 +556,7 @@ export class QuestionBankService {
   ) {
     const chapter = chapterMap.get(chapterId);
     if (!chapter) {
-      throw new BadRequestException(`Chapter not found: `);
+      throw new BadRequestException(`Chapter not found: ${chapterId}`);
     }
     return chapter;
   }

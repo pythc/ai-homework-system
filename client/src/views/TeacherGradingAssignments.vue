@@ -40,7 +40,17 @@
               </div>
               <!-- debug removed -->
             </div>
-            <button class="task-action" @click="goSubmissions(task.id)">查看提交</button>
+            <div class="task-actions">
+              <button class="task-action" @click="goSubmissions(task.id)">查看提交</button>
+              <button
+                class="task-action ghost"
+                type="button"
+                :disabled="deletingIds.has(task.id)"
+                @click="deleteTask(task.id, task.title)"
+              >
+                {{ deletingIds.has(task.id) ? '删除中...' : '删除作业' }}
+              </button>
+            </div>
           </div>
         </div>
         <div v-if="!gradingList.length" class="task-empty">
@@ -55,12 +65,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
-import { listTeacherAssignments } from '../api/assignment'
+import { deleteAssignment, listTeacherAssignments } from '../api/assignment'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 const gradingItems = ref<any[]>([])
 const gradingError = ref('')
+const deletingIds = ref(new Set<string>())
 const router = useRouter()
 const route = useRoute()
 const courseId = computed(() => String(route.params.courseId ?? ''))
@@ -120,6 +131,26 @@ const goBack = () => {
   router.push('/teacher/grading')
 }
 
+const deleteTask = async (assignmentId: string, title?: string) => {
+  const name = title ? `“${title}”` : '该作业'
+  if (!window.confirm(`确认删除${name}？删除后将清除该作业相关数据，且无法恢复。`)) {
+    return
+  }
+  const next = new Set(deletingIds.value)
+  next.add(assignmentId)
+  deletingIds.value = next
+  try {
+    await deleteAssignment(assignmentId)
+    gradingItems.value = gradingItems.value.filter((item) => item.id !== assignmentId)
+  } catch (err) {
+    gradingError.value = err instanceof Error ? err.message : '删除作业失败'
+  } finally {
+    const updated = new Set(deletingIds.value)
+    updated.delete(assignmentId)
+    deletingIds.value = updated
+  }
+}
+
 onMounted(async () => {
   await refreshProfile()
   try {
@@ -154,6 +185,17 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-action.ghost {
+  background: rgba(255, 255, 255, 0.7);
+  color: rgba(26, 29, 51, 0.7);
 }
 
 .task-card .task-progress {
