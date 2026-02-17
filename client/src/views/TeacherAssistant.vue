@@ -345,17 +345,6 @@ const quickPrompts = [
   '此系统不好用应该如何反馈',
 ]
 
-const HISTORY_WINDOW = 6
-
-const buildHistory = () => {
-  const items = messages.value.filter((item) => item?.content)
-  const recent = items.slice(-HISTORY_WINDOW)
-  if (!recent.length) return ''
-  return recent
-    .map((item) => `${item.role === 'user' ? '用户' : '助手'}：${item.content}`)
-    .join('\n')
-}
-
 const renderMarkdown = (content) => marked.parse(content ?? '', { breaks: true })
 
 const scrollToBottom = () => {
@@ -465,20 +454,24 @@ const readFileAsDataUrl = (file) =>
 const buildImagesPayload = async () => {
   if (!attachments.value.length) return []
   const files = attachments.value.map((item) => item.file)
-  const dataUrls = await Promise.all(files.map((file) => readFileAsDataUrl(file)))
   let uploaded = []
   try {
     const response = await uploadAssistantImages(files)
     uploaded = response.files ?? []
   } catch (err) {
-    // upload failed, fallback to dataUrl only
     uploaded = []
   }
-  return files.map((file, idx) => ({
-    name: file.name,
-    dataUrl: dataUrls[idx],
-    url: uploaded[idx]?.url,
-  }))
+  const urls = files.map((_, idx) => uploaded[idx]?.url)
+  const dataUrls = await Promise.all(
+    files.map((file, idx) => (urls[idx] ? '' : readFileAsDataUrl(file))),
+  )
+  return files.map((file, idx) => {
+    const url = urls[idx]
+    if (url) {
+      return { name: file.name, url }
+    }
+    return { name: file.name, dataUrl: dataUrls[idx] }
+  })
 }
 
 const refreshUsage = () => {
@@ -492,15 +485,8 @@ const sendMessageWithText = async (question) => {
   if ((!trimmed && !attachments.value.length) || sending.value) return
 
   error.value = ''
-  const history = buildHistory()
-  const attachmentText = attachments.value.length
-    ? `\n\n【已选择图片】${attachments.value.map((item) => item.name).join('、')}`
-    : ''
   const userContent = trimmed || '请查看我上传的图片。'
-  const payload = history
-    ? `${userContent}${attachmentText}\n\n【最近对话】\n${history}`
-    : `${userContent}${attachmentText}`
-  if (payload.length > 4000) {
+  if (userContent.length > 4000) {
     pushMessage('assistant', '非常抱歉，小小作坊资金有限，长对话暂不支持，请开启新对话继续学习吧~')
     clearAttachments()
     refreshUsage()
@@ -514,7 +500,7 @@ const sendMessageWithText = async (question) => {
   try {
     const images = await buildImagesPayload()
     await streamAssistantMessage(
-      payload,
+      userContent,
       { sessionId: sessionId.value, thinking: thinkingMode.value, images },
       {
         onDelta: (_delta, full) => {

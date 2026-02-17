@@ -1,0 +1,18 @@
+110-lab.cn, www.110-lab.cn {
+  encode gzip
+
+  handle_path /api/* {
+    reverse_proxy server:3000
+  }
+
+  handle_path /assistant/* {
+    reverse_proxy assistant_service:4100
+  }
+
+  handle_path /uploads/* {
+    reverse_proxy server:3000
+  }
+
+  root * /srv
+  file_server
+}
