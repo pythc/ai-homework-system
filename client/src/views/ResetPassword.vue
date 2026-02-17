@@ -38,7 +38,45 @@
             placeholder="请输入新密码(6-16位字母和数字)"
           />
           <span class="eye" @click="showNewPassword = !showNewPassword">
-            {{ showNewPassword ? '🙈' : '👁️' }}
+            <svg v-if="showNewPassword" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M2.5 12s3.6-6.5 9.5-6.5S21.5 12 21.5 12s-3.6 6.5-9.5 6.5S2.5 12 2.5 12Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <circle
+                cx="12"
+                cy="12"
+                r="3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 5l16 14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+              <path
+                d="M3 12s3.6-6.5 9-6.5c2.6 0 4.8 1 6.5 2.4M21 12s-1.5 2.6-4.2 4.6c-1.4 1-3 1.6-4.8 1.6-5.4 0-9-6.1-9-6.1"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+              <path
+                d="M10.2 9.2a3.5 3.5 0 0 0 4.6 4.6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
           </span>
         </div>
 
@@ -49,7 +87,45 @@
             placeholder="确认新密码(6-16位字母和数字)"
           />
           <span class="eye" @click="showConfirmPassword = !showConfirmPassword">
-            {{ showConfirmPassword ? '🙈' : '👁️' }}
+            <svg v-if="showConfirmPassword" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M2.5 12s3.6-6.5 9.5-6.5S21.5 12 21.5 12s-3.6 6.5-9.5 6.5S2.5 12 2.5 12Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <circle
+                cx="12"
+                cy="12"
+                r="3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 5l16 14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+              <path
+                d="M3 12s3.6-6.5 9-6.5c2.6 0 4.8 1 6.5 2.4M21 12s-1.5 2.6-4.2 4.6c-1.4 1-3 1.6-4.8 1.6-5.4 0-9-6.1-9-6.1"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+              <path
+                d="M10.2 9.2a3.5 3.5 0 0 0 4.6 4.6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
           </span>
         </div>
 
@@ -387,6 +463,15 @@ const goBackToLogin = () => {
   transform: translateY(-50%);
   cursor: pointer;
   user-select: none;
+  color: rgba(16, 53, 112, 0.75);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eye svg {
+  width: 18px;
+  height: 18px;
 }
 
 .options {

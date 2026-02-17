@@ -137,6 +137,13 @@ export class AssignmentService {
         ? dto.totalScore.toFixed(2)
         : assignment.totalScore;
     assignment.status = dto.status ?? assignment.status;
+    if (assignment.status !== AssignmentStatus.ARCHIVED && assignment.deadline) {
+      const deadlineTime = assignment.deadline.getTime();
+      if (!Number.isNaN(deadlineTime)) {
+        assignment.status =
+          deadlineTime <= Date.now() ? AssignmentStatus.CLOSED : AssignmentStatus.OPEN;
+      }
+    }
     assignment.updatedAt = new Date();
 
     const saved = await this.assignmentRepo.save(assignment);
@@ -203,6 +210,63 @@ export class AssignmentService {
     };
   }
 
+  async deleteAssignment(
+    assignmentId: string,
+    requester: { sub: string; role: UserRole; schoolId: string },
+  ) {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+
+    const course = await this.courseRepo.findOne({
+      where: { id: assignment.courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    if (requester.role !== UserRole.ADMIN) {
+      if (course.teacherId !== requester.sub || course.schoolId !== requester.schoolId) {
+        throw new BadRequestException('无权删除该作业');
+      }
+    } else if (course.schoolId !== requester.schoolId) {
+      throw new BadRequestException('无权删除该作业');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const versionRows = await manager.query(
+        `SELECT id FROM submission_versions WHERE assignment_id = $1`,
+        [assignmentId],
+      );
+      const versionIds = (versionRows ?? []).map((row: any) => row.id).filter(Boolean);
+
+      if (versionIds.length > 0) {
+        await manager.query(
+          `DELETE FROM scores WHERE submission_version_id = ANY($1)`,
+          [versionIds],
+        );
+        await manager.query(
+          `DELETE FROM ai_gradings WHERE submission_version_id = ANY($1)`,
+          [versionIds],
+        );
+        await manager.query(
+          `DELETE FROM ai_jobs WHERE submission_version_id = ANY($1)`,
+          [versionIds],
+        );
+      }
+
+      await manager.query(`DELETE FROM ai_gradings WHERE assignment_id = $1`, [assignmentId]);
+      await manager.query(`DELETE FROM submission_versions WHERE assignment_id = $1`, [assignmentId]);
+      await manager.query(`DELETE FROM submissions WHERE assignment_id = $1`, [assignmentId]);
+      await manager.query(`DELETE FROM assignment_snapshots WHERE assignment_id = $1`, [assignmentId]);
+      await manager.query(`DELETE FROM assignments WHERE id = $1`, [assignmentId]);
+    });
+
+    return { success: true };
+  }
+
   async getCurrentSnapshot(assignmentId: string) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
@@ -217,6 +281,7 @@ export class AssignmentService {
   }
 
   async listOpenAssignmentsForStudent(studentId: string, schoolId: string) {
+    await this.closeExpiredAssignments(schoolId);
     const rows = await this.dataSource.query(
       `
         SELECT
@@ -265,6 +330,7 @@ export class AssignmentService {
   }
 
   async listAllAssignmentsForStudent(studentId: string, schoolId: string) {
+    await this.closeExpiredAssignments(schoolId);
     const rows = await this.dataSource.query(
       `
         SELECT
@@ -304,6 +370,7 @@ export class AssignmentService {
     schoolId: string,
     role?: UserRole,
   ) {
+    await this.closeExpiredAssignments(schoolId);
     const params: Array<string> = [];
     let whereClause = `c.school_id = $1`;
     params.push(schoolId);
@@ -603,5 +670,21 @@ export class AssignmentService {
       createdAt: assignment.createdAt,
       updatedAt: assignment.updatedAt,
     };
+  }
+
+  private async closeExpiredAssignments(schoolId: string) {
+    await this.dataSource.query(
+      `
+        UPDATE assignments a
+        SET status = 'CLOSED', updated_at = now()
+        FROM courses c
+        WHERE a.course_id = c.id
+          AND c.school_id = $1
+          AND a.status = 'OPEN'
+          AND a.deadline IS NOT NULL
+          AND a.deadline <= now()
+      `,
+      [schoolId],
+    );
   }
 }

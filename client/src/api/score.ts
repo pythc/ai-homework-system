@@ -8,8 +8,9 @@ export type ScoreSummary = {
   assignmentTitle: string
   courseId: string
   courseName?: string | null
-  totalScore: number
-  updatedAt: string
+  totalScore: number | null
+  updatedAt: string | null
+  status?: 'GRADED' | 'UNSUBMITTED'
 }
 
 type ScoreListResponse = {
@@ -31,16 +32,17 @@ export async function getAssignmentScoreDetail(assignmentId: string) {
     assignmentTitle: string
     courseId: string
     courseName?: string | null
-    totalScore: number
-    weightedScore: number
-    updatedAt: string
+    totalScore: number | null
+    weightedScore: number | null
+    updatedAt: string | null
+    status?: 'GRADED' | 'UNSUBMITTED'
     questions: Array<{
-      questionId: string
+      questionId: string | null
       questionIndex: number
       promptText: string
       weight: number
       maxScore: number
-      score: number
+      score: number | null
       source?: string | null
       items?: Array<{ rubricItemKey?: string; score?: number; reason?: string }>
       finalComment?: string | null

@@ -32,6 +32,13 @@
           班级导入
         </RouterLink>
         <RouterLink
+          to="/admin/courses"
+          class="nav-item"
+          :class="{ active: isActive('/admin/courses') }"
+        >
+          课程管理
+        </RouterLink>
+        <RouterLink
           to="/admin/question-bank/courses"
           class="nav-item"
           :class="{ active: isActive('/admin/question-bank/courses') }"

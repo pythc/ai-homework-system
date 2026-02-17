@@ -4,8 +4,10 @@ import { ManualGradingController } from './manual-grading.controller';
 import { ScoreController } from './score.controller';
 import { ManualGradingService } from './manual-grading.service';
 import { ScoreEntity } from './entities/score.entity';
+import { AssignmentWeightedScoreEntity } from './entities/assignment-weighted-score.entity';
 import { SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
 import { AssignmentEntity } from '../assignment/entities/assignment.entity';
+import { CourseEntity } from '../assignment/entities/course.entity';
 import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 import { AiGradingEntity } from '../ai-grading/entities/ai-grading.entity';
 import { AuthModule } from '../auth/auth.module';
@@ -21,8 +23,10 @@ import { ManualGradingReadGuard } from './grading-read.guard';
   imports: [
     TypeOrmModule.forFeature([
       ScoreEntity,
+      AssignmentWeightedScoreEntity,
       SubmissionVersionEntity,
       AssignmentEntity,
+      CourseEntity,
       AssignmentSnapshotEntity,
       AiGradingEntity,
     ]),

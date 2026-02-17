@@ -153,9 +153,9 @@
         >
           <div class="qb-item-title">
             <input
-              v-if="item.nodeType === 'LEAF'"
+              v-if="item.nodeType === 'LEAF' || item.nodeType === 'GROUP'"
               type="checkbox"
-              :checked="selectedQuestionIds.has(item.id)"
+              :checked="item.nodeType === 'GROUP' ? isGroupChecked(item.id) : selectedQuestionIds.has(item.id)"
               @change="toggleQuestion(item.id)"
             />
             <span v-if="item.depth" class="qb-indent" />
@@ -561,15 +561,28 @@ const filteredQuestions = computed(() => {
 
 const flattenedQuestions = computed(() => {
   const byParent = new Map()
-  for (const item of filteredQuestions.value) {
+  filteredQuestions.value.forEach((item, idx) => {
     const parentId = item.parentId ?? ''
     if (!byParent.has(parentId)) {
       byParent.set(parentId, [])
     }
-    byParent.get(parentId).push(item)
-  }
+    byParent.get(parentId).push({ ...item, __index: idx })
+  })
   for (const list of byParent.values()) {
-    list.sort((a, b) => (a.orderNo ?? 0) - (b.orderNo ?? 0))
+    list.sort((a, b) => {
+      const aIndex = parseQuestionIndex(a)
+      const bIndex = parseQuestionIndex(b)
+      if (aIndex !== null || bIndex !== null) {
+        if (aIndex === null) return 1
+        if (bIndex === null) return -1
+        return aIndex - bIndex
+      }
+      const aHas = a.orderNo !== null && a.orderNo !== undefined
+      const bHas = b.orderNo !== null && b.orderNo !== undefined
+      if (aHas !== bHas) return aHas ? -1 : 1
+      if (aHas && bHas) return Number(a.orderNo) - Number(b.orderNo)
+      return a.__index - b.__index
+    })
   }
 
   const result = []
@@ -578,7 +591,8 @@ const flattenedQuestions = computed(() => {
     for (const [index, child] of children.entries()) {
       const isExpandable = (byParent.get(child.id) ?? []).length > 0
       const displayOrder = child.orderNo ?? index + 1
-      result.push({ ...child, depth, isExpandable, displayOrder })
+      const { __index, ...rest } = child
+      result.push({ ...rest, depth, isExpandable, displayOrder })
       walk(child.id, depth + 1)
     }
   }
@@ -605,9 +619,35 @@ const visibleQuestions = computed(() => {
 
 const toggleQuestion = (id) => {
   const item = questions.value.find((q) => q.id === id)
-  if (item?.nodeType !== 'LEAF') return
   const next = new Set(selectedQuestionIds.value)
   const order = [...selectedQuestionOrder.value]
+  if (!item) return
+
+  if (item.nodeType === 'GROUP') {
+    const leafIds = getDescendantLeafIdsInOrder(item.id)
+    if (!leafIds.length) return
+    const allSelected = leafIds.every((leafId) => next.has(leafId))
+    if (allSelected) {
+      leafIds.forEach((leafId) => next.delete(leafId))
+      const removeSet = new Set(leafIds)
+      const filtered = order.filter((leafId) => !removeSet.has(leafId))
+      selectedQuestionIds.value = next
+      selectedQuestionOrder.value = filtered
+      return
+    }
+    const orderSet = new Set(order)
+    leafIds.forEach((leafId) => next.add(leafId))
+    leafIds.forEach((leafId) => {
+      if (!orderSet.has(leafId)) {
+        order.push(leafId)
+        orderSet.add(leafId)
+      }
+    })
+    selectedQuestionIds.value = next
+    selectedQuestionOrder.value = order
+    return
+  }
+
   if (next.has(id)) {
     next.delete(id)
     const index = order.indexOf(id)
@@ -684,7 +724,20 @@ const getItemTitle = (item) => {
   return '未命名'
 }
 
+const parseQuestionIndex = (item) => {
+  const title = item?.title ?? ''
+  const label = item?.label ?? ''
+  const text = `${title} ${label}`
+  const match = text.match(/第\s*(\d+)\s*题/)
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isFinite(value) ? value : null
+}
+
 const questionById = computed(() => new Map(questions.value.map((item) => [item.id, item])))
+const filteredQuestionById = computed(
+  () => new Map(filteredQuestions.value.map((item) => [item.id, item])),
+)
 
 const orderedSelectedQuestions = computed(() => {
   const map = questionById.value
@@ -692,6 +745,26 @@ const orderedSelectedQuestions = computed(() => {
     .map((id) => map.get(id))
     .filter((item) => item && item.nodeType === 'LEAF')
 })
+
+const isDescendantOf = (itemId, ancestorId) => {
+  let current = filteredQuestionById.value.get(itemId)
+  while (current?.parentId) {
+    if (current.parentId === ancestorId) return true
+    current = filteredQuestionById.value.get(current.parentId)
+  }
+  return false
+}
+
+const getDescendantLeafIdsInOrder = (groupId) =>
+  flattenedQuestions.value
+    .filter((item) => item.nodeType === 'LEAF' && isDescendantOf(item.id, groupId))
+    .map((item) => item.id)
+
+const isGroupChecked = (groupId) => {
+  const ids = getDescendantLeafIdsInOrder(groupId)
+  if (!ids.length) return false
+  return ids.every((id) => selectedQuestionIds.value.has(id))
+}
 
 const weightSum = computed(() =>
   Object.values(questionWeights.value).reduce(
@@ -955,7 +1028,8 @@ const handlePublish = async () => {
   font-size: 12px;
   color: rgba(26, 29, 51, 0.7);
   line-height: 1.5;
-  flex: 1;
+  flex: 0 0 auto;
+  display: inline-block;
 }
 
 .qb-item-title {
