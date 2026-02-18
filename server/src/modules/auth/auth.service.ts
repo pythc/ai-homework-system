@@ -9,23 +9,27 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'crypto';
 import ExcelJS from 'exceljs';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { AuthSessionEntity } from './entities/auth-session.entity';
 import { AccountType, UserEntity, UserRole, UserStatus } from './entities/user.entity';
 import { LoginRequestDto } from './dto/login.dto';
 import { RegisterRequestDto } from './dto/register.dto';
+import { CourseEntity, CourseStatus } from '../assignment/entities/course.entity';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
+    private readonly dataSource: DataSource,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(AuthSessionEntity)
     private readonly sessionRepo: Repository<AuthSessionEntity>,
+    @InjectRepository(CourseEntity)
+    private readonly courseRepo: Repository<CourseEntity>,
   ) {}
 
   async login(
@@ -125,6 +129,11 @@ export class AuthService {
     buffer: Buffer,
     schoolId: string,
     extension: string,
+    courseInput: {
+      name: string;
+      semester: string;
+      status?: CourseStatus;
+    },
   ) {
     let rows: Array<Array<unknown>> = [];
 
@@ -159,102 +168,195 @@ export class AuthService {
       created: 0,
       skipped: 0,
       errors: [] as Array<{ row: number; reason: string; account?: string }>,
+      course: null as null | {
+        id: string;
+        name: string;
+        semester: string;
+        status: CourseStatus;
+        teacherId: string;
+      },
+      enrolled: 0,
     };
 
+    const courseName = courseInput.name.trim();
+    const semester = courseInput.semester.trim();
+    if (!courseName) {
+      throw new BadRequestException('课程名称不能为空');
+    }
+    if (!semester) {
+      throw new BadRequestException('学期不能为空');
+    }
+
+    const teacherRows = rows
+      .slice(1)
+      .map((row, index) => ({ row, rowNumber: index + 2 }))
+      .filter((item) => String(item.row?.[4] ?? '').trim() === '教师');
+    if (teacherRows.length !== 1) {
+      throw new BadRequestException('模板中需且仅需一位教师账号');
+    }
+    const teacherRow = teacherRows[0];
+    const teacherName = String(teacherRow.row?.[1] ?? '').trim();
+    const teacherAccount = String(teacherRow.row?.[2] ?? '').trim();
+    if (!teacherName || !teacherAccount) {
+      throw new BadRequestException('教师姓名与工号不能为空');
+    }
+
     const seenAccounts = new Set<string>();
-    for (let i = 1; i < rows.length; i += 1) {
-      const row = rows[i] ?? [];
-      const rowNumber = i + 1;
-      const name = String(row[1] ?? '').trim();
-      const account = String(row[2] ?? '').trim();
-      const email = String(row[3] ?? '').trim();
-      const roleRaw = String(row[4] ?? '').trim();
+    await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(UserEntity);
+      const courseRepo = manager.getRepository(CourseEntity);
 
-      if (!name || !account || !roleRaw) {
-        results.skipped += 1;
-        results.errors.push({
-          row: rowNumber,
-          reason: '姓名/学号(工号)/身份不能为空',
-          account: account || undefined,
-        });
-        continue;
-      }
+      let teacherId: string | null = null;
+      const studentIds: string[] = [];
 
-      if (seenAccounts.has(account)) {
-        results.skipped += 1;
-        results.errors.push({
-          row: rowNumber,
-          reason: '表内学号/工号重复',
-          account,
-        });
-        continue;
-      }
-      seenAccounts.add(account);
+      for (let i = 1; i < rows.length; i += 1) {
+        const row = rows[i] ?? [];
+        const rowNumber = i + 1;
+        const name = String(row[1] ?? '').trim();
+        const account = String(row[2] ?? '').trim();
+        const email = String(row[3] ?? '').trim();
+        const roleRaw = String(row[4] ?? '').trim();
 
-      let role: UserRole | null = null;
-      if (roleRaw === '学生') {
-        role = UserRole.STUDENT;
-      } else if (roleRaw === '教师') {
-        role = UserRole.TEACHER;
-      }
-
-      if (!role) {
-        results.skipped += 1;
-        results.errors.push({
-          row: rowNumber,
-          reason: '身份仅支持学生/教师',
-          account,
-        });
-        continue;
-      }
-
-      const accountType =
-        role === UserRole.STUDENT
-          ? AccountType.STUDENT_ID
-          : AccountType.USERNAME;
-
-      const exists = await this.userRepo.findOne({
-        where: { schoolId, account },
-      });
-      if (exists) {
-        results.skipped += 1;
-        results.errors.push({
-          row: rowNumber,
-          reason: '账号已存在',
-          account,
-        });
-        continue;
-      }
-
-      if (email) {
-        const emailExists = await this.userRepo.findOne({
-          where: { schoolId, email },
-        });
-        if (emailExists) {
+        if (!name || !account || !roleRaw) {
           results.skipped += 1;
           results.errors.push({
             row: rowNumber,
-            reason: '邮箱已存在',
+            reason: '姓名/学号(工号)/身份不能为空',
+            account: account || undefined,
+          });
+          continue;
+        }
+
+        if (seenAccounts.has(account)) {
+          results.skipped += 1;
+          results.errors.push({
+            row: rowNumber,
+            reason: '表内学号/工号重复',
             account,
           });
           continue;
         }
+        seenAccounts.add(account);
+
+        let role: UserRole | null = null;
+        if (roleRaw === '学生') {
+          role = UserRole.STUDENT;
+        } else if (roleRaw === '教师') {
+          role = UserRole.TEACHER;
+        }
+
+        if (!role) {
+          results.skipped += 1;
+          results.errors.push({
+            row: rowNumber,
+            reason: '身份仅支持学生/教师',
+            account,
+          });
+          continue;
+        }
+
+        const accountType = AccountType.USERNAME;
+
+        const exists = await userRepo.findOne({
+          where: { schoolId, account },
+        });
+
+        if (exists) {
+          if (exists.role !== role) {
+            results.skipped += 1;
+            results.errors.push({
+              row: rowNumber,
+              reason: '账号角色不匹配',
+              account,
+            });
+            continue;
+          }
+
+          if (role === UserRole.TEACHER) {
+            teacherId = exists.id;
+          } else {
+            studentIds.push(exists.id);
+          }
+          continue;
+        }
+
+        if (email) {
+          const emailExists = await userRepo.findOne({
+            where: { schoolId, email },
+          });
+          if (emailExists) {
+            results.skipped += 1;
+            results.errors.push({
+              row: rowNumber,
+              reason: '邮箱已存在',
+              account,
+            });
+            continue;
+          }
+        }
+
+        const user = userRepo.create({
+          id: randomUUID(),
+          schoolId,
+          accountType,
+          account,
+          email: email || null,
+          role,
+          status: UserStatus.ACTIVE,
+          name,
+          passwordHash: await this.hashPassword(`cqupt${account}`),
+        });
+        const saved = await userRepo.save(user);
+        results.created += 1;
+
+        if (role === UserRole.TEACHER) {
+          teacherId = saved.id;
+        } else {
+          studentIds.push(saved.id);
+        }
       }
 
-      const user = this.userRepo.create({
-        id: randomUUID(),
-        schoolId,
-        accountType,
-        account,
-        email: email || null,
-        role,
-        status: UserStatus.ACTIVE,
-        name,
-        passwordHash: await this.hashPassword(`cqupt${account}`),
+      if (!teacherId) {
+        throw new BadRequestException('未找到可用的教师账号');
+      }
+
+      const existingCourse = await courseRepo.findOne({
+        where: { schoolId, name: courseName, semester },
       });
-      await this.userRepo.save(user);
-      results.created += 1;
-    }
+      if (existingCourse) {
+        throw new ConflictException('课程已存在');
+      }
+
+      const course = courseRepo.create({
+        schoolId,
+        name: courseName,
+        semester,
+        teacherId,
+        status: courseInput.status ?? CourseStatus.ACTIVE,
+      });
+      const savedCourse = await courseRepo.save(course);
+      results.course = {
+        id: savedCourse.id,
+        name: savedCourse.name,
+        semester: savedCourse.semester,
+        status: savedCourse.status,
+        teacherId: savedCourse.teacherId,
+      };
+
+      const uniqueStudents = Array.from(new Set(studentIds));
+      if (uniqueStudents.length > 0) {
+        await manager.query(
+          `
+            INSERT INTO course_students (course_id, student_id, status)
+            SELECT $1, UNNEST($2::uuid[]), 'ENROLLED'
+            ON CONFLICT (course_id, student_id)
+            DO UPDATE SET status = EXCLUDED.status, updated_at = now()
+          `,
+          [savedCourse.id, uniqueStudents],
+        );
+        results.enrolled = uniqueStudents.length;
+      }
+    });
 
     return results;
   }

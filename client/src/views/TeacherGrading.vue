@@ -138,6 +138,7 @@
               <details class="ai-details" :open="!selectedSubmission?.isFinal">
                 <summary class="ai-summary-header">
                   <span>AI 批改结果</span>
+                  <span class="ai-summary-hint">点击展开查看详情</span>
                   <span class="ai-summary-status">状态：{{ aiPanel.statusLabel }}</span>
                 </summary>
                 <div class="ai-status">状态：{{ aiPanel.statusLabel }}</div>
@@ -176,23 +177,17 @@
                 没有评分细则
               </div>
               <div v-else class="grading-form">
-                <div v-for="(item, idx) in gradingItems" :key="item.rubricItemKey" class="grading-row">
+                <div class="grading-row">
                   <div class="grading-label">
-                    {{ item.rubricItemKey }}（满分 {{ item.maxScore }}）
+                    本题总分（满分 {{ maxTotalScore }}）
                   </div>
                   <input
                     class="grading-input"
                     type="number"
                     :min="0"
-                    :max="item.maxScore"
-                    v-model.number="item.score"
-                    @blur="clampScore(idx)"
-                    :disabled="!canEditCurrent"
-                  />
-                  <textarea
-                    class="grading-textarea"
-                    v-model="item.reason"
-                    placeholder="评分理由（可选）"
+                    :max="maxTotalScore"
+                    v-model.number="totalScoreInput"
+                    @blur="clampTotalScore"
                     :disabled="!canEditCurrent"
                   />
                 </div>
@@ -399,6 +394,7 @@ const aiPanel = ref<{
 
 const gradingItems = ref<GradingRow[]>([])
 const finalComment = ref('')
+const totalScoreInput = ref(0)
 const saving = ref(false)
 const saveError = ref('')
 const saveSuccess = ref(false)
@@ -454,8 +450,9 @@ const formatStudentAccount = (student?: { account?: string | null; studentId?: s
   return '-'
 }
 
-const totalScore = computed(() =>
-  gradingItems.value.reduce((sum, item) => sum + (Number(item.score) || 0), 0),
+const totalScore = computed(() => Number(totalScoreInput.value) || 0)
+const maxTotalScore = computed(() =>
+  gradingItems.value.reduce((sum, item) => sum + (Number(item.maxScore) || 0), 0),
 )
 
 const allFinalForStudent = computed(() => {
@@ -496,11 +493,11 @@ const canEditCurrent = computed(() => {
   return editingOverride.value
 })
 
-const clampScore = (index: number) => {
-  const item = gradingItems.value[index]
-  if (!item) return
-  if (item.score < 0) item.score = 0
-  if (item.score > item.maxScore) item.score = item.maxScore
+const clampTotalScore = () => {
+  if (totalScoreInput.value < 0) totalScoreInput.value = 0
+  if (totalScoreInput.value > maxTotalScore.value) {
+    totalScoreInput.value = maxTotalScore.value
+  }
 }
 
 const buildGradingItems = (
@@ -517,6 +514,21 @@ const buildGradingItems = (
       maxScore: rule.maxScore,
       score: typeof aiItem?.score === 'number' ? aiItem.score : 0,
       reason: options.useAiReasons ? aiItem?.reason ?? '' : '',
+    }
+  })
+}
+
+const buildItemsFromTotal = (total: number) => {
+  let remaining = Number.isFinite(total) ? Math.max(total, 0) : 0
+  return gradingItems.value.map((item) => {
+    const max = Number(item.maxScore) || 0
+    const score = Math.max(0, Math.min(max, remaining))
+    remaining -= score
+    return {
+      questionIndex: item.questionIndex,
+      rubricItemKey: item.rubricItemKey,
+      score,
+      reason: '',
     }
   })
 }
@@ -539,9 +551,19 @@ const loadFinalForSubmission = async (submissionId: string, questionId: string) 
       }
     })
     finalComment.value = result?.finalComment ?? ''
+    totalScoreInput.value = gradingItems.value.reduce(
+      (sum, item) => sum + (Number(item.score) || 0),
+      0,
+    )
+    clampTotalScore()
   } catch (err) {
     gradingItems.value = buildGradingItems(question, aiPanel.value.result)
     finalComment.value = ''
+    totalScoreInput.value = gradingItems.value.reduce(
+      (sum, item) => sum + (Number(item.score) || 0),
+      0,
+    )
+    clampTotalScore()
   }
 }
 
@@ -596,6 +618,11 @@ const loadAiForSubmission = async (submissionId: string, questionId: string) => 
     aiPanel.value = { statusLabel: '完成', error: '', result }
     gradingItems.value = buildGradingItems(questionMap.value[questionId], result)
     finalComment.value = ''
+    totalScoreInput.value = gradingItems.value.reduce(
+      (sum, item) => sum + (Number(item.score) || 0),
+      0,
+    )
+    clampTotalScore()
   } catch (err) {
     aiPanel.value = {
       statusLabel: '排队中',
@@ -604,6 +631,26 @@ const loadAiForSubmission = async (submissionId: string, questionId: string) => 
     }
     gradingItems.value = buildGradingItems(questionMap.value[questionId], null)
     finalComment.value = ''
+    totalScoreInput.value = gradingItems.value.reduce(
+      (sum, item) => sum + (Number(item.score) || 0),
+      0,
+    )
+    clampTotalScore()
+    void pollAiResult(submissionId)
+  }
+}
+
+const loadAiStatusOnly = async (submissionId: string) => {
+  aiPanel.value = { statusLabel: '加载中', error: '', result: null }
+  try {
+    const result = await getAiGradingResult(submissionId)
+    aiPanel.value = { statusLabel: '完成', error: '', result }
+  } catch (err) {
+    aiPanel.value = {
+      statusLabel: '排队中',
+      error: '',
+      result: null,
+    }
     void pollAiResult(submissionId)
   }
 }
@@ -625,33 +672,23 @@ const submitGrading = async (forceAiAdopt: boolean) => {
         { useAiReasons: true },
       )
       finalComment.value = aiPanel.value.result.result?.comment ?? ''
+      totalScoreInput.value = gradingItems.value.reduce(
+        (sum, item) => sum + (Number(item.score) || 0),
+        0,
+      )
+      clampTotalScore()
     }
-    const items = gradingItems.value.map((item) => ({
-      questionIndex: item.questionIndex,
-      rubricItemKey: item.rubricItemKey,
-      score: Number(item.score) || 0,
-      reason: item.reason ?? '',
-    }))
-    const aiItems = aiPanel.value.result?.result?.items ?? []
-    const aiComment = aiPanel.value.result?.result?.comment ?? ''
-    const isSameAsAi =
-      aiItems.length === items.length &&
-      items.every((item) => {
-        const ai = aiItems.find((it) => it.rubricItemKey === item.rubricItemKey)
-        if (!ai) return false
-        const aiScore = typeof ai.score === 'number' ? ai.score : Number(ai.score)
-        const aiReason = (ai.reason ?? '').trim()
-        return (
-          Number(item.score) === Number(aiScore) &&
-          (item.reason ?? '').trim() === aiReason
-        )
-      }) &&
-      (finalComment.value || '') === (aiComment || '')
+    const items = forceAiAdopt
+      ? gradingItems.value.map((item) => ({
+          questionIndex: item.questionIndex,
+          rubricItemKey: item.rubricItemKey,
+          score: Number(item.score) || 0,
+          reason: item.reason ?? '',
+        }))
+      : buildItemsFromTotal(totalScore.value)
 
     await submitFinalGrading(submission.submissionVersionId, {
-      source: aiPanel.value.result
-        ? (forceAiAdopt || isSameAsAi ? 'AI_ADOPTED' : 'MIXED')
-        : 'MANUAL',
+      source: forceAiAdopt ? 'AI_ADOPTED' : 'MANUAL',
       totalScore: totalScore.value,
       finalComment: finalComment.value || undefined,
       items,
@@ -725,6 +762,7 @@ watch(
     if (submission) {
       if (submission.isFinal && !editingOverride.value) {
         await loadFinalForSubmission(submission.submissionVersionId, submission.questionId)
+        await loadAiStatusOnly(submission.submissionVersionId)
       } else {
         await loadAiForSubmission(submission.submissionVersionId, submission.questionId)
       }
@@ -1133,23 +1171,36 @@ watch([assignmentId, submissionVersionId], async () => {
 }
 
 .ai-summary-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 16px;
   cursor: pointer;
   font-weight: 600;
   list-style: none;
+  align-items: center;
 }
 
 .ai-summary-header::-webkit-details-marker {
   display: none;
 }
 
+.ai-summary-hint {
+  grid-column: 1;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.55);
+  font-weight: 500;
+}
+
 .ai-summary-status {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   font-size: 12px;
   color: rgba(26, 29, 51, 0.6);
   font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  text-align: center;
 }
 
 .ai-error {

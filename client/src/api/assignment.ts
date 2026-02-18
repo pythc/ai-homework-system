@@ -133,3 +133,11 @@ export async function publishAssignment(
     body: payload,
   })
 }
+
+export async function deleteAssignment(assignmentId: string) {
+  const token = getAccessToken()
+  return httpRequest<{ success: boolean }>(`/assignments/${assignmentId}`, {
+    method: 'DELETE',
+    token,
+  })
+}

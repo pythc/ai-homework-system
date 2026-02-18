@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { CourseEntity, CourseStatus } from '../assignment/entities/course.entity';
 import { UserEntity, UserRole } from '../auth/entities/user.entity';
 import { CreateCourseDto } from './dto/create-course.dto';
@@ -70,7 +70,7 @@ export class CourseService {
       status: dto.status ?? CourseStatus.ACTIVE,
     });
     const saved = await this.courseRepo.save(course);
-    return this.toCourseResponse(saved);
+    return this.toCourseResponse(saved, teacher);
   }
 
   async listCourses(query: CourseQueryDto, requester: RequestUser) {
@@ -102,8 +102,17 @@ export class CourseService {
 
     qb.orderBy('course.created_at', 'DESC');
     const courses = await qb.getMany();
+    const teacherIds = Array.from(
+      new Set(courses.map((course) => course.teacherId).filter(Boolean)),
+    );
+    const teachers = teacherIds.length
+      ? await this.userRepo.find({ where: { id: In(teacherIds) } })
+      : [];
+    const teacherMap = new Map(teachers.map((teacher) => [teacher.id, teacher]));
     return {
-      items: courses.map((course) => this.toCourseResponse(course)),
+      items: courses.map((course) =>
+        this.toCourseResponse(course, teacherMap.get(course.teacherId) ?? null),
+      ),
     };
   }
 
@@ -115,7 +124,10 @@ export class CourseService {
       throw new NotFoundException('课程不存在');
     }
     this.assertCourseAccess(course, requester);
-    return this.toCourseResponse(course);
+    const teacher = await this.userRepo.findOne({
+      where: { id: course.teacherId },
+    });
+    return this.toCourseResponse(course, teacher ?? null);
   }
 
   async getCourseSummary(courseId: string, requester: RequestUser) {
@@ -143,8 +155,11 @@ export class CourseService {
       [courseId],
     );
     const row = rows[0] ?? {};
+    const teacher = await this.userRepo.findOne({
+      where: { id: course.teacherId },
+    });
     return {
-      course: this.toCourseResponse(course),
+      course: this.toCourseResponse(course, teacher ?? null),
       studentCount: Number(row.studentCount ?? 0),
       assignmentCount: Number(row.assignmentCount ?? 0),
     };
@@ -392,7 +407,10 @@ export class CourseService {
     course.updatedAt = new Date();
 
     const saved = await this.courseRepo.save(course);
-    return this.toCourseResponse(saved);
+    const teacher = await this.userRepo.findOne({
+      where: { id: saved.teacherId },
+    });
+    return this.toCourseResponse(saved, teacher ?? null);
   }
 
   private assertCourseAccess(course: CourseEntity, requester: RequestUser) {
@@ -407,13 +425,18 @@ export class CourseService {
     }
   }
 
-  private toCourseResponse(course: CourseEntity) {
+  private toCourseResponse(
+    course: CourseEntity,
+    teacher: UserEntity | null = null,
+  ) {
     return {
       id: course.id,
       schoolId: course.schoolId,
       name: course.name,
       semester: course.semester,
       teacherId: course.teacherId,
+      teacherName: teacher?.name ?? null,
+      teacherAccount: teacher?.account ?? null,
       status: course.status,
       createdAt: course.createdAt,
       updatedAt: course.updatedAt,

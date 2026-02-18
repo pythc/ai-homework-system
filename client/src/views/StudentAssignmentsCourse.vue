@@ -106,16 +106,21 @@ const assignmentList = computed(() =>
     .filter((item) => item.courseId === courseId.value)
     .map((item) => {
       const isFinal = finalAssignmentIds.value.has(item.id)
+      const expired = isExpired(item.deadline)
       return {
         id: item.id,
         title: item.title,
         course: item.courseName ?? item.courseId,
         deadline: formatDeadline(item.deadline),
-        statusLabel: isFinal ? '状态：已批改' : statusLabel(item.status),
+        statusLabel: isFinal
+          ? '状态：已批改'
+          : expired
+            ? '状态：已截止'
+            : statusLabel(item.status),
         canSubmit:
           !isFinal &&
           item.status === 'OPEN' &&
-          !isExpired(item.deadline),
+          !expired,
       }
     }),
 )
