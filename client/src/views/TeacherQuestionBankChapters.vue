@@ -56,6 +56,7 @@ const loadError = ref('')
 
 const courseId = String(route.params.courseId)
 const textbookId = String(route.params.textbookId)
+const isShared = courseId === 'shared'
 
 onMounted(async () => {
   await refreshProfile()
@@ -65,7 +66,7 @@ onMounted(async () => {
 const fetchStructure = async () => {
   loadError.value = ''
   try {
-    const response = await getQuestionBankStructure(courseId)
+    const response = await getQuestionBankStructure(isShared ? undefined : courseId)
     chapters.value = (response.chapters ?? []).filter(
       (chapter) => chapter.textbookId === textbookId,
     )

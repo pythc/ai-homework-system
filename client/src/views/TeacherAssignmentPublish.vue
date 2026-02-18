@@ -487,10 +487,10 @@ const handleCourseChange = async (options = { keepSelection: false }) => {
     return
   }
   try {
-    const response = await getQuestionBankStructure(selectedCourseId.value)
+    const response = await getQuestionBankStructure()
     textbooks.value = response.textbooks ?? []
     chapters.value = response.chapters ?? []
-    questions.value = await listQuestionBank(selectedCourseId.value)
+    questions.value = await listQuestionBank()
     if (selectedChapterId.value && !selectedParentChapterId.value) {
       const match = chapters.value.find((item) => item.id === selectedChapterId.value)
       if (match?.parentId) {

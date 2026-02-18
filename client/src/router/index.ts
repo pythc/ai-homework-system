@@ -21,8 +21,8 @@ import TeacherGrading from '../views/TeacherGrading.vue'
 import TeacherGradingOverview from '../views/TeacherGradingOverview.vue'
 import TeacherGradingAssignments from '../views/TeacherGradingAssignments.vue'
 import TeacherGradingSubmissions from '../views/TeacherGradingSubmissions.vue'
+import TeacherGradingAssignmentConfig from '../views/TeacherGradingAssignmentConfig.vue'
 import TeacherAssistant from '../views/TeacherAssistant.vue'
-import TeacherQuestionBankCourses from '../views/TeacherQuestionBankCourses.vue'
 import TeacherQuestionBankTextbooks from '../views/TeacherQuestionBankTextbooks.vue'
 import TeacherQuestionBankChapters from '../views/TeacherQuestionBankChapters.vue'
 import TeacherQuestionBankChapterChildren from '../views/TeacherQuestionBankChapterChildren.vue'
@@ -118,6 +118,10 @@ const routes: RouteRecordRaw[] = [
     component: TeacherGradingSubmissions,
   },
   {
+    path: '/teacher/grading/:assignmentId/config',
+    component: TeacherGradingAssignmentConfig,
+  },
+  {
     path: '/teacher/grading/:assignmentId/submission/:submissionVersionId',
     component: TeacherGrading,
   },
@@ -127,7 +131,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/teacher/question-bank',
-    component: TeacherQuestionBankCourses,
+    component: TeacherQuestionBankTextbooks,
   },
   {
     path: '/teacher/question-bank/courses/:courseId/textbooks',

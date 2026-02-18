@@ -44,14 +44,28 @@ export class QuestionBankController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  async findAll(@Query('courseId') courseId?: string) {
-    return this.questionBankService.findAll(courseId);
+  async findAll(
+    @Query('courseId') courseId: string | undefined,
+    @Req() req: { user?: { schoolId?: string } },
+  ) {
+    const schoolId = req.user?.schoolId;
+    if (!schoolId) {
+      return [];
+    }
+    return this.questionBankService.findAll(courseId, schoolId);
   }
 
   @Get('structure')
   @UseGuards(JwtAuthGuard)
-  async getStructure(@Query('courseId') courseId?: string) {
-    return this.questionBankService.getStructure(courseId);
+  async getStructure(
+    @Query('courseId') courseId: string | undefined,
+    @Req() req: { user?: { schoolId?: string } },
+  ) {
+    const schoolId = req.user?.schoolId;
+    if (!schoolId) {
+      return { textbooks: [], chapters: [] };
+    }
+    return this.questionBankService.getStructure(courseId, schoolId);
   }
 
   @Get(':id')

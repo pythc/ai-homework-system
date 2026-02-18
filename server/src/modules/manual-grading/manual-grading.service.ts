@@ -211,6 +211,7 @@ export class ManualGradingService {
         'v.questionId AS "questionId"',
         'a.title AS "assignmentTitle"',
         'a.total_score AS "assignmentTotalScore"',
+        'a.current_snapshot_id AS "currentSnapshotId"',
         'a.course_id AS "courseId"',
         'c.name AS "courseName"',
         'a.status AS "assignmentStatus"',
@@ -301,7 +302,8 @@ export class ManualGradingService {
     const courseId = rows[0].courseId;
     const courseName = rows[0].courseName ?? null;
 
-    const snapshotId = rows[0].scoreDetail?.assignmentSnapshotId;
+    const snapshotId =
+      rows[0].currentSnapshotId ?? rows[0].scoreDetail?.assignmentSnapshotId;
     const snapshot = snapshotId
       ? await this.snapshotRepo.findOne({ where: { id: snapshotId } })
       : null;
@@ -414,8 +416,8 @@ export class ManualGradingService {
       );
 
       const snapshotId =
-        rows.map((row: any) => row.scoreDetail?.assignmentSnapshotId).find(Boolean) ??
         assignment.currentSnapshotId ??
+        rows.map((row: any) => row.scoreDetail?.assignmentSnapshotId).find(Boolean) ??
         null;
       const snapshot = snapshotId
         ? await manager

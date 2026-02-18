@@ -26,23 +26,14 @@
       </div>
 
       <div v-if="!columns.length" class="empty-box">
-        {{ loadError || '暂无作业或题目' }}
+        {{ loadError || '暂无作业' }}
       </div>
 
       <div v-else class="gradebook-wrap">
         <table class="gradebook">
           <thead>
             <tr>
-              <th class="sticky-col" rowspan="2">学生</th>
-              <th
-                v-for="assignment in assignmentsWithQuestions"
-                :key="assignment.id"
-                :colspan="assignment.questions.length"
-              >
-                {{ assignment.title }}
-              </th>
-            </tr>
-            <tr>
+              <th class="sticky-col">学生</th>
               <th
                 v-for="col in columns"
                 :key="col.key"
@@ -56,7 +47,7 @@
             <tr v-for="student in students" :key="student.studentId">
               <td class="sticky-col">
                 <div class="student-name">
-                  {{ student.name || student.account || '学生' }}
+                  {{ displayStudentName(student) }}
                 </div>
                 <div class="student-sub">学号 {{ student.account || '-' }}</div>
               </td>
@@ -93,9 +84,8 @@ import { getCourseGradebook } from '../api/course'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 
 type GradeCell = {
-  submissionVersionId: string
+  submissionVersionId: string | null
   assignmentId: string
-  questionId: string
   score: number | null
   source: 'FINAL' | 'AI' | null
 }
@@ -116,18 +106,11 @@ const assignmentsWithQuestions = computed(() =>
 )
 
 const columns = computed(() => {
-  const cols: Array<{ key: string; assignmentId: string; questionId: string; label: string }> = []
-  assignmentsWithQuestions.value.forEach((assignment) => {
-    assignment.questions.forEach((question: any) => {
-      cols.push({
-        key: `${assignment.id}:${question.questionId}`,
-        assignmentId: assignment.id,
-        questionId: question.questionId,
-        label: `${assignment.order}.${question.questionIndex}`,
-      })
-    })
-  })
-  return cols
+  return assignmentsWithQuestions.value.map((assignment) => ({
+    key: assignment.id,
+    assignmentId: assignment.id,
+    label: assignment.title,
+  }))
 })
 
 const formatScore = (cell?: GradeCell) => {
@@ -140,8 +123,30 @@ const cellClass = (cell?: GradeCell) => {
   return cell.source === 'FINAL' ? 'final' : 'ai'
 }
 
-const handleCellClick = (studentId: string, col: { key: string; assignmentId: string }) => {
-  const cell = cellMap.value[studentId]?.[col.key]
+const displayStudentName = (student: any) => {
+  const name = student?.name
+  if (typeof name === 'string') {
+    const trimmed = name.trim()
+    if (trimmed && trimmed !== '[object Object]') return trimmed
+  }
+  if (name && typeof name === 'object') {
+    const richText = Array.isArray(name.richText)
+      ? name.richText
+          .map((item: any) => (typeof item?.text === 'string' ? item.text : ''))
+          .join('')
+          .trim()
+      : ''
+    if (richText) return richText
+    if (typeof name.text === 'string' && name.text.trim()) return name.text.trim()
+    if (typeof name.name === 'string' && name.name.trim()) return name.name.trim()
+  }
+  return student?.account || '学生'
+}
+
+const handleCellClick = (studentId: string, col: { assignmentId: string }) => {
+  const key = col.assignmentId
+  const cell = cellMap.value[studentId]?.[key]
+  if (cell?.score === null || cell?.score === undefined) return
   if (!cell?.submissionVersionId) return
   router.push(
     `/teacher/grading/${col.assignmentId}/submission/${cell.submissionVersionId}`,
@@ -153,32 +158,74 @@ const goBack = () => {
 }
 
 const buildCellMap = (cells: any[]) => {
-  const map: Record<string, Record<string, GradeCell | undefined>> = {}
+  type AggregateCell = {
+    assignmentId: string
+    scoreSum: number
+    hasScore: boolean
+    hasAi: boolean
+    submissionVersionId: string | null
+    fallbackSubmissionVersionId: string | null
+  }
+
+  const aggregateMap: Record<string, Record<string, AggregateCell>> = {}
+
   cells.forEach((cell: any) => {
-    const score =
-      cell.finalScore !== null && cell.finalScore !== undefined
-        ? Number(cell.finalScore)
-        : cell.aiScore !== null && cell.aiScore !== undefined
-          ? Number(cell.aiScore)
-          : null
-    const source = cell.finalScore !== null && cell.finalScore !== undefined
-      ? 'FINAL'
-      : cell.aiScore !== null && cell.aiScore !== undefined
-        ? 'AI'
-        : null
-    const key = `${cell.assignmentId}:${cell.questionId}`
     const studentId = cell.studentId
-    if (!studentId) return
-    if (!map[studentId]) {
-      map[studentId] = {}
+    const assignmentId = cell.assignmentId
+    if (!studentId || !assignmentId) return
+
+    if (!aggregateMap[studentId]) {
+      aggregateMap[studentId] = {}
     }
-    map[studentId][key] = {
-      submissionVersionId: cell.submissionVersionId,
-      assignmentId: cell.assignmentId,
-      questionId: cell.questionId,
-      score,
-      source,
+    if (!aggregateMap[studentId][assignmentId]) {
+      aggregateMap[studentId][assignmentId] = {
+        assignmentId,
+        scoreSum: 0,
+        hasScore: false,
+        hasAi: false,
+        submissionVersionId: null,
+        fallbackSubmissionVersionId: null,
+      }
     }
+
+    const aggregate = aggregateMap[studentId][assignmentId]
+    if (!aggregate.fallbackSubmissionVersionId && cell.submissionVersionId) {
+      aggregate.fallbackSubmissionVersionId = cell.submissionVersionId
+    }
+
+    const hasFinal = cell.finalScore !== null && cell.finalScore !== undefined
+    const hasAi = cell.aiScore !== null && cell.aiScore !== undefined
+    const resolvedScore = hasFinal
+      ? Number(cell.finalScore)
+      : hasAi
+        ? Number(cell.aiScore)
+        : null
+
+    if (resolvedScore !== null && Number.isFinite(resolvedScore)) {
+      aggregate.scoreSum += resolvedScore
+      aggregate.hasScore = true
+      if (!aggregate.submissionVersionId && cell.submissionVersionId) {
+        aggregate.submissionVersionId = cell.submissionVersionId
+      }
+    }
+    if (hasAi) {
+      aggregate.hasAi = true
+    }
+  })
+
+  const map: Record<string, Record<string, GradeCell | undefined>> = {}
+  Object.entries(aggregateMap).forEach(([studentId, assignmentMap]) => {
+    const studentMap: Record<string, GradeCell | undefined> = {}
+    map[studentId] = studentMap
+    Object.entries(assignmentMap).forEach(([assignmentId, aggregate]) => {
+      studentMap[assignmentId] = {
+        submissionVersionId:
+          aggregate.submissionVersionId ?? aggregate.fallbackSubmissionVersionId ?? null,
+        assignmentId,
+        score: aggregate.hasScore ? aggregate.scoreSum : null,
+        source: aggregate.hasScore ? (aggregate.hasAi ? 'AI' : 'FINAL') : null,
+      }
+    })
   })
   return map
 }

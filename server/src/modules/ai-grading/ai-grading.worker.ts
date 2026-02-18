@@ -1,11 +1,11 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { AiGradingQueueService } from './ai-grading.queue';
 import { AiGradingEntity } from './entities/ai-grading.entity';
 import { AiJobEntity, AiJobStage, AiJobStatus } from './entities/ai-job.entity';
@@ -29,8 +29,9 @@ type ParsedAiOutput = {
 };
 
 @Injectable()
-export class AiGradingWorkerService implements OnModuleInit {
+export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AiGradingWorkerService.name);
+  private staleRecoverTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly queue: AiGradingQueueService,
@@ -49,7 +50,22 @@ export class AiGradingWorkerService implements OnModuleInit {
       this.logger.warn('AI grading worker disabled by env.');
       return;
     }
+    void this.recoverStaleRunningJobs();
+    const recoverIntervalSeconds = this.readNumberEnv(
+      'AI_JOB_RECOVER_INTERVAL_SECONDS',
+      60,
+    );
+    this.staleRecoverTimer = setInterval(() => {
+      void this.recoverStaleRunningJobs();
+    }, Math.max(5, recoverIntervalSeconds) * 1000);
     void this.queue.startWorker((jobId) => this.handleJob(jobId));
+  }
+
+  onModuleDestroy(): void {
+    if (this.staleRecoverTimer) {
+      clearInterval(this.staleRecoverTimer);
+      this.staleRecoverTimer = undefined;
+    }
   }
 
   private async handleJob(jobId: string): Promise<void> {
@@ -175,12 +191,12 @@ export class AiGradingWorkerService implements OnModuleInit {
         { status: AiJobStatus.SUCCEEDED, updatedAt: new Date() },
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const { message, retryable } = this.classifyJobError(error);
       const delaySeconds = Math.min(
         retryDelaySeconds * Math.pow(2, Math.max(nextAttempt - 1, 0)),
         retryMaxDelaySeconds,
       );
-      if (nextAttempt < maxAttempts) {
+      if (retryable && nextAttempt < maxAttempts) {
         await this.jobRepo.update(
           { id: job.id },
           {
@@ -266,18 +282,29 @@ export class AiGradingWorkerService implements OnModuleInit {
     const modelVersion = payload.modelHint?.version || null;
 
     try {
-      await execFileAsync(python, args, {
-        timeout: timeoutMs,
-        maxBuffer: 2 * 1024 * 1024,
-        env: process.env,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`模型调用失败: ${message}`);
-    }
+      try {
+        await execFileAsync(python, args, {
+          timeout: timeoutMs,
+          maxBuffer: 2 * 1024 * 1024,
+          env: process.env,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          (error as any)?.code === 'ETIMEDOUT' ||
+          message.includes('timed out') ||
+          message.includes('timeout')
+        ) {
+          throw new Error(`模型调用超时(${timeoutMs}ms)`);
+        }
+        throw new Error(`模型调用失败: ${message}`);
+      }
 
-    const outputText = await fs.readFile(outputPath, 'utf-8');
-    return { outputText, modelName, modelVersion };
+      const outputText = await fs.readFile(outputPath, 'utf-8');
+      return { outputText, modelName, modelVersion };
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   private parseModelOutput(raw: string): ParsedAiOutput {
@@ -409,5 +436,76 @@ export class AiGradingWorkerService implements OnModuleInit {
     }
     const value = Number(raw);
     return Number.isFinite(value) ? value : fallback;
+  }
+
+  private async recoverStaleRunningJobs() {
+    const staleSeconds = this.readNumberEnv('AI_JOB_STALE_SECONDS', 300);
+    const cutoff = new Date(Date.now() - staleSeconds * 1000);
+    const staleJobs = await this.jobRepo.find({
+      where: {
+        status: AiJobStatus.RUNNING,
+        lastStartedAt: LessThan(cutoff),
+      },
+      order: { lastStartedAt: 'ASC' },
+      take: 100,
+    });
+    if (!staleJobs.length) {
+      return;
+    }
+
+    for (const job of staleJobs) {
+      await this.jobRepo.update(
+        { id: job.id },
+        {
+          status: AiJobStatus.QUEUED,
+          stage: AiJobStage.PREPARE_INPUT,
+          error: `Recovered stale RUNNING job at ${new Date().toISOString()}`,
+          updatedAt: new Date(),
+        },
+      );
+      await this.submissionVersionRepo.update(
+        { id: job.submissionVersionId },
+        { aiStatus: AiStatus.PENDING, updatedAt: new Date() },
+      );
+      await this.queue.requeue(job.id, 0);
+    }
+
+    this.logger.warn(`Recovered ${staleJobs.length} stale RUNNING AI jobs.`);
+  }
+
+  private classifyJobError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const nonRetryablePatterns: RegExp[] = [
+      /缺少任务参数/,
+      /提交版本不存在/,
+      /缺少作业快照/,
+      /作业快照不存在/,
+      /作业快照中未找到题目/,
+      /模型输出解析失败/,
+      /模型输出缺少 result 字段/,
+      /模型输出 extracted 字段格式不正确/,
+      /unauthorized/i,
+      /forbidden/i,
+      /invalid api key/i,
+      /accessdenied/i,
+    ];
+    const retryablePatterns: RegExp[] = [
+      /timeout/i,
+      /timed out/i,
+      /ECONNRESET/i,
+      /ECONNREFUSED/i,
+      /socket hang up/i,
+      /5\d\d/,
+      /rate limit/i,
+      /too many requests/i,
+    ];
+
+    if (nonRetryablePatterns.some((pattern) => pattern.test(message))) {
+      return { message, retryable: false };
+    }
+    if (retryablePatterns.some((pattern) => pattern.test(message))) {
+      return { message, retryable: true };
+    }
+    return { message, retryable: true };
   }
 }

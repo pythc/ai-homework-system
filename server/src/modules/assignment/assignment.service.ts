@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { CreateAssignmentDto, CreateAssignmentQuestionDto } from './dto/create-assignment.dto';
 import { PublishAssignmentDto } from './dto/publish-assignment.dto';
+import { UpdateAssignmentGradingConfigDto } from './dto/update-assignment-grading-config.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { UpdateAssignmentQuestionsDto } from './dto/update-assignment-questions.dto';
 import { AssignmentEntity, AssignmentStatus } from './entities/assignment.entity';
@@ -81,10 +82,10 @@ export class AssignmentService {
 
       let existingIds: string[] = [];
       if (selectedIds.length > 0) {
-        const existingQuestions = await this.loadLeafQuestions(
+        await this.loadLeafQuestionsInSchool(
           manager.getRepository(AssignmentQuestionEntity),
           selectedIds,
-          course.id,
+          course.schoolId,
         );
         existingIds = selectedIds;
       }
@@ -150,6 +151,85 @@ export class AssignmentService {
     return this.toAssignmentResponse(saved);
   }
 
+  async updateAssignmentGradingConfig(
+    assignmentId: string,
+    dto: UpdateAssignmentGradingConfigDto,
+  ) {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    if (assignment.status === AssignmentStatus.ARCHIVED) {
+      throw new BadRequestException('归档作业不可修改');
+    }
+    if (!assignment.selectedQuestionIds?.length) {
+      throw new BadRequestException('作业题目为空');
+    }
+
+    const nextDeadline = dto.deadline ? new Date(dto.deadline) : assignment.deadline;
+    const nextTotalScore =
+      typeof dto.totalScore === 'number'
+        ? Number(dto.totalScore.toFixed(2))
+        : Number(assignment.totalScore ?? 0);
+    const nextWeights = dto.questionWeights ?? null;
+    const needRefreshSnapshot = Array.isArray(nextWeights);
+    const totalScoreChanged =
+      typeof dto.totalScore === 'number' &&
+      Math.abs(nextTotalScore - Number(assignment.totalScore ?? 0)) > 0.0001;
+    const shouldResetPublished = totalScoreChanged || needRefreshSnapshot;
+
+    return this.dataSource.transaction(async (manager) => {
+      assignment.deadline = nextDeadline;
+      assignment.totalScore = nextTotalScore.toFixed(2);
+      assignment.updatedAt = new Date();
+
+      if (assignment.status !== AssignmentStatus.ARCHIVED && assignment.deadline) {
+        const deadlineTime = assignment.deadline.getTime();
+        if (!Number.isNaN(deadlineTime)) {
+          assignment.status =
+            deadlineTime <= Date.now() ? AssignmentStatus.CLOSED : AssignmentStatus.OPEN;
+        }
+      }
+
+      if (needRefreshSnapshot) {
+        const weightMap = this.buildWeightMap(assignment, nextWeights ?? []);
+        const snapshotPayload = await this.buildSnapshotPayload(assignment, weightMap);
+        const snapshot = manager.getRepository(AssignmentSnapshotEntity).create({
+          assignmentId: assignment.id,
+          snapshot: snapshotPayload,
+        });
+        const savedSnapshot = await manager.getRepository(AssignmentSnapshotEntity).save(snapshot);
+        assignment.currentSnapshotId = savedSnapshot.id;
+      }
+
+      if (shouldResetPublished) {
+        await manager.query(
+          `
+            UPDATE submissions
+            SET score_published = false, updated_at = now()
+            WHERE assignment_id = $1
+          `,
+          [assignment.id],
+        );
+        await manager.query(
+          `
+            DELETE FROM assignment_weighted_scores
+            WHERE assignment_id = $1
+          `,
+          [assignment.id],
+        );
+      }
+
+      const saved = await manager.getRepository(AssignmentEntity).save(assignment);
+      return {
+        assignment: this.toAssignmentResponse(saved),
+        needRepublish: shouldResetPublished,
+      };
+    });
+  }
+
   async replaceAssignmentQuestions(
     assignmentId: string,
     dto: UpdateAssignmentQuestionsDto,
@@ -164,10 +244,17 @@ export class AssignmentService {
       throw new BadRequestException('非 DRAFT 状态不可修改题目列表');
     }
 
-    await this.loadLeafQuestions(
+    const course = await this.courseRepo.findOne({
+      where: { id: assignment.courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+
+    await this.loadLeafQuestionsInSchool(
       this.questionRepo,
       dto.selectedQuestionIds,
-      assignment.courseId,
+      course.schoolId,
     );
 
     assignment.selectedQuestionIds = dto.selectedQuestionIds;
@@ -387,11 +474,14 @@ export class AssignmentService {
           a.course_id AS "courseId",
           c.name AS "courseName",
           a.description,
+          a.total_score AS "totalScore",
           a.deadline,
           a.status,
           COUNT(DISTINCT v.id) AS "submissionCount",
           COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NOT NULL) AS "gradedCount",
           COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NULL) AS "pendingCount",
+          COUNT(DISTINCT v.id) FILTER (WHERE v.ai_status = 'SUCCESS') AS "aiSuccessCount",
+          COUNT(DISTINCT v.id) FILTER (WHERE v.ai_status = 'FAILED') AS "aiFailedCount",
           COUNT(DISTINCT cs.student_id) AS "studentCount",
           COUNT(DISTINCT sub.student_id) AS "submittedStudentCount",
           COUNT(DISTINCT sub.student_id) FILTER (WHERE v.id IS NOT NULL AND sc.id IS NULL)
@@ -420,11 +510,14 @@ export class AssignmentService {
         courseId: row.courseId,
         courseName: row.courseName ?? null,
         description: row.description ?? null,
+        totalScore: Number(row.totalScore ?? 0),
         deadline: row.deadline ?? null,
         status: row.status,
         submissionCount: Number(row.submissionCount ?? 0),
         gradedCount: Number(row.gradedCount ?? 0),
         pendingCount: Number(row.pendingCount ?? 0),
+        aiSuccessCount: Number(row.aiSuccessCount ?? 0),
+        aiFailedCount: Number(row.aiFailedCount ?? 0),
         studentCount: Number(row.studentCount ?? 0),
         submittedStudentCount: Number(row.submittedStudentCount ?? 0),
         pendingStudentCount: Number(row.pendingStudentCount ?? 0),
@@ -630,15 +723,23 @@ export class AssignmentService {
     return normalized;
   }
 
-  private async loadLeafQuestions(
+  private async loadLeafQuestionsInSchool(
     repo: Repository<AssignmentQuestionEntity>,
     questionIds: string[],
-    courseId: string,
+    schoolId: string,
   ) {
+    const courses = await this.courseRepo.find({
+      where: { schoolId },
+      select: ['id'],
+    });
+    const courseIds = courses.map((item) => item.id);
+    if (!courseIds.length) {
+      throw new BadRequestException('学校下暂无可用题目');
+    }
     const existingQuestions = await repo.find({
       where: {
         id: In(questionIds),
-        courseId,
+        courseId: In(courseIds),
       },
     });
     const foundIds = new Set(existingQuestions.map((q) => q.id));
@@ -664,6 +765,7 @@ export class AssignmentService {
       deadline: assignment.deadline ?? null,
       status: assignment.status,
       aiEnabled: assignment.aiEnabled,
+      totalScore: Number(assignment.totalScore ?? 0),
       questionNo: assignment.questionNo ?? null,
       selectedQuestionIds: assignment.selectedQuestionIds,
       currentSnapshotId: assignment.currentSnapshotId ?? null,

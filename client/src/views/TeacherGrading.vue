@@ -218,14 +218,25 @@
                 <div v-if="saveSuccess" class="ai-success">已保存本题成绩</div>
               </div>
               <div class="publish-actions">
-                <button
-                  class="task-action"
-                  type="button"
-                  :disabled="publishLoading || !allFinalForStudent || publishLocked"
-                  @click="publishScores"
-                >
-                  {{ publishLoading ? '发布中...' : '发布成绩' }}
-                </button>
+                <div class="publish-button-row">
+                  <button
+                    class="task-action ghost"
+                    type="button"
+                    :disabled="rerunLoading || !selectedSubmission"
+                    @click="rerunCurrentAi"
+                  >
+                    {{ rerunLoading ? '重试中...' : 'AI 重新批改' }}
+                  </button>
+                  <button
+                    class="task-action"
+                    type="button"
+                    :disabled="publishLoading || !allFinalForStudent || publishLocked"
+                    @click="publishScores"
+                  >
+                    {{ publishLoading ? '发布中...' : '发布成绩' }}
+                  </button>
+                </div>
+                <div v-if="rerunError" class="ai-error">{{ rerunError }}</div>
                 <div v-if="publishError" class="ai-error">{{ publishError }}</div>
                 <div v-if="publishSuccess" class="ai-success">已发布成绩</div>
                 <div v-if="!allFinalForStudent" class="graded-hint">
@@ -247,8 +258,8 @@ import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getAssignmentSnapshot } from '../api/assignment'
-import { listSubmissionsByAssignment } from '../api/teacherGrading'
-import { getAiJobStatus, getAiGradingResult } from '../api/aiGrading'
+import { listMissingByAssignment, listSubmissionsByAssignment } from '../api/teacherGrading'
+import { getAiJobStatus, getAiGradingResult, runAiGrading } from '../api/aiGrading'
 import { getFinalGrading, submitFinalGrading } from '../api/grading'
 import { publishAssignmentScores } from '../api/score'
 import { API_BASE_URL } from '../api/http'
@@ -272,6 +283,7 @@ const courseId = computed(() => String(route.query.courseId ?? ''))
 const routeStudentId = computed(() => String(route.query.studentId ?? ''))
 
 const submissions = ref<any[]>([])
+const missingStudents = ref<any[]>([])
 const questions = ref<AssignmentSnapshotQuestion[]>([])
 const loadError = ref('')
 const questionMap = ref<Record<string, AssignmentSnapshotQuestion>>({})
@@ -280,11 +292,21 @@ const selectedStudentId = ref('')
 const openGroups = ref<Record<string, boolean>>({
   graded: true,
   pending: true,
+  objection: true,
   missing: false,
 })
 
 const students = computed(() => {
   const map = new Map<string, { studentId: string; name?: string | null; account?: string | null }>()
+  missingStudents.value.forEach((item) => {
+    const studentId = item.studentId
+    if (!studentId) return
+    map.set(studentId, {
+      studentId,
+      name: item.name,
+      account: item.account,
+    })
+  })
   submissions.value.forEach((item) => {
     const studentId = item.student?.studentId
     if (!studentId) return
@@ -344,27 +366,51 @@ const currentQuestion = computed(() => {
 const submissionStatusLabel = computed(() => {
   if (!selectedSubmission.value) return '未提交'
   const isFinal = Boolean(selectedSubmission.value.isFinal ?? selectedSubmission.value.status === 'FINAL')
-  return isFinal ? '已批改' : '未批改'
+  if (isFinal) return '已批改'
+  if (selectedSubmission.value.aiIsUncertain) return '有异议'
+  return '待批改'
 })
 
 const submissionStatusTone = computed(() => {
   if (!selectedSubmission.value) return 'missing'
   const isFinal = Boolean(selectedSubmission.value.isFinal ?? selectedSubmission.value.status === 'FINAL')
-  return isFinal ? 'graded' : 'pending'
+  if (isFinal) return 'graded'
+  if (selectedSubmission.value.aiIsUncertain) return 'objection'
+  return 'pending'
 })
 
 const studentsWithStatus = computed(() =>
   students.value.map((student) => {
-    const key = `${student.studentId}::${selectedQuestionId.value}`
-    const submission = submissionByKey.value.get(key)
-    if (!submission) {
+    const allSubmissions = questions.value.map((question) =>
+      submissionByKey.value.get(`${student.studentId}::${question.questionId}`),
+    )
+    const existing = allSubmissions.filter(Boolean)
+    if (!existing.length) {
       return { ...student, statusLabel: '未提交', statusTone: 'missing' }
     }
-    const isFinal = Boolean(submission.isFinal ?? submission.status === 'FINAL')
+    const allFinal =
+      questions.value.length > 0 &&
+      questions.value.every((question) => {
+        const submission = submissionByKey.value.get(
+          `${student.studentId}::${question.questionId}`,
+        )
+        return submission && Boolean(submission.isFinal ?? submission.status === 'FINAL')
+      })
+    if (allFinal) {
+      return { ...student, statusLabel: '已批改', statusTone: 'graded' }
+    }
+    const hasObjection = existing.some(
+      (submission) =>
+        !Boolean(submission.isFinal ?? submission.status === 'FINAL') &&
+        Boolean(submission.aiIsUncertain),
+    )
+    if (hasObjection) {
+      return { ...student, statusLabel: '有异议', statusTone: 'objection' }
+    }
     return {
       ...student,
-      statusLabel: isFinal ? '已批改' : '未批改',
-      statusTone: isFinal ? 'graded' : 'pending',
+      statusLabel: '待批改',
+      statusTone: 'pending',
     }
   }),
 )
@@ -372,7 +418,8 @@ const studentsWithStatus = computed(() =>
 const groupedStudents = computed(() => {
   const groups = [
     { key: 'graded', title: '已批改', items: [] as typeof studentsWithStatus.value },
-    { key: 'pending', title: '未批改', items: [] as typeof studentsWithStatus.value },
+    { key: 'pending', title: '待批改', items: [] as typeof studentsWithStatus.value },
+    { key: 'objection', title: '有异议', items: [] as typeof studentsWithStatus.value },
     { key: 'missing', title: '未提交', items: [] as typeof studentsWithStatus.value },
   ]
   const map = new Map(groups.map((group) => [group.key, group]))
@@ -396,6 +443,8 @@ const gradingItems = ref<GradingRow[]>([])
 const finalComment = ref('')
 const totalScoreInput = ref(0)
 const saving = ref(false)
+const rerunLoading = ref(false)
+const rerunError = ref('')
 const saveError = ref('')
 const saveSuccess = ref(false)
 const editingOverride = ref(false)
@@ -655,6 +704,36 @@ const loadAiStatusOnly = async (submissionId: string) => {
   }
 }
 
+const rerunCurrentAi = async () => {
+  const submission = selectedSubmission.value
+  if (!submission?.submissionVersionId) return
+  rerunLoading.value = true
+  rerunError.value = ''
+  try {
+    await runAiGrading(submission.submissionVersionId, {
+      snapshotPolicy: 'LATEST_PUBLISHED',
+    })
+    submission.aiStatus = 'PENDING'
+    submission.aiIsUncertain = false
+    aiPanel.value = { statusLabel: '排队中', error: '', result: null }
+    await pollAiResult(submission.submissionVersionId)
+    if (aiPanel.value.result) {
+      submission.aiStatus = 'SUCCESS'
+      submission.aiConfidence =
+        typeof aiPanel.value.result.result?.confidence === 'number'
+          ? aiPanel.value.result.result.confidence
+          : null
+      submission.aiIsUncertain = Boolean(aiPanel.value.result.result?.isUncertain)
+    } else if (aiPanel.value.error) {
+      submission.aiStatus = 'FAILED'
+    }
+  } catch (err) {
+    rerunError.value = err instanceof Error ? err.message : '重新批改失败'
+  } finally {
+    rerunLoading.value = false
+  }
+}
+
 const submitGrading = async (forceAiAdopt: boolean) => {
   const submission = selectedSubmission.value
   if (!submission) return
@@ -759,6 +838,7 @@ const backToList = () => {
 watch(
   () => selectedSubmission.value,
   async (submission) => {
+    rerunError.value = ''
     if (submission) {
       if (submission.isFinal && !editingOverride.value) {
         await loadFinalForSubmission(submission.submissionVersionId, submission.questionId)
@@ -810,6 +890,13 @@ const loadData = async () => {
     submissions.value = response?.items ?? []
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : '加载提交失败'
+  }
+
+  try {
+    const response = await listMissingByAssignment(assignmentId.value)
+    missingStudents.value = response?.items ?? []
+  } catch (err) {
+    missingStudents.value = []
   }
 
   const routeMatch = submissions.value.find(
@@ -1063,6 +1150,11 @@ watch([assignmentId, submissionVersionId], async () => {
   color: #1f7a4b;
 }
 
+.detail-status.objection {
+  background: rgba(244, 67, 54, 0.18);
+  color: #b42318;
+}
+
 .detail-status.missing {
   background: rgba(190, 200, 220, 0.35);
   color: rgba(26, 29, 51, 0.6);
@@ -1313,6 +1405,13 @@ watch([assignmentId, submissionVersionId], async () => {
   margin-top: 12px;
   display: grid;
   gap: 8px;
+}
+
+.publish-button-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .graded-hint {

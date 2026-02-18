@@ -153,12 +153,9 @@ export class AuthService {
     } else {
       sheet.eachRow({ includeEmpty: true }, (row) => {
         const values = Array.isArray(row.values) ? row.values : [];
-        const normalized = values.slice(1).map((cell) => {
-          if (cell && typeof cell === 'object' && 'text' in cell) {
-            return (cell as { text?: string }).text ?? '';
-          }
-          return cell ?? '';
-        });
+        const normalized = values
+          .slice(1)
+          .map((cell) => this.normalizeImportCell(cell));
         rows.push(normalized);
       });
     }
@@ -359,6 +356,37 @@ export class AuthService {
     });
 
     return results;
+  }
+
+  private normalizeImportCell(value: unknown): string {
+    const text = this.extractImportCellText(value).trim();
+    if (!text || text === '[object Object]') return '';
+    return text;
+  }
+
+  private extractImportCellText(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.extractImportCellText(item)).join('');
+    }
+    if (typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      if (typeof record.text === 'string') return record.text;
+      if (Array.isArray(record.richText)) {
+        return record.richText
+          .map((item) => this.extractImportCellText(item))
+          .join('');
+      }
+      if (typeof record.result === 'string') return record.result;
+      if (typeof record.name === 'string') return record.name;
+      if (typeof record.value === 'string') return record.value;
+      return '';
+    }
+    return '';
   }
 
   async refresh(

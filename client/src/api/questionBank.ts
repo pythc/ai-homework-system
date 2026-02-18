@@ -51,8 +51,8 @@ export type QuestionBankStructureResponse = {
   }>
 }
 
-export async function getQuestionBankStructure(courseId: string) {
-  const query = `?courseId=${encodeURIComponent(courseId)}`
+export async function getQuestionBankStructure(courseId?: string) {
+  const query = courseId ? `?courseId=${encodeURIComponent(courseId)}` : ''
   return httpRequest<QuestionBankStructureResponse>(
     `/question-bank/structure${query}`,
     {

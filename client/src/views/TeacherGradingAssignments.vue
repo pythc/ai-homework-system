@@ -35,12 +35,25 @@
           </div>
           <div class="task-foot">
             <div class="task-progress">
-              <div class="progress-meta">
-                <span>{{ task.level }}</span>
+              <div class="progress-meta progress-meta-inline">
+                <span>已批改 {{ task.gradedCount }} 人</span>
+                <span>未提交 {{ task.unsubmittedCount }} 人</span>
+                <span>AI批改成功 {{ task.aiSuccessCount }} / {{ task.submissionCount }}</span>
               </div>
-              <!-- debug removed -->
+              <div v-if="retryMessages[task.id]" class="task-hint">{{ retryMessages[task.id] }}</div>
             </div>
             <div class="task-actions">
+              <button class="task-action ghost" type="button" @click="openConfig(task.id)">
+                详情/修改
+              </button>
+              <button
+                class="task-action ghost"
+                type="button"
+                :disabled="retryingIds.has(task.id) || task.aiFailedCount <= 0"
+                @click="retryFailedAi(task.id)"
+              >
+                {{ retryingIds.has(task.id) ? '重试中...' : `重试失败(${task.aiFailedCount})` }}
+              </button>
               <button class="task-action" @click="goSubmissions(task.id)">查看提交</button>
               <button
                 class="task-action ghost"
@@ -66,12 +79,16 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { deleteAssignment, listTeacherAssignments } from '../api/assignment'
+import { runAiGrading } from '../api/aiGrading'
+import { listSubmissionsByAssignment } from '../api/teacherGrading'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 const gradingItems = ref<any[]>([])
 const gradingError = ref('')
 const deletingIds = ref(new Set<string>())
+const retryingIds = ref(new Set<string>())
+const retryMessages = ref<Record<string, string>>({})
 const router = useRouter()
 const route = useRoute()
 const courseId = computed(() => String(route.params.courseId ?? ''))
@@ -87,30 +104,17 @@ const gradingList = computed(() =>
   gradingItems.value
     .filter((item) => item.courseId === courseId.value)
     .map((item) => {
-      const submittedStudentCount = Number(
-        item.submittedStudentCount ?? item.submissionCount ?? 0,
-      )
-      const pendingCount = Number(
-        item.pendingStudentCount ??
-          Math.min(Number(item.pendingCount ?? 0), submittedStudentCount),
-      )
-      const gradedCount = Number(
-        item.gradedStudentCount ?? item.gradedCount ?? 0,
-      )
-      const hasSubmissions = Number(
-        submittedStudentCount,
-      ) > 0
-      const graded = pendingCount === 0 && hasSubmissions
+      const gradedCount = Number(item.gradedStudentCount ?? item.gradedCount ?? 0)
       return {
         id: item.id,
         title: item.title,
         course: item.courseName ?? item.courseId ?? '--',
         deadline: formatDeadline(item.deadline),
-        level: graded
-          ? `已批改 ${gradedCount}`
-          : pendingCount > 0
-            ? `待批改 ${pendingCount}`
-            : '暂无提交',
+        gradedCount,
+        unsubmittedCount: Number(item.unsubmittedCount ?? 0),
+        aiSuccessCount: Number(item.aiSuccessCount ?? 0),
+        aiFailedCount: Number(item.aiFailedCount ?? 0),
+        submissionCount: Number(item.submissionCount ?? 0),
       }
     }),
 )
@@ -119,6 +123,11 @@ const courseTitle = computed(() => {
   const course = gradingItems.value.find((item) => item.courseId === courseId.value)
   return course?.courseName ? `课程：${course.courseName}` : '课程作业'
 })
+
+const refreshAssignments = async () => {
+  const response = await listTeacherAssignments()
+  gradingItems.value = response?.items ?? []
+}
 
 const goSubmissions = (assignmentId: string) => {
   router.push({
@@ -129,6 +138,46 @@ const goSubmissions = (assignmentId: string) => {
 
 const goBack = () => {
   router.push('/teacher/grading')
+}
+
+const openConfig = (assignmentId: string) => {
+  router.push({
+    path: `/teacher/grading/${assignmentId}/config`,
+    query: { courseId: courseId.value },
+  })
+}
+
+const retryFailedAi = async (assignmentId: string) => {
+  const next = new Set(retryingIds.value)
+  next.add(assignmentId)
+  retryingIds.value = next
+  retryMessages.value[assignmentId] = ''
+  try {
+    const response = await listSubmissionsByAssignment(assignmentId)
+    const failed = (response?.items ?? []).filter((item) => item.aiStatus === 'FAILED')
+    if (!failed.length) {
+      retryMessages.value[assignmentId] = '没有失败的 AI 批改任务'
+      return
+    }
+    const results = await Promise.allSettled(
+      failed.map((item) =>
+        runAiGrading(item.submissionVersionId, { snapshotPolicy: 'LATEST_PUBLISHED' }),
+      ),
+    )
+    const success = results.filter((item) => item.status === 'fulfilled').length
+    const failedCount = results.length - success
+    retryMessages.value[assignmentId] =
+      failedCount > 0
+        ? `已重试 ${success} 条，失败 ${failedCount} 条`
+        : `已重试 ${success} 条失败任务`
+    await refreshAssignments()
+  } catch (err) {
+    retryMessages.value[assignmentId] = err instanceof Error ? err.message : '重试失败'
+  } finally {
+    const updated = new Set(retryingIds.value)
+    updated.delete(assignmentId)
+    retryingIds.value = updated
+  }
 }
 
 const deleteTask = async (assignmentId: string, title?: string) => {
@@ -154,8 +203,7 @@ const deleteTask = async (assignmentId: string, title?: string) => {
 onMounted(async () => {
   await refreshProfile()
   try {
-    const response = await listTeacherAssignments()
-    gradingItems.value = response?.items ?? []
+    await refreshAssignments()
   } catch (err) {
     gradingError.value = err instanceof Error ? err.message : '加载作业失败'
   }
@@ -191,6 +239,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .task-action.ghost {
@@ -200,6 +249,20 @@ onMounted(async () => {
 
 .task-card .task-progress {
   margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
+.progress-meta-inline {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.task-hint {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.7);
+}
 </style>

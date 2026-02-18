@@ -7,6 +7,7 @@ export type AssignmentSummary = {
   courseId: string
   courseName?: string | null
   description?: string | null
+  totalScore?: number
   deadline?: string | null
   status: string
   submitted?: boolean
@@ -25,6 +26,8 @@ export type TeacherAssignmentSummary = AssignmentSummary & {
   submittedStudentCount?: number
   pendingStudentCount?: number
   gradedStudentCount?: number
+  aiSuccessCount?: number
+  aiFailedCount?: number
 }
 
 type TeacherAssignmentListResponse = {
@@ -34,6 +37,7 @@ type TeacherAssignmentListResponse = {
 export type AssignmentSnapshotQuestion = {
   questionIndex: number
   questionId: string
+  weight?: number | null
   prompt?: { text?: string }
   parentPrompt?: { text?: string }
   standardAnswer?: { text?: string }
@@ -89,6 +93,14 @@ export async function getAssignmentSnapshot(assignmentId: string) {
   })
 }
 
+export async function getAssignment(assignmentId: string) {
+  const token = getAccessToken()
+  return httpRequest<AssignmentSummary>(`/assignments/${assignmentId}`, {
+    method: 'GET',
+    token,
+  })
+}
+
 export async function createAssignment(payload: CreateAssignmentRequest) {
   const token = getAccessToken()
   return httpRequest<AssignmentSummary>('/assignments', {
@@ -132,6 +144,25 @@ export async function publishAssignment(
     token,
     body: payload,
   })
+}
+
+export async function updateAssignmentGradingConfig(
+  assignmentId: string,
+  payload: {
+    deadline?: string
+    totalScore?: number
+    questionWeights?: Array<{ questionId: string; weight: number }>
+  },
+) {
+  const token = getAccessToken()
+  return httpRequest<{ assignment: AssignmentSummary; needRepublish: boolean }>(
+    `/assignments/${assignmentId}/grading-config`,
+    {
+      method: 'PUT',
+      token,
+      body: payload,
+    },
+  )
 }
 
 export async function deleteAssignment(assignmentId: string) {

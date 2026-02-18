@@ -31,15 +31,15 @@ export type CourseGradebook = {
   assignments: Array<{
     id: string
     title: string
+    totalScore?: number
     deadline?: string | null
     order: number
-    questions: Array<{ questionId: string; questionIndex: number }>
+    questions: Array<{ questionId: string; questionIndex: number; maxScore?: number; weight?: number | null }>
   }>
   cells: Array<{
     studentId: string
     assignmentId: string
-    questionId: string
-    submissionVersionId: string
+    submissionVersionId: string | null
     finalScore: number | null
     aiScore: number | null
   }>

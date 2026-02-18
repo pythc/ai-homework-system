@@ -68,6 +68,7 @@ const expandedIds = ref(new Set())
 
 const courseId = String(route.params.courseId)
 const chapterId = String(route.params.chapterId)
+const isShared = courseId === 'shared'
 
 onMounted(async () => {
   await refreshProfile()
@@ -77,7 +78,7 @@ onMounted(async () => {
 const fetchQuestions = async () => {
   loadError.value = ''
   try {
-    const all = await listQuestionBank(courseId)
+    const all = await listQuestionBank(isShared ? undefined : courseId)
     questionList.value = all.filter((item) => item.chapterId === chapterId)
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : '加载题目失败'

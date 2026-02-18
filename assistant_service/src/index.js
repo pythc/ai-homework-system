@@ -8,6 +8,7 @@ const {
   ASSISTANT_ASSET_BASE = 'http://localhost:3000',
   ARK_API_KEY = '',
   ASSISTANT_CACHE_TTL_MS = '1800000',
+  ASSISTANT_MODEL_TIMEOUT_MS = '30000',
 } = process.env;
 
 if (!ARK_API_KEY) {
@@ -22,25 +23,58 @@ const baseUrl = normalizeBaseUrl(ASSISTANT_BASE_URL);
 const responsesUrl = `${baseUrl}/responses`;
 
 const cacheTtlMs = Number(ASSISTANT_CACHE_TTL_MS) || 30 * 60 * 1000;
+const modelTimeoutMs = Number(ASSISTANT_MODEL_TIMEOUT_MS) || 30000;
 const prefixCache = new Map();
 let cacheAvailable = true;
+
+const fetchWithTimeout = async (url, init, timeoutMs = modelTimeoutMs) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      (error instanceof Error && error.name === 'AbortError') ||
+      message.includes('aborted')
+    ) {
+      const timeoutError = new Error(`request timeout after ${timeoutMs}ms`);
+      timeoutError.code = 'REQUEST_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const isTimeoutError = (error) => {
+  if (!error) return false;
+  const code = error?.code;
+  if (code === 'REQUEST_TIMEOUT') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('timeout');
+};
+
+const fallbackAnswer = '请求超时，模型暂时繁忙，请稍后重试。';
 
 const systemPrompt = `你是“AI作业分析助手”，服务于作业管理系统。
 可用数据字段：
 - 用户信息：scope.user
 - 统计数据：stats（可能包含 count / avg / min / max / byAssignment）
+- 元信息：stats.meta（可能包含 courses / assignments / students / counts）
 - 访问范围：scope（role / courseId / assignmentId）
 
 权限与范围规则：
-- 学生：只能分析自己的成绩与统计，以及回答学习、学科相关问题
-- 教师：只能分析自己课程范围内的统计（若未指定 courseId或课程，则为其名下课程汇总）以及其他任何问题
+- 学生：只能查看自己的课程/作业元信息与成绩统计；不提供其他学生名单
+- 教师：可查看自己课程列表、课程内作业与学生名单（仅限自己课程范围）；若涉及学生名单且未指定 courseId，请提示先指定课程
 - 管理员：不提供该功能（应礼貌说明暂不支持）
 若问题超出 scope 或数据缺失/为空，必须明确说明“暂无数据/无权限/需要指定课程或作业”。
 当用户问“我是谁/我的信息”时，直接使用 scope.user 返回，但要整理后再返回，避免暴露隐私字段。
 
 输出要求：
 - 默认中文
-- 不输出其他学生的个人信息，不编造具体作业或成绩
+- 不输出其他学生的敏感信息（如邮箱/手机号），教师查询学生名单时仅展示必要字段（如姓名/学号）
 - 第一次回答时要说“您好，xxx老师/同学”
 - 语气友好且专业，可以适当使用表情符号和热情回应
 - 如果用户提问到此系统的使用体验不好，你应该礼貌回答表示抱歉，并将管理员的信息（周灿宇，邮箱：2813994715@qq.com）贴出，方便用户反馈意见。
@@ -169,7 +203,7 @@ const ensurePrefixResponseId = async (sessionKey, thinkingType) => {
     payload.thinking = { type: thinkingType };
   }
 
-  const response = await fetch(responsesUrl, {
+  const response = await fetchWithTimeout(responsesUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -326,7 +360,7 @@ app.post('/assistant/answer', async (req, res) => {
       payload.previous_response_id = prefixResponseId;
     }
 
-    const response = await fetch(responsesUrl, {
+    const response = await fetchWithTimeout(responsesUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -346,6 +380,9 @@ app.post('/assistant/answer', async (req, res) => {
     return res.json({ answer, scope, stats, usage });
   } catch (err) {
     console.error('[assistant] failed', err);
+    if (isTimeoutError(err)) {
+      return res.json({ answer: fallbackAnswer, scope, stats, usage: null });
+    }
     return res.status(500).json({ message: 'assistant failed' });
   }
 });
@@ -382,7 +419,7 @@ app.post('/assistant/answer/stream', async (req, res) => {
       payload.previous_response_id = prefixResponseId;
     }
 
-    const response = await fetch(responsesUrl, {
+    const response = await fetchWithTimeout(responsesUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -401,6 +438,13 @@ app.post('/assistant/answer/stream', async (req, res) => {
     await streamResponses(response, res, stats, scope);
   } catch (err) {
     console.error('[assistant] stream failed', err);
+    if (isTimeoutError(err)) {
+      res.write(
+        `event: done\ndata: ${JSON.stringify({ answer: fallbackAnswer, scope, stats })}\n\n`,
+      );
+      res.end();
+      return;
+    }
     res.write(`event: error\ndata: ${JSON.stringify({ message: 'assistant failed' })}\n\n`);
     res.end();
   }

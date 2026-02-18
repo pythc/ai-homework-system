@@ -508,6 +508,8 @@ export class SubmissionService {
           v.submit_no AS "submitNo",
           v.ai_status AS "aiStatus",
           v.status AS "status",
+          ai.result->>'confidence' AS "aiConfidence",
+          ai.result->>'isUncertain' AS "aiIsUncertain",
           v.content_text AS "contentText",
           v.file_url AS "fileUrl",
           v.submitted_at AS "submittedAt",
@@ -524,6 +526,13 @@ export class SubmissionService {
         LEFT JOIN scores sc
           ON sc.submission_version_id = v.id
           AND sc.is_final = true
+        LEFT JOIN LATERAL (
+          SELECT ag.result
+          FROM ai_gradings ag
+          WHERE ag.submission_version_id = v.id
+          ORDER BY ag.created_at DESC
+          LIMIT 1
+        ) ai ON true
         WHERE s.assignment_id = $1
         ORDER BY v.submitted_at DESC
       `,
@@ -538,6 +547,14 @@ export class SubmissionService {
         submitNo: Number(row.submitNo ?? 0),
         aiStatus: row.aiStatus,
         status: row.status,
+        aiConfidence:
+          row.aiConfidence !== null && row.aiConfidence !== undefined
+            ? Number(row.aiConfidence)
+            : null,
+        aiIsUncertain:
+          row.aiIsUncertain === true ||
+          row.aiIsUncertain === 1 ||
+          row.aiIsUncertain === 'true',
         isFinal: row.isFinal === true || row.isFinal === 1,
         contentText: row.contentText ?? '',
         fileUrls: this.toPublicFileUrls(this.parseFileUrls(row.fileUrl ?? '')),

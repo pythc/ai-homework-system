@@ -109,22 +109,24 @@ export class QuestionBankService {
     });
   }
 
-  async findAll(courseId?: string) {
-    if (courseId) {
-      return this.questionRepo.find({
-        where: { courseId },
-        order: { createdAt: 'DESC' },
-      });
+  async findAll(courseId: string | undefined, schoolId: string) {
+    const courses = await this.resolveSchoolCourseIds(schoolId, courseId);
+    if (!courses.length) {
+      return [];
     }
-    return this.questionRepo.find({ order: { createdAt: 'DESC' } });
+    return this.questionRepo.find({
+      where: { courseId: In(courses) },
+      order: { createdAt: 'DESC' },
+    });
   }
 
-  async getStructure(courseId?: string) {
-    if (!courseId) {
-      throw new BadRequestException('courseId is required');
+  async getStructure(courseId: string | undefined, schoolId: string) {
+    const courseIds = await this.resolveSchoolCourseIds(schoolId, courseId);
+    if (!courseIds.length) {
+      return { textbooks: [], chapters: [] };
     }
     const textbooks = await this.textbookRepo.find({
-      where: { courseId },
+      where: { courseId: In(courseIds) },
       order: { createdAt: 'ASC' },
     });
     const textbookIds = textbooks.map((item) => item.id);
@@ -136,6 +138,21 @@ export class QuestionBankService {
       order: { orderNo: 'ASC', createdAt: 'ASC' },
     });
     return { textbooks, chapters };
+  }
+
+  private async resolveSchoolCourseIds(
+    schoolId: string,
+    courseId?: string,
+  ): Promise<string[]> {
+    const where =
+      courseId && courseId !== 'shared'
+        ? { schoolId, id: courseId }
+        : { schoolId };
+    const rows = await this.courseRepo.find({
+      where,
+      select: ['id'],
+    });
+    return rows.map((item) => item.id);
   }
 
   async getQuestion(id: string) {
@@ -649,7 +666,6 @@ export class QuestionBankService {
     return upper in QuestionType;
   }
 }
-
 
 
 

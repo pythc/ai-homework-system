@@ -1,16 +1,17 @@
 import {
+  ConflictException,
   BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { TriggerAiGradingDto } from './dto/trigger-ai-grading.dto';
 import { AiGradingQueueService } from './ai-grading.queue';
 import { AiGradingEntity } from './entities/ai-grading.entity';
 import { AiJobEntity, AiJobStage, AiJobStatus } from './entities/ai-job.entity';
-import { SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
+import { AiStatus, SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
 import { AssignmentEntity } from '../assignment/entities/assignment.entity';
 import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 
@@ -140,5 +141,137 @@ export class AiGradingService {
       extracted: grading.extracted ?? undefined,
       createdAt: grading.createdAt,
     };
+  }
+
+  async getQueueOverview() {
+    const metrics = await this.queue.getQueueMetrics();
+    const redisOk = await this.queue.ping();
+
+    const rawCounts = await this.jobRepo
+      .createQueryBuilder('job')
+      .select('job.status', 'status')
+      .addSelect('COUNT(*)::int', 'count')
+      .groupBy('job.status')
+      .getRawMany<{ status: AiJobStatus; count: string }>();
+
+    const counts = {
+      QUEUED: 0,
+      RUNNING: 0,
+      SUCCEEDED: 0,
+      FAILED: 0,
+    };
+    for (const row of rawCounts) {
+      counts[row.status] = Number(row.count ?? 0);
+    }
+
+    const staleSeconds = this.readNumberEnv('AI_JOB_STALE_SECONDS', 300);
+    const cutoff = new Date(Date.now() - staleSeconds * 1000);
+    const staleRunning = await this.jobRepo.count({
+      where: {
+        status: AiJobStatus.RUNNING,
+        lastStartedAt: LessThan(cutoff),
+      },
+    });
+
+    const recentFailed = await this.jobRepo.find({
+      where: { status: AiJobStatus.FAILED },
+      order: { updatedAt: 'DESC' },
+      take: 20,
+    });
+
+    return {
+      redis: {
+        ok: redisOk,
+        ...metrics,
+      },
+      jobs: {
+        counts,
+        staleRunning,
+        recentFailed: recentFailed.map((job) => ({
+          aiJobId: job.id,
+          submissionVersionId: job.submissionVersionId,
+          attempts: job.attempts,
+          error: job.error ?? null,
+          updatedAt: job.updatedAt,
+        })),
+      },
+    };
+  }
+
+  async requeueJob(jobId: string) {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) {
+      throw new NotFoundException('AI 任务不存在');
+    }
+    if (job.status === AiJobStatus.SUCCEEDED) {
+      throw new ConflictException('任务已成功完成，无需重试');
+    }
+
+    await this.jobRepo.update(
+      { id: job.id },
+      {
+        status: AiJobStatus.QUEUED,
+        stage: AiJobStage.PREPARE_INPUT,
+        error: null,
+        updatedAt: new Date(),
+      },
+    );
+    await this.submissionVersionRepo.update(
+      { id: job.submissionVersionId },
+      { aiStatus: AiStatus.PENDING, updatedAt: new Date() },
+    );
+    await this.queue.requeue(job.id, 0);
+
+    return {
+      aiJobId: job.id,
+      submissionVersionId: job.submissionVersionId,
+      status: AiJobStatus.QUEUED,
+    };
+  }
+
+  async recoverStaleJobs(staleSeconds?: number) {
+    const threshold = staleSeconds ?? this.readNumberEnv('AI_JOB_STALE_SECONDS', 300);
+    const cutoff = new Date(Date.now() - threshold * 1000);
+
+    const staleJobs = await this.jobRepo.find({
+      where: {
+        status: AiJobStatus.RUNNING,
+        lastStartedAt: LessThan(cutoff),
+      },
+      order: { lastStartedAt: 'ASC' },
+      take: 200,
+    });
+
+    const recoveredJobIds: string[] = [];
+    for (const job of staleJobs) {
+      await this.jobRepo.update(
+        { id: job.id },
+        {
+          status: AiJobStatus.QUEUED,
+          stage: AiJobStage.PREPARE_INPUT,
+          error: `Recovered stale RUNNING job at ${new Date().toISOString()}`,
+          updatedAt: new Date(),
+        },
+      );
+      await this.submissionVersionRepo.update(
+        { id: job.submissionVersionId },
+        { aiStatus: AiStatus.PENDING, updatedAt: new Date() },
+      );
+      await this.queue.requeue(job.id, 0);
+      recoveredJobIds.push(job.id);
+    }
+
+    return {
+      staleSeconds: threshold,
+      recovered: recoveredJobIds.length,
+      recoveredJobIds,
+    };
+  }
+
+  private readNumberEnv(name: string, fallback: number) {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : fallback;
   }
 }

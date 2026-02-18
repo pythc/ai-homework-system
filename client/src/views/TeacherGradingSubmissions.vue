@@ -32,7 +32,7 @@
             :class="{ active: statusFilter === 'PENDING' }"
             @click="statusFilter = 'PENDING'"
           >
-            未批改
+            待批改
           </button>
           <button
             class="tab-btn"
@@ -83,8 +83,11 @@
               提交 {{ formatTime(item.submittedAt) }}
             </div>
           </div>
-          <div class="submission-status" :class="item.isFinal ? 'graded' : 'pending'">
-            {{ item.isFinal ? '已批改' : '未批改' }}
+          <div
+            class="submission-status"
+            :class="item.isFinal ? 'graded' : item.hasObjection ? 'objection' : 'pending'"
+          >
+            {{ item.isFinal ? '已批改' : item.hasObjection ? '有异议' : '待批改' }}
           </div>
           <button class="task-action ghost" @click="goGrading(item.submissionVersionId, item.studentId)">
             批改
@@ -168,13 +171,14 @@ const mergedSubmissions = computed(() => {
   const map = new Map<
     string,
     {
-      studentId: string
-      student: any
-      submittedAt?: string
-      isFinal: boolean
-      submissionVersionId: string
-      items: any[]
-    }
+        studentId: string
+        student: any
+        submittedAt?: string
+        isFinal: boolean
+        hasObjection: boolean
+        submissionVersionId: string
+        items: any[]
+      }
   >()
   submissions.value.forEach((item: any) => {
     const studentId = item.student?.studentId
@@ -185,6 +189,7 @@ const mergedSubmissions = computed(() => {
         student: item.student,
         submittedAt: item.submittedAt,
         isFinal: Boolean(item.isFinal ?? item.status === 'FINAL'),
+        hasObjection: Boolean(item.aiIsUncertain),
         submissionVersionId: item.submissionVersionId,
         items: [item],
       })
@@ -201,6 +206,9 @@ const mergedSubmissions = computed(() => {
     }
     if (!Boolean(item.isFinal ?? item.status === 'FINAL')) {
       group.isFinal = false
+    }
+    if (Boolean(item.aiIsUncertain)) {
+      group.hasObjection = true
     }
   })
   return Array.from(map.values())
@@ -396,6 +404,11 @@ onMounted(async () => {
 .submission-status.graded {
   background: rgba(120, 200, 170, 0.3);
   color: #1f7a4b;
+}
+
+.submission-status.objection {
+  background: rgba(244, 67, 54, 0.18);
+  color: #b42318;
 }
 
 .task-action.ghost {

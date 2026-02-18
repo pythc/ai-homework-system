@@ -192,7 +192,7 @@ export class CourseService {
     return {
       items: rows.map((row: any) => ({
         studentId: row.studentId,
-        name: row.studentName ?? null,
+        name: this.normalizeDisplayName(row.studentName),
         account: row.studentAccount ?? null,
       })),
     };
@@ -227,6 +227,7 @@ export class CourseService {
         SELECT
           a.id,
           a.title,
+          a.total_score AS "totalScore",
           a.deadline,
           a.created_at AS "createdAt"
         FROM assignments a
@@ -258,13 +259,65 @@ export class CourseService {
         ? row.snapshot.questions
         : [];
       const normalized = questions
-        .map((q: any) => ({
-          questionId: q?.questionId,
-          questionIndex: Number(q?.questionIndex),
-        }))
+        .map((q: any) => {
+          const rubricItems = Array.isArray(q?.rubric) ? q.rubric : [];
+          const maxScore = rubricItems.reduce((sum: number, item: any) => {
+            const value = Number(item?.maxScore ?? 0);
+            return Number.isFinite(value) ? sum + value : sum;
+          }, 0);
+          const weight = Number(q?.weight ?? 0);
+          return {
+            questionId: q?.questionId,
+            questionIndex: Number(q?.questionIndex),
+            maxScore: Number.isFinite(maxScore) ? maxScore : 0,
+            weight:
+              Number.isFinite(weight) && weight > 0
+                ? weight
+                : null,
+          };
+        })
         .filter((q: any) => q.questionId && Number.isFinite(q.questionIndex))
         .sort((a: any, b: any) => a.questionIndex - b.questionIndex);
       snapshotMap.set(row.assignmentId, normalized);
+    }
+
+    const assignmentMetaMap = new Map<
+      string,
+      {
+        totalScore: number;
+        questionCount: number;
+        defaultWeight: number;
+        questions: Array<{
+          questionId: string;
+          questionIndex: number;
+          maxScore: number;
+          weight: number | null;
+        }>;
+      }
+    >();
+
+    for (const assignment of assignments) {
+      const questions = (snapshotMap.get(assignment.id) ?? []) as Array<{
+        questionId: string;
+        questionIndex: number;
+        maxScore: number;
+        weight: number | null;
+      }>;
+      const weightSum = questions.reduce((sum, q) => {
+        const weight = Number(q.weight ?? 0);
+        return Number.isFinite(weight) && weight > 0 ? sum + weight : sum;
+      }, 0);
+      const defaultWeight =
+        questions.length > 0 && weightSum === 0 ? 100 / questions.length : 0;
+      const assignmentTotalScore = Number(assignment.totalScore ?? 100);
+      assignmentMetaMap.set(assignment.id, {
+        totalScore: Number.isFinite(assignmentTotalScore)
+          ? assignmentTotalScore
+          : 100,
+        questionCount: questions.length,
+        defaultWeight,
+        questions,
+      });
     }
 
     const submissions = assignmentIds.length
@@ -328,25 +381,150 @@ export class CourseService {
       }
     }
 
-    const cells = submissions.map((row: any) => ({
-      studentId: row.studentId,
-      assignmentId: row.assignmentId,
-      questionId: row.questionId,
-      submissionVersionId: row.submissionVersionId,
-      finalScore: finalMap.get(row.submissionVersionId) ?? null,
-      aiScore: aiMap.get(row.submissionVersionId) ?? null,
-    }));
+    const studentIds = students.map((row: any) => row.studentId).filter(Boolean);
+    let weightedRows: any[] = [];
+    if (assignmentIds.length && studentIds.length) {
+      try {
+        weightedRows = await this.dataSource.query(
+          `
+            SELECT
+              assignment_id AS "assignmentId",
+              student_id AS "studentId",
+              total_score AS "totalScore"
+            FROM assignment_weighted_scores
+            WHERE assignment_id = ANY($1)
+              AND student_id = ANY($2)
+          `,
+          [assignmentIds, studentIds],
+        );
+      } catch (_err) {
+        weightedRows = [];
+      }
+    }
+
+    const weightedMap = new Map<string, number>();
+    for (const row of weightedRows) {
+      const value = Number(row.totalScore);
+      if (!Number.isFinite(value)) continue;
+      weightedMap.set(`${row.studentId}:${row.assignmentId}`, value);
+    }
+
+    const perQuestionMap = new Map<
+      string,
+      { score: number | null; fromAi: boolean; submissionVersionId: string | null }
+    >();
+    const pairSubmissionMap = new Map<string, string>();
+
+    for (const row of submissions) {
+      const key = `${row.studentId}:${row.assignmentId}:${row.questionId}`;
+      const pairKey = `${row.studentId}:${row.assignmentId}`;
+      const versionId = row.submissionVersionId ?? null;
+      if (!pairSubmissionMap.has(pairKey) && versionId) {
+        pairSubmissionMap.set(pairKey, versionId);
+      }
+      const finalScore = finalMap.get(row.submissionVersionId);
+      if (finalScore !== undefined) {
+        perQuestionMap.set(key, {
+          score: finalScore,
+          fromAi: false,
+          submissionVersionId: versionId,
+        });
+        continue;
+      }
+      const aiScore = aiMap.get(row.submissionVersionId);
+      if (aiScore !== undefined) {
+        perQuestionMap.set(key, {
+          score: aiScore,
+          fromAi: true,
+          submissionVersionId: versionId,
+        });
+        continue;
+      }
+      perQuestionMap.set(key, {
+        score: null,
+        fromAi: false,
+        submissionVersionId: versionId,
+      });
+    }
+
+    const cells: Array<{
+      studentId: string;
+      assignmentId: string;
+      submissionVersionId: string | null;
+      finalScore: number | null;
+      aiScore: number | null;
+    }> = [];
+
+    for (const studentId of studentIds) {
+      for (const assignmentId of assignmentIds) {
+        const pairKey = `${studentId}:${assignmentId}`;
+        const submissionVersionId = pairSubmissionMap.get(pairKey) ?? null;
+        const publishedTotal = weightedMap.get(pairKey);
+        if (publishedTotal !== undefined) {
+          cells.push({
+            studentId,
+            assignmentId,
+            submissionVersionId,
+            finalScore: Number(publishedTotal.toFixed(2)),
+            aiScore: null,
+          });
+          continue;
+        }
+
+        const meta = assignmentMetaMap.get(assignmentId);
+        if (!meta || meta.questionCount === 0 || meta.totalScore <= 0) {
+          continue;
+        }
+
+        let weightedTotal = 0;
+        let allScored = true;
+        let hasAiDerived = false;
+        for (const question of meta.questions) {
+          const qKey = `${studentId}:${assignmentId}:${question.questionId}`;
+          const scoreRow = perQuestionMap.get(qKey);
+          if (!scoreRow || scoreRow.score === null || !Number.isFinite(scoreRow.score)) {
+            allScored = false;
+            break;
+          }
+          if (!Number.isFinite(question.maxScore) || question.maxScore <= 0) {
+            allScored = false;
+            break;
+          }
+          const weight = question.weight ?? meta.defaultWeight;
+          if (!Number.isFinite(weight) || weight <= 0) {
+            allScored = false;
+            break;
+          }
+          const normalized = scoreRow.score / question.maxScore;
+          weightedTotal += normalized * (weight / 100) * meta.totalScore;
+          if (scoreRow.fromAi) {
+            hasAiDerived = true;
+          }
+        }
+
+        if (!allScored) continue;
+        const rounded = Number(weightedTotal.toFixed(2));
+        cells.push({
+          studentId,
+          assignmentId,
+          submissionVersionId,
+          finalScore: hasAiDerived ? null : rounded,
+          aiScore: hasAiDerived ? rounded : null,
+        });
+      }
+    }
 
     return {
       course: this.toCourseResponse(course),
       students: students.map((row: any) => ({
         studentId: row.studentId,
-        name: row.studentName ?? null,
+        name: this.normalizeDisplayName(row.studentName),
         account: row.studentAccount ?? null,
       })),
       assignments: assignments.map((row: any, index: number) => ({
         id: row.id,
         title: row.title,
+        totalScore: Number(row.totalScore ?? 100),
         deadline: row.deadline ?? null,
         order: index + 1,
         questions: snapshotMap.get(row.id) ?? [],
@@ -425,6 +603,38 @@ export class CourseService {
     }
   }
 
+  private normalizeDisplayName(value: unknown): string | null {
+    const parsed = this.extractCellText(value);
+    if (!parsed) return null;
+    const text = parsed.trim();
+    if (!text || text === '[object Object]') return null;
+    return text;
+  }
+
+  private extractCellText(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.extractCellText(item)).join('');
+    }
+    if (typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      if (typeof record.text === 'string') return record.text;
+      if (Array.isArray(record.richText)) {
+        return record.richText
+          .map((item) => this.extractCellText(item))
+          .join('');
+      }
+      if (typeof record.name === 'string') return record.name;
+      if (typeof record.value === 'string') return record.value;
+      return '';
+    }
+    return '';
+  }
+
   private toCourseResponse(
     course: CourseEntity,
     teacher: UserEntity | null = null,
@@ -435,7 +645,7 @@ export class CourseService {
       name: course.name,
       semester: course.semester,
       teacherId: course.teacherId,
-      teacherName: teacher?.name ?? null,
+      teacherName: this.normalizeDisplayName(teacher?.name ?? null),
       teacherAccount: teacher?.account ?? null,
       status: course.status,
       createdAt: course.createdAt,

@@ -1,4 +1,5 @@
 import { httpRequest } from './http'
+import { getAccessToken } from '../auth/storage'
 
 export type AiJobStatusResponse = {
   aiJobId: string
@@ -51,4 +52,22 @@ export async function getAiGradingResult(submissionVersionId: string) {
     { method: 'GET', token },
   )
 }
-import { getAccessToken } from '../auth/storage'
+
+export async function runAiGrading(
+  submissionVersionId: string,
+  payload: {
+    snapshotPolicy: 'LATEST_PUBLISHED' | 'SPECIFIC'
+    assignmentSnapshotId?: string
+    uncertaintyPolicy?: { minConfidence?: number }
+  } = { snapshotPolicy: 'LATEST_PUBLISHED' },
+) {
+  const token = getAccessToken('teacher')
+  return httpRequest<{ job?: { aiJobId: string; status: string } }>(
+    `/submissions/${submissionVersionId}/ai-grading:run`,
+    {
+      method: 'POST',
+      token,
+      body: payload,
+    },
+  )
+}

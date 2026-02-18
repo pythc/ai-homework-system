@@ -1,7 +1,7 @@
 <template>
   <TeacherLayout
-    title="题库课程"
-    subtitle="选择课程查看题库"
+    title="题库目录"
+    subtitle="全校共享题库（同校教师可共用）"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="题库目录"
@@ -17,57 +17,35 @@
     </template>
 
     <section class="panel glass">
-      <div class="panel-title">课程列表</div>
+      <div class="panel-title">题库入口</div>
       <div class="qb-list">
-        <button
-          v-for="course in courses"
-          :key="course.id"
-          class="qb-item"
-          type="button"
-          @click="goTextbooks(course.id)"
-        >
-          <div class="qb-item-title">{{ course.name }}</div>
+        <button class="qb-item" type="button" @click="goTextbooks">
+          <div class="qb-item-title">全校共享题库</div>
           <div class="qb-item-meta">
-            <span>{{ course.semester }}</span>
-            <span>{{ course.status }}</span>
+            <span>同一学校内教师共享</span>
+            <span>不跨学校</span>
           </div>
         </button>
-        <div v-if="!courses.length" class="empty-box">
-          {{ loadError || '暂无课程' }}
-        </div>
       </div>
     </section>
   </TeacherLayout>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
-import { listCourses } from '../api/course'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 const router = useRouter()
-const courses = ref([])
-const loadError = ref('')
 
 onMounted(async () => {
   await refreshProfile()
-  await fetchCourses()
 })
 
-const fetchCourses = async () => {
-  loadError.value = ''
-  try {
-    const response = await listCourses()
-    courses.value = response.items ?? []
-  } catch (err) {
-    loadError.value = err instanceof Error ? err.message : '加载课程失败'
-  }
-}
-
-const goTextbooks = (courseId) => {
-  router.push(`/teacher/question-bank/courses/${courseId}/textbooks`)
+const goTextbooks = () => {
+  router.push('/teacher/question-bank/courses/shared/textbooks')
 }
 </script>
+

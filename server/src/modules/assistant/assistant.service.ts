@@ -36,16 +36,24 @@ export class AssistantService {
       };
     }
 
-    const response = await this.assistantClient.answer(
-      dto.question,
-      stats.stats,
-      stats.scope,
-      dto.sessionId,
-      dto.thinking,
-      dto.images,
-    );
-    await this.recordUsage(user, response?.usage, this.estimateTokens(dto.question));
-    return response;
+    try {
+      const response = await this.assistantClient.answer(
+        dto.question,
+        stats.stats,
+        stats.scope,
+        dto.sessionId,
+        dto.thinking,
+        dto.images,
+      );
+      await this.recordUsage(user, response?.usage, this.estimateTokens(dto.question));
+      return response;
+    } catch (error) {
+      return {
+        answer: this.buildAssistantFallbackMessage(error),
+        scope: stats.scope,
+        stats: stats.stats,
+      };
+    }
   }
 
   async chatStream(dto: AssistantChatDto, user: AssistantUserPayload, res: Response) {
@@ -72,24 +80,45 @@ export class AssistantService {
       return;
     }
 
-    const stream = await this.assistantClient.answerStream(
-      dto.question,
-      stats.stats,
-      stats.scope,
-      dto.sessionId,
-      dto.thinking,
-      dto.images,
-    );
-    if (!stream) {
-      res.end();
-      return;
-    }
-
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     if (typeof (res as any).flushHeaders === 'function') {
       (res as any).flushHeaders();
+    }
+
+    let stream: any = null;
+    try {
+      stream = await this.assistantClient.answerStream(
+        dto.question,
+        stats.stats,
+        stats.scope,
+        dto.sessionId,
+        dto.thinking,
+        dto.images,
+      );
+    } catch (error) {
+      res.write(
+        `event: done\ndata: ${JSON.stringify({
+          answer: this.buildAssistantFallbackMessage(error),
+          scope: stats.scope,
+          stats: stats.stats,
+        })}\n\n`,
+      );
+      res.end();
+      return;
+    }
+
+    if (!stream) {
+      res.write(
+        `event: done\ndata: ${JSON.stringify({
+          answer: this.buildAssistantFallbackMessage(),
+          scope: stats.scope,
+          stats: stats.stats,
+        })}\n\n`,
+      );
+      res.end();
+      return;
     }
 
     try {
@@ -137,7 +166,13 @@ export class AssistantService {
         await this.recordUsage(user, null, this.estimateTokens(dto.question));
       }
     } catch (err) {
-      res.write(`event: error\ndata: ${JSON.stringify({ message: 'assistant failed' })}\n\n`);
+      res.write(
+        `event: done\ndata: ${JSON.stringify({
+          answer: this.buildAssistantFallbackMessage(err),
+          scope: stats.scope,
+          stats: stats.stats,
+        })}\n\n`,
+      );
     } finally {
       res.end();
     }
@@ -235,6 +270,14 @@ export class AssistantService {
     return Math.max(1, Math.ceil(text.length / 2));
   }
 
+  private buildAssistantFallbackMessage(error?: unknown) {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    if (message.includes('timeout')) {
+      return '请求超时，模型暂时繁忙，请稍后重试。';
+    }
+    return '服务暂时不可用，请稍后重试。';
+  }
+
   private async recordUsage(
     user: AssistantUserPayload,
     usage?: Record<string, unknown> | null,
@@ -310,41 +353,35 @@ export class AssistantService {
           email: null,
         };
 
-    const awsClauses: string[] = [];
-    const outerClauses: string[] = [];
+    const whereClauses: string[] = [];
     const params: Array<string> = [];
 
     if (user.role === UserRole.STUDENT) {
       params.push(user.sub);
-      awsClauses.push(`aws.student_id = $${params.length}`);
+      whereClauses.push(`aws.student_id = $${params.length}`);
+    }
+
+    if (user.role === UserRole.TEACHER) {
+      params.push(user.sub);
+      whereClauses.push(`c.teacher_id = $${params.length}`);
     }
 
     if (dto.courseId) {
       params.push(dto.courseId);
-      outerClauses.push(`a.course_id = $${params.length}`);
+      whereClauses.push(`a.course_id = $${params.length}`);
     }
 
     if (dto.assignmentId) {
       params.push(dto.assignmentId);
-      awsClauses.push(`aws.assignment_id = $${params.length}`);
+      whereClauses.push(`aws.assignment_id = $${params.length}`);
     }
 
-    const awsWhereSql = awsClauses.length ? `WHERE ${awsClauses.join(' AND ')}` : '';
-    const outerWhereSql =
-      outerClauses.length ? `WHERE ${outerClauses.join(' AND ')}` : '';
+    const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
     const baseSql = `
-      FROM (
-        SELECT DISTINCT ON (aws.assignment_id, aws.student_id)
-          aws.assignment_id,
-          aws.student_id,
-          aws.total_score
-        FROM assignment_weighted_scores aws
-        ${awsWhereSql}
-        ORDER BY aws.assignment_id, aws.student_id, aws.updated_at DESC
-      ) aws
+      FROM assignment_weighted_scores aws
       JOIN assignments a ON a.id = aws.assignment_id
       JOIN courses c ON c.id = a.course_id
-      ${outerWhereSql}
+      ${whereSql}
     `;
 
     const statsRows = await this.dataSource.query(
@@ -366,22 +403,31 @@ export class AssistantService {
     const max =
       statsRow.max !== null && statsRow.max !== undefined ? Number(statsRow.max) : null;
 
-    const trendRows = await this.dataSource.query(
-      `SELECT
-         a.id AS "assignmentId",
-         a.title AS "assignmentTitle",
-         AVG(aws.total_score)::float AS value,
-         MIN(a.created_at) AS "createdAt"
-       ${baseSql}
-       GROUP BY a.id, a.title
-       ORDER BY MIN(a.created_at) ASC`,
-      params,
-    );
-    const byAssignment = (trendRows ?? []).map((row: any) => ({
-      assignmentId: row.assignmentId,
-      assignmentTitle: row.assignmentTitle,
-      avgScore: row.value !== null && row.value !== undefined ? Number(row.value) : null,
-    }));
+    let byAssignment: Array<{
+      assignmentId: string;
+      assignmentTitle: string;
+      avgScore: number | null;
+    }> = [];
+    if (this.shouldIncludeByAssignment(question ?? '', dto)) {
+      const trendRows = await this.dataSource.query(
+        `SELECT
+           a.id AS "assignmentId",
+           a.title AS "assignmentTitle",
+           AVG(aws.total_score)::float AS value,
+           MIN(a.created_at) AS "createdAt"
+         ${baseSql}
+         GROUP BY a.id, a.title
+         ORDER BY MIN(a.created_at) ASC`,
+        params,
+      );
+      byAssignment = (trendRows ?? []).map((row: any) => ({
+        assignmentId: row.assignmentId,
+        assignmentTitle: row.assignmentTitle,
+        avgScore: row.value !== null && row.value !== undefined ? Number(row.value) : null,
+      }));
+    }
+
+    const meta = await this.buildMeta(dto, user);
 
     return {
       stats: {
@@ -390,6 +436,7 @@ export class AssistantService {
         min,
         max,
         byAssignment,
+        meta,
       },
       scope: {
         role: user.role,
@@ -398,5 +445,159 @@ export class AssistantService {
         user: userInfo,
       },
     };
+  }
+
+  private async buildMeta(dto: AssistantStatsDto, user: AssistantUserPayload) {
+    const courses = await this.loadCourses(dto, user);
+    const assignments = await this.loadAssignments(dto, user);
+    const students = await this.loadStudents(dto, user);
+    const studentCount = students.reduce((sum, item) => sum + item.students.length, 0);
+    return {
+      counts: {
+        courses: courses.length,
+        assignments: assignments.length,
+        students: studentCount,
+      },
+      courses,
+      assignments,
+      students: user.role === UserRole.TEACHER ? students : [],
+    };
+  }
+
+  private async loadCourses(dto: AssistantStatsDto, user: AssistantUserPayload) {
+    const params: Array<string> = [];
+    let whereSql = '';
+    if (user.role === UserRole.STUDENT) {
+      params.push(user.sub ?? '');
+      whereSql = `WHERE cs.student_id = $${params.length}`;
+    } else {
+      params.push(user.sub ?? '');
+      whereSql = `WHERE c.teacher_id = $${params.length}`;
+    }
+    if (dto.courseId) {
+      params.push(dto.courseId);
+      whereSql += ` AND c.id = $${params.length}`;
+    }
+    const joinSql =
+      user.role === UserRole.STUDENT
+        ? 'JOIN assistant.v_course_students cs ON cs.course_id = c.id'
+        : '';
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          c.id,
+          c.name,
+          c.semester,
+          c.teacher_id AS "teacherId",
+          c.status,
+          c.created_at AS "createdAt"
+        FROM assistant.v_courses c
+        ${joinSql}
+        ${whereSql}
+        ORDER BY c.created_at DESC
+      `,
+      params,
+    );
+    return (rows ?? []).map((row: any) => ({
+      courseId: row.id,
+      name: row.name,
+      semester: row.semester,
+      teacherId: row.teacherId,
+      status: row.status,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  private async loadAssignments(dto: AssistantStatsDto, user: AssistantUserPayload) {
+    const params: Array<string> = [];
+    let whereSql = '';
+    let joinSql = '';
+    if (user.role === UserRole.STUDENT) {
+      params.push(user.sub ?? '');
+      whereSql = `WHERE cs.student_id = $${params.length}`;
+      joinSql = 'JOIN assistant.v_course_students cs ON cs.course_id = a.course_id';
+    } else {
+      params.push(user.sub ?? '');
+      whereSql = `WHERE c.teacher_id = $${params.length}`;
+      joinSql = 'JOIN assistant.v_courses c ON c.id = a.course_id';
+    }
+    if (dto.courseId) {
+      params.push(dto.courseId);
+      whereSql += ` AND a.course_id = $${params.length}`;
+    }
+    if (dto.assignmentId) {
+      params.push(dto.assignmentId);
+      whereSql += ` AND a.id = $${params.length}`;
+    }
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          a.id,
+          a.course_id AS "courseId",
+          a.title,
+          a.deadline,
+          a.total_score AS "totalScore",
+          a.ai_enabled AS "aiEnabled",
+          a.status,
+          a.created_at AS "createdAt"
+        FROM assistant.v_assignments a
+        ${joinSql}
+        ${whereSql}
+        ORDER BY a.created_at DESC
+      `,
+      params,
+    );
+    return (rows ?? []).map((row: any) => ({
+      assignmentId: row.id,
+      courseId: row.courseId,
+      title: row.title,
+      deadline: row.deadline,
+      totalScore: row.totalScore !== null && row.totalScore !== undefined ? Number(row.totalScore) : null,
+      aiEnabled: row.aiEnabled,
+      status: row.status,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  private async loadStudents(dto: AssistantStatsDto, user: AssistantUserPayload) {
+    if (user.role !== UserRole.TEACHER) {
+      return [];
+    }
+    const params: Array<string> = [user.sub ?? ''];
+    let whereSql = `WHERE c.teacher_id = $1`;
+    if (dto.courseId) {
+      params.push(dto.courseId);
+      whereSql += ` AND cs.course_id = $${params.length}`;
+    }
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          cs.course_id AS "courseId",
+          u.id AS "studentId",
+          u.name AS "studentName",
+          u.account AS "studentAccount",
+          u.status AS "studentStatus"
+        FROM assistant.v_course_students cs
+        JOIN assistant.v_courses c ON c.id = cs.course_id
+        JOIN assistant.v_users u ON u.id = cs.student_id
+        ${whereSql}
+        ORDER BY cs.course_id, u.name NULLS LAST
+      `,
+      params,
+    );
+    const grouped = new Map<string, { courseId: string; students: any[] }>();
+    for (const row of rows ?? []) {
+      const courseId = row.courseId;
+      if (!grouped.has(courseId)) {
+        grouped.set(courseId, { courseId, students: [] });
+      }
+      grouped.get(courseId)!.students.push({
+        studentId: row.studentId,
+        name: row.studentName,
+        account: row.studentAccount,
+        status: row.studentStatus,
+      });
+    }
+    return Array.from(grouped.values());
   }
 }

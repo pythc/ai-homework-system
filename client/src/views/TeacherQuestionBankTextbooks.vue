@@ -1,7 +1,7 @@
 <template>
   <TeacherLayout
     title="课本列表"
-    subtitle="选择课本查看章节与题目"
+    subtitle="全校共享课本目录"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="题库目录"
@@ -52,7 +52,8 @@ const router = useRouter()
 const textbooks = ref([])
 const loadError = ref('')
 
-const courseId = route.params.courseId
+const courseId = String(route.params.courseId ?? 'shared')
+const isShared = courseId === 'shared'
 
 onMounted(async () => {
   await refreshProfile()
@@ -62,7 +63,7 @@ onMounted(async () => {
 const fetchTextbooks = async () => {
   loadError.value = ''
   try {
-    const response = await getQuestionBankStructure(String(courseId))
+    const response = await getQuestionBankStructure(isShared ? undefined : courseId)
     textbooks.value = response.textbooks ?? []
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : '加载课本失败'

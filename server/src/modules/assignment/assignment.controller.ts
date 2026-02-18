@@ -13,6 +13,7 @@ import {
 import { AssignmentService } from './assignment.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { PublishAssignmentDto } from './dto/publish-assignment.dto';
+import { UpdateAssignmentGradingConfigDto } from './dto/update-assignment-grading-config.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { UpdateAssignmentQuestionsDto } from './dto/update-assignment-questions.dto';
 import { JwtAuthGuard } from '../auth/auth.guard';
@@ -88,6 +89,14 @@ export class AssignmentController {
     @Body() body: PublishAssignmentDto,
   ) {
     return this.assignmentService.publishAssignment(assignmentId, body);
+  }
+
+  @Put(':assignmentId/grading-config')
+  async updateGradingConfig(
+    @Param('assignmentId') assignmentId: string,
+    @Body() body: UpdateAssignmentGradingConfigDto,
+  ) {
+    return this.assignmentService.updateAssignmentGradingConfig(assignmentId, body);
   }
 
   @Delete(':assignmentId')
