@@ -173,9 +173,8 @@ Supported services:
 * Integration with academic systems
 * Feature customization
 
-Contact WeChat:
-
-**zcy2813994715**
+Contact WeChat:**zcy2813994715**
+Email: **2813994715@qq.com**
 
 ---
 
