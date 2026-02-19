@@ -1,15 +1,14 @@
 # AI Homework System｜高校 AI 作业管理与批改平台
-<h1 align="center">AI Homework System</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/github/stars/pythc/ai-homework-system?style=for-the-badge" />
-  <img src="https://img.shields.io/github/forks/pythc/ai-homework-system?style=for-the-badge" />
-  <img src="https://img.shields.io/github/license/pythc/ai-homework-system?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/AI-Grading-blue?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Private-Deployment-green?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Commercial-License-orange?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/University-Ready-purple?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Docker-Supported-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
+  <img src="https://img.shields.io/github/stars/pythc/ai-homework-system?style=flat-square&label=stars&color=blue&labelColor=grey" />
+  <img src="https://img.shields.io/github/forks/pythc/ai-homework-system?style=flat-square&label=forks&color=blue&labelColor=grey" />
+  <img src="https://img.shields.io/github/license/pythc/ai-homework-system?style=flat-square&label=license&color=orange&labelColor=grey" />
+  <img src="https://img.shields.io/badge/language-Chinese-green?style=flat-square&labelColor=grey" />
+  <img src="https://img.shields.io/badge/GitHub-Project-blue?style=flat-square&labelColor=grey" />
+  <img src="https://img.shields.io/badge/AI-Grading-blue?style=flat-square&labelColor=grey" />
+  <img src="https://img.shields.io/badge/Private-Deployment-brightgreen?style=flat-square&labelColor=grey" />
+  <img src="https://img.shields.io/badge/Commercial-License-orange?style=flat-square&labelColor=grey" />
 </p>
 
 <p align="center">
