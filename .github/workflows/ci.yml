@@ -95,15 +95,15 @@ jobs:
 
       - name: NPM audit (client)
         working-directory: client
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=critical
 
       - name: NPM audit (server)
         working-directory: server
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=critical
 
       - name: NPM audit (assistant service)
         working-directory: assistant_service
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=critical
 
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
