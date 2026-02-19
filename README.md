@@ -1,4 +1,21 @@
 # AI Homework System｜高校 AI 作业管理与批改平台
+<h1 align="center">AI Homework System</h1>
+
+<p align="center">
+  <img src="https://img.shields.io/github/stars/pythc/ai-homework-system?style=for-the-badge" />
+  <img src="https://img.shields.io/github/forks/pythc/ai-homework-system?style=for-the-badge" />
+  <img src="https://img.shields.io/github/license/pythc/ai-homework-system?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/AI-Grading-blue?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Private-Deployment-green?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Commercial-License-orange?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/University-Ready-purple?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Docker-Supported-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
+</p>
+
+<p align="center">
+  AI-powered Homework Management & Grading Platform for Universities
+</p>
+
 
 一个面向高校课程场景的 **作业管理 + AI 批改 + 教学助手** 平台，覆盖 **“布置作业 → 学生提交 → AI 先批 → 教师复核 → 成绩发布/分析”** 的完整闭环。  
 让教师把时间用在教学本身，而不是机械批改与反复汇总；让学生更快获得**有依据、可追溯**的反馈。
