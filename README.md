@@ -1,15 +1,17 @@
 # AI Homework System｜高校 AI 作业管理与批改平台
 
-<p align="center">
-  <img src="https://img.shields.io/github/stars/pythc/ai-homework-system?style=flat-square&label=stars&color=blue&labelColor=grey" />
-  <img src="https://img.shields.io/github/forks/pythc/ai-homework-system?style=flat-square&label=forks&color=blue&labelColor=grey" />
-  <img src="https://img.shields.io/github/license/pythc/ai-homework-system?style=flat-square&label=license&color=orange&labelColor=grey" />
-  <img src="https://img.shields.io/badge/language-Chinese-green?style=flat-square&labelColor=grey" />
-  <img src="https://img.shields.io/badge/GitHub-Project-blue?style=flat-square&labelColor=grey" />
-  <img src="https://img.shields.io/badge/AI-Grading-blue?style=flat-square&labelColor=grey" />
-  <img src="https://img.shields.io/badge/Private-Deployment-brightgreen?style=flat-square&labelColor=grey" />
-  <img src="https://img.shields.io/badge/Commercial-License-orange?style=flat-square&labelColor=grey" />
-</p>
+<div align="center">
+  <img src="https://img.shields.io/github/stars/pythc/ai-homework-system?style=flat&logo=github" alt="GitHub stars"/>
+  <img src="https://img.shields.io/github/forks/pythc/ai-homework-system?style=flat&logo=github" alt="GitHub forks"/>
+  <img src="https://img.shields.io/github/license/pythc/ai-homework-system?style=flat" alt="License"/>
+  <img src="https://img.shields.io/badge/language-Chinese-brightgreen?style=flat" alt="Language"/>
+  <a href="https://github.com/pythc/ai-homework-system">
+    <img src="https://img.shields.io/badge/GitHub-Project-blue?style=flat&logo=github" alt="GitHub Project">
+  </a>
+  <img src="https://img.shields.io/badge/AI-Grading-blue?style=flat" alt="AI Grading"/>
+  <img src="https://img.shields.io/badge/Private-Deployment-success?style=flat" alt="Private Deployment"/>
+  <img src="https://img.shields.io/badge/Commercial-License-orange?style=flat" alt="Commercial License"/>
+</div>
 
 <p align="center">
   AI-powered Homework Management & Grading Platform for Universities
