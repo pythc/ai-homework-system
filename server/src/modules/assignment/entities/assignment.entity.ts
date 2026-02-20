@@ -46,6 +46,15 @@ export class AssignmentEntity {
   handwritingRecognition!: boolean;
 
   @Column({
+    name: 'ai_confidence_threshold',
+    type: 'numeric',
+    precision: 4,
+    scale: 3,
+    default: '0.750',
+  })
+  aiConfidenceThreshold!: string;
+
+  @Column({
     type: 'enum',
     enum: AssignmentStatus,
     default: AssignmentStatus.DRAFT,

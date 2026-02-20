@@ -1,7 +1,7 @@
 <template>
   <AdminLayout
     title="题目详情"
-    subtitle="完整题干与答案"
+    subtitle="查看完整题干与答案"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="题库目录"

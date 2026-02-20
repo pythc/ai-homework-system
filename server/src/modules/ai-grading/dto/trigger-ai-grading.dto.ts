@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  Max,
+  Min,
   IsBoolean,
   IsEnum,
   IsNumber,
@@ -56,6 +58,8 @@ export class UncertaintyPolicyDto {
   /** 如果模型给的 confidence < 阈值，则后端强制 isUncertain=true 并追加原因 */
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(1)
   minConfidence?: number;
 }
 

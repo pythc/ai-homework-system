@@ -22,7 +22,7 @@
         <div class="hint-item">使用根目录的 "班级导入模板.xlsx" 或导出的 .xlsx 文件。</div>
         <div class="hint-item">列顺序：序号｜姓名｜学号/工号｜邮箱（可选）｜身份（学生/教师）。</div>
         <div class="hint-item">模板中需包含且仅包含一位教师账号。</div>
-        <div class="hint-item">默认密码：cqupt + 学号/工号。</div>
+        <div class="hint-item">默认密码：123456。</div>
       </div>
     </section>
 

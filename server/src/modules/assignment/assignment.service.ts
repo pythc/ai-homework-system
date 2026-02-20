@@ -109,6 +109,7 @@ export class AssignmentService {
         allowViewAnswer: dto.allowViewAnswer ?? false,
         allowViewScore: dto.allowViewScore ?? true,
         handwritingRecognition: dto.handwritingRecognition ?? false,
+        aiConfidenceThreshold: (dto.aiConfidenceThreshold ?? 0.75).toFixed(3),
         status: AssignmentStatus.DRAFT,
         selectedQuestionIds: [...createdQuestionIds, ...existingIds],
         currentSnapshotId: null,
@@ -206,6 +207,10 @@ export class AssignmentService {
     const nextAiEnabled = dto.aiEnabled ?? assignment.aiEnabled;
     const nextHandwritingRecognition =
       dto.handwritingRecognition ?? assignment.handwritingRecognition;
+    const nextAiConfidenceThreshold =
+      typeof dto.aiConfidenceThreshold === 'number'
+        ? Number(dto.aiConfidenceThreshold.toFixed(3))
+        : Number(assignment.aiConfidenceThreshold ?? 0.75);
     const needRefreshSnapshot = Array.isArray(nextWeights);
     const totalScoreChanged =
       typeof dto.totalScore === 'number' &&
@@ -220,6 +225,7 @@ export class AssignmentService {
       assignment.allowViewScore = nextAllowViewScore;
       assignment.aiEnabled = nextAiEnabled;
       assignment.handwritingRecognition = nextHandwritingRecognition;
+      assignment.aiConfidenceThreshold = nextAiConfidenceThreshold.toFixed(3);
       assignment.updatedAt = new Date();
 
       if (assignment.status !== AssignmentStatus.ARCHIVED && assignment.deadline) {
@@ -596,6 +602,7 @@ export class AssignmentService {
           a.description,
           a.total_score AS "totalScore",
           a.deadline,
+          a.created_at AS "createdAt",
           a.status,
           COUNT(DISTINCT v.id) AS "submissionCount",
           COUNT(DISTINCT v.id) FILTER (WHERE sc.id IS NOT NULL) AS "gradedCount",
@@ -618,7 +625,7 @@ export class AssignmentService {
           AND sc.is_final = true
         WHERE ${whereClause}
         GROUP BY a.id, c.name
-        ORDER BY a.deadline NULLS LAST, a.created_at DESC
+        ORDER BY a.created_at DESC, a.deadline NULLS LAST
       `,
       params,
     );
@@ -632,6 +639,7 @@ export class AssignmentService {
         description: row.description ?? null,
         totalScore: Number(row.totalScore ?? 0),
         deadline: row.deadline ?? null,
+        createdAt: row.createdAt ?? null,
         status: row.status,
         submissionCount: Number(row.submissionCount ?? 0),
         gradedCount: Number(row.gradedCount ?? 0),
@@ -889,6 +897,7 @@ export class AssignmentService {
       allowViewAnswer: assignment.allowViewAnswer,
       allowViewScore: assignment.allowViewScore,
       handwritingRecognition: assignment.handwritingRecognition,
+      aiConfidenceThreshold: Number(assignment.aiConfidenceThreshold ?? 0.75),
       totalScore: Number(assignment.totalScore ?? 0),
       questionNo: assignment.questionNo ?? null,
       selectedQuestionIds: assignment.selectedQuestionIds,

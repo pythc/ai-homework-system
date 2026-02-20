@@ -109,18 +109,21 @@ const gradingList = computed(() =>
     .filter((item) => item.courseId === courseId.value)
     .map((item) => {
       const gradedCount = Number(item.gradedStudentCount ?? item.gradedCount ?? 0)
+      const createdAt = item.createdAt ? new Date(item.createdAt).getTime() : 0
       return {
         id: item.id,
         title: item.title,
         course: item.courseName ?? item.courseId ?? '--',
         deadline: formatDeadline(item.deadline),
+        createdAt,
         gradedCount,
         unsubmittedCount: Number(item.unsubmittedCount ?? 0),
         aiSuccessCount: Number(item.aiSuccessCount ?? 0),
         aiFailedCount: Number(item.aiFailedCount ?? 0),
         submissionCount: Number(item.submissionCount ?? 0),
       }
-    }),
+    })
+    .sort((a, b) => b.createdAt - a.createdAt),
 )
 
 const courseTitle = computed(() => {
@@ -223,13 +226,14 @@ onMounted(async () => {
 }
 
 .ghost-action {
-  border: none;
+  border: 1px solid rgba(173, 188, 216, 0.55);
   background: rgba(255, 255, 255, 0.7);
   padding: 6px 14px;
   border-radius: 999px;
   font-size: 12px;
   color: rgba(26, 29, 51, 0.7);
   cursor: pointer;
+  box-shadow: 0 4px 10px rgba(56, 76, 126, 0.08);
 }
 
 .task-foot {
@@ -249,6 +253,8 @@ onMounted(async () => {
 .task-action.ghost {
   background: rgba(255, 255, 255, 0.7);
   color: rgba(26, 29, 51, 0.7);
+  border: 1px solid rgba(173, 188, 216, 0.55);
+  box-shadow: 0 4px 10px rgba(56, 76, 126, 0.08);
 }
 
 .task-card .task-progress {

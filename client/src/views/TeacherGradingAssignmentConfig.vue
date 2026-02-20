@@ -131,6 +131,20 @@
               <span>启用手写识别批改模式</span>
             </label>
           </div>
+          <div class="form-row threshold-field">
+            <label>低置信度阈值（0~1）</label>
+            <input
+              v-model.number="aiConfidenceThreshold"
+              type="number"
+              min="0"
+              max="1"
+              step="0.05"
+              class="config-input threshold-input"
+              :disabled="!aiEnabled"
+              @blur="clampConfidenceThreshold"
+            />
+            <div class="section-sub">低于阈值将自动标记为“有异议”，建议教师优先复核。</div>
+          </div>
         </section>
 
         <div class="actions">
@@ -181,6 +195,7 @@ const allowViewAnswer = ref(false)
 const allowViewScore = ref(true)
 const aiEnabled = ref(true)
 const handwritingRecognition = ref(false)
+const aiConfidenceThreshold = ref(0.75)
 const weights = ref<WeightRow[]>([])
 const initialWeights = ref<WeightRow[]>([])
 
@@ -198,8 +213,28 @@ const canSave = computed(
     isWeightValid.value &&
     Number.isFinite(totalScore.value) &&
     totalScore.value > 0 &&
+    Number.isFinite(Number(aiConfidenceThreshold.value)) &&
+    Number(aiConfidenceThreshold.value) >= 0 &&
+    Number(aiConfidenceThreshold.value) <= 1 &&
     assignmentName.value.trim().length > 0,
 )
+
+const clampConfidenceThreshold = () => {
+  const value = Number(aiConfidenceThreshold.value)
+  if (!Number.isFinite(value)) {
+    aiConfidenceThreshold.value = 0.75
+    return
+  }
+  if (value < 0) {
+    aiConfidenceThreshold.value = 0
+    return
+  }
+  if (value > 1) {
+    aiConfidenceThreshold.value = 1
+    return
+  }
+  aiConfidenceThreshold.value = Number(value.toFixed(3))
+}
 
 const toDatetimeLocal = (value?: string | null) => {
   if (!value) return ''
@@ -236,6 +271,8 @@ const fetchConfig = async () => {
     allowViewScore.value = assignment.allowViewScore !== false
     aiEnabled.value = assignment.aiEnabled !== false
     handwritingRecognition.value = assignment.handwritingRecognition === true
+    aiConfidenceThreshold.value = Number(assignment.aiConfidenceThreshold ?? 0.75)
+    clampConfidenceThreshold()
     weights.value = questions.map((question, index) => {
       const explicit = Number(question.weight ?? 0)
       const weight =
@@ -352,6 +389,7 @@ const saveConfig = async () => {
       allowViewScore: allowViewScore.value,
       aiEnabled: aiEnabled.value,
       handwritingRecognition: handwritingRecognition.value,
+      aiConfidenceThreshold: Number(aiConfidenceThreshold.value),
       questionWeights: weights.value.map((item) => ({
         questionId: item.questionId,
         weight: Number(item.weight),
@@ -483,6 +521,14 @@ onMounted(async () => {
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.75);
   color: rgba(26, 29, 51, 0.9);
+}
+
+.threshold-field {
+  max-width: 320px;
+}
+
+.threshold-input {
+  width: 160px;
 }
 
 .weight-tools {

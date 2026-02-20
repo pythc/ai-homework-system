@@ -79,6 +79,14 @@ export class AiGradingService {
           assignment.handwritingRecognition ??
           false,
       },
+      uncertaintyPolicy: {
+        ...(dto.uncertaintyPolicy ?? {}),
+        minConfidence:
+          dto.uncertaintyPolicy?.minConfidence ??
+          this.clampConfidenceThreshold(
+            Number(assignment.aiConfidenceThreshold ?? 0.75),
+          ),
+      },
     };
 
     const job = this.jobRepo.create({
@@ -284,5 +292,12 @@ export class AiGradingService {
     if (!raw) return fallback;
     const value = Number(raw);
     return Number.isFinite(value) ? value : fallback;
+  }
+
+  private clampConfidenceThreshold(value: number) {
+    if (!Number.isFinite(value)) return 0.75;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return Number(value.toFixed(3));
   }
 }

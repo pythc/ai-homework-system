@@ -79,6 +79,20 @@
               <label for="ai-enabled">启用 AI 批改</label>
             </div>
           </div>
+          <div class="form-field">
+            <label>低置信度阈值</label>
+            <div class="threshold-input-row">
+              <input
+                v-model.number="aiConfidenceThreshold"
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                :disabled="!aiEnabled"
+              />
+              <span class="helper-text">低于阈值将自动标记为“有异议”</span>
+            </div>
+          </div>
         </div>
         <div class="form-row">
           <div class="form-field">
@@ -278,6 +292,44 @@
 
     <section v-if="step === 3" class="panel glass">
       <div class="panel-title">发布</div>
+      <div class="ai-estimate-card" :class="{ disabled: !aiEnabled }">
+        <div class="estimate-header">
+          <div class="estimate-title">AI 批改开销预估</div>
+          <span class="estimate-hint">仅为发布前估算，实际以提交与重试为准</span>
+        </div>
+        <div v-if="!aiEnabled" class="estimate-disabled-text">
+          当前未启用 AI 批改，不会产生 AI 批改成本。
+        </div>
+        <template v-else>
+          <div class="estimate-grid">
+            <div class="estimate-item">
+              <div class="estimate-label">预计批改任务</div>
+              <div class="estimate-value">{{ formatNumber(estimatedAiRuns) }}</div>
+              <div class="estimate-sub">学生数 × 题目数</div>
+            </div>
+            <div class="estimate-item">
+              <div class="estimate-label">预计输入 Token</div>
+              <div class="estimate-value">{{ formatNumber(estimatedInputTokens) }}</div>
+              <div class="estimate-sub">含题目、标准答案、评分细则、图片识别内容</div>
+            </div>
+            <div class="estimate-item">
+              <div class="estimate-label">预计输出 Token</div>
+              <div class="estimate-value">{{ formatNumber(estimatedOutputTokens) }}</div>
+              <div class="estimate-sub">含分项评分、总评、置信度与存疑原因</div>
+            </div>
+            <div class="estimate-item">
+              <div class="estimate-label">预计批改时长</div>
+              <div class="estimate-value">约 {{ estimatedMinutes }} 分钟</div>
+              <div class="estimate-sub">按单任务 {{ estimatedSecondsPerRun }} 秒估算</div>
+            </div>
+          </div>
+          <div class="estimate-foot">
+            阈值 {{ aiConfidenceThreshold.toFixed(2) }} ·
+            {{ handwritingRecognition ? '手写识别模式' : '标准识别模式' }} ·
+            当前课程已有 {{ courseAssignmentCount }} 份作业
+          </div>
+        </template>
+      </div>
       <div class="form-actions">
         <button
           class="primary-btn"
@@ -302,7 +354,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
-import { listCourses } from '../api/course'
+import { getCourseSummary, listCourses } from '../api/course'
 import { getQuestionBankStructure, listQuestionBank } from '../api/questionBank'
 import { createAssignment, listTeacherAssignments, publishAssignment } from '../api/assignment'
 import { showAppToast } from '../composables/useAppToast'
@@ -325,11 +377,14 @@ const title = ref('')
 const description = ref('')
 const deadline = ref('')
 const aiEnabled = ref(true)
+const aiConfidenceThreshold = ref(0.75)
 const visibleAfterSubmit = ref(true)
 const allowViewAnswer = ref(false)
 const allowViewScore = ref(true)
 const handwritingRecognition = ref(false)
 const totalScore = ref(100)
+const courseStudentCount = ref(0)
+const courseAssignmentCount = ref(0)
 
 const selectedQuestionIds = ref(new Set())
 const selectedQuestionOrder = ref([])
@@ -341,6 +396,47 @@ const step = ref(1)
 const questionError = ref('')
 const submitError = ref('')
 const submitLoading = ref(false)
+
+const normalizeConfidenceThreshold = (value) => {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return 0.75
+  if (num < 0) return 0
+  if (num > 1) return 1
+  return Number(num.toFixed(3))
+}
+
+const selectedQuestionCount = computed(() =>
+  selectedQuestionOrder.value.filter((id) => selectedQuestionIds.value.has(id)).length,
+)
+
+const estimatedAiRuns = computed(() =>
+  aiEnabled.value ? courseStudentCount.value * selectedQuestionCount.value : 0,
+)
+
+const estimatedSecondsPerRun = computed(() =>
+  handwritingRecognition.value ? 2.2 : 1.6,
+)
+
+const estimatedInputPerRun = computed(() => {
+  const base = handwritingRecognition.value ? 1400 : 1100
+  const questionFactor = Math.max(selectedQuestionCount.value, 1) * 120
+  return base + questionFactor
+})
+
+const estimatedOutputPerRun = computed(() => 220 + Math.max(selectedQuestionCount.value, 1) * 25)
+
+const estimatedInputTokens = computed(() => Math.round(estimatedAiRuns.value * estimatedInputPerRun.value))
+const estimatedOutputTokens = computed(() =>
+  Math.round(estimatedAiRuns.value * estimatedOutputPerRun.value),
+)
+const estimatedMinutes = computed(() =>
+  estimatedAiRuns.value <= 0
+    ? 0
+    : Math.max(1, Math.round((estimatedAiRuns.value * estimatedSecondsPerRun.value) / 60)),
+)
+
+const formatNumber = (value) =>
+  Number(value || 0).toLocaleString('zh-CN')
 
 const STORAGE_KEY = 'teacher.assignment.publish.filters'
 const FORM_KEY = 'teacher.assignment.publish.form'
@@ -420,6 +516,10 @@ const hydrateForm = async () => {
       typeof payload?.handwritingRecognition === 'boolean'
         ? payload.handwritingRecognition
         : handwritingRecognition.value
+    aiConfidenceThreshold.value =
+      typeof payload?.aiConfidenceThreshold === 'number'
+        ? normalizeConfidenceThreshold(payload.aiConfidenceThreshold)
+        : aiConfidenceThreshold.value
     totalScore.value =
       typeof payload?.totalScore === 'number' ? payload.totalScore : totalScore.value
     step.value = payload?.step ?? step.value
@@ -458,6 +558,7 @@ const persistForm = () => {
     allowViewAnswer: allowViewAnswer.value,
     allowViewScore: allowViewScore.value,
     handwritingRecognition: handwritingRecognition.value,
+    aiConfidenceThreshold: aiConfidenceThreshold.value,
     totalScore: totalScore.value,
     step: step.value,
     selectedQuestionIds: Array.from(selectedQuestionIds.value),
@@ -500,6 +601,7 @@ watch(
     allowViewAnswer,
     allowViewScore,
     handwritingRecognition,
+    aiConfidenceThreshold,
     totalScore,
     step,
     selectedQuestionIds,
@@ -522,6 +624,22 @@ const fetchCourses = async () => {
   }
 }
 
+const loadCourseSummary = async (courseId) => {
+  if (!courseId) {
+    courseStudentCount.value = 0
+    courseAssignmentCount.value = 0
+    return
+  }
+  try {
+    const summary = await getCourseSummary(courseId)
+    courseStudentCount.value = Number(summary?.studentCount ?? 0)
+    courseAssignmentCount.value = Number(summary?.assignmentCount ?? 0)
+  } catch {
+    courseStudentCount.value = 0
+    courseAssignmentCount.value = 0
+  }
+}
+
 const handleCourseChange = async (options = { keepSelection: false }) => {
   selectedTextbookId.value = ''
   selectedParentChapterId.value = ''
@@ -536,10 +654,15 @@ const handleCourseChange = async (options = { keepSelection: false }) => {
     textbooks.value = []
     chapters.value = []
     questions.value = []
+    courseStudentCount.value = 0
+    courseAssignmentCount.value = 0
     return
   }
   try {
-    const response = await getQuestionBankStructure()
+    const [response] = await Promise.all([
+      getQuestionBankStructure(),
+      loadCourseSummary(selectedCourseId.value),
+    ])
     textbooks.value = response.textbooks ?? []
     chapters.value = response.chapters ?? []
     questions.value = await listQuestionBank()
@@ -840,6 +963,12 @@ const canEnterStep3 = computed(() => {
 const canPublish = computed(() => {
   if (!selectedQuestionIds.value.size) return false
   if (!Number.isFinite(Number(totalScore.value)) || Number(totalScore.value) <= 0) return false
+  if (
+    !Number.isFinite(Number(aiConfidenceThreshold.value)) ||
+    Number(aiConfidenceThreshold.value) < 0 ||
+    Number(aiConfidenceThreshold.value) > 1
+  )
+    return false
   return Math.abs(weightSum.value - 100) <= 0.01
 })
 
@@ -979,6 +1108,7 @@ const handlePublish = async () => {
       allowViewAnswer: allowViewAnswer.value,
       allowViewScore: allowViewScore.value,
       handwritingRecognition: handwritingRecognition.value,
+      aiConfidenceThreshold: normalizeConfidenceThreshold(aiConfidenceThreshold.value),
       selectedQuestionIds: Array.from(selectedQuestionIds.value),
     })
     const assignmentId = created.id
@@ -1000,6 +1130,7 @@ const handlePublish = async () => {
     allowViewAnswer.value = false
     allowViewScore.value = true
     handwritingRecognition.value = false
+    aiConfidenceThreshold.value = 0.75
     totalScore.value = 100
     selectedQuestionIds.value = new Set()
     selectedQuestionOrder.value = []
@@ -1201,5 +1332,102 @@ const handlePublish = async () => {
   align-items: center;
   gap: 8px;
   color: rgba(26, 29, 51, 0.88);
+}
+
+.threshold-input-row {
+  display: grid;
+  gap: 6px;
+}
+
+.threshold-input-row input {
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 10px;
+  padding: 7px 10px;
+  width: 180px;
+}
+
+.threshold-input-row input:disabled {
+  opacity: 0.6;
+}
+
+.ai-estimate-card {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(170, 192, 230, 0.35);
+  background: rgba(247, 252, 255, 0.72);
+}
+
+.ai-estimate-card.disabled {
+  background: rgba(250, 252, 255, 0.55);
+}
+
+.estimate-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.estimate-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(26, 29, 51, 0.9);
+}
+
+.estimate-hint {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.58);
+}
+
+.estimate-disabled-text {
+  font-size: 13px;
+  color: rgba(26, 29, 51, 0.72);
+}
+
+.estimate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.estimate-item {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(202, 216, 238, 0.34);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.estimate-label {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.58);
+}
+
+.estimate-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: rgba(26, 29, 51, 0.9);
+}
+
+.estimate-sub {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.54);
+}
+
+.estimate-foot {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.6);
+}
+
+@media (max-width: 900px) {
+  .estimate-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

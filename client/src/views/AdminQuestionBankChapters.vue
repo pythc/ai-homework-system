@@ -1,7 +1,7 @@
 <template>
   <AdminLayout
     title="章节目录"
-    subtitle="先选大章节，再进入小章节"
+    subtitle="题库私有化、资源化管理"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="题库目录"

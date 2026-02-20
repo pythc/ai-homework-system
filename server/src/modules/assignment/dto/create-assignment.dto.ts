@@ -1,4 +1,6 @@
 import {
+  Max,
+  Min,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -89,6 +91,12 @@ export class CreateAssignmentDto {
   @IsOptional()
   @IsBoolean()
   handwritingRecognition?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  aiConfidenceThreshold?: number;
 
   @IsOptional()
   @IsEnum(AssignmentStatus)

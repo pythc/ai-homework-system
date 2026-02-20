@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  Max,
+  Min,
   IsArray,
   IsBoolean,
   IsNumber,
@@ -51,4 +53,10 @@ export class UpdateAssignmentGradingConfigDto {
   @IsOptional()
   @IsBoolean()
   handwritingRecognition?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  aiConfidenceThreshold?: number;
 }

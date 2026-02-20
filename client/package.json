@@ -9,6 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tiptap/extension-subscript": "^2.10.4",
+    "@tiptap/extension-superscript": "^2.10.4",
+    "@tiptap/extension-text-align": "^2.10.4",
+    "@tiptap/extension-underline": "^2.10.4",
+    "@tiptap/starter-kit": "^2.10.4",
+    "@tiptap/vue-3": "^2.10.4",
+    "lucide-vue-next": "^0.553.0",
     "marked": "^15.0.6",
     "mathjax": "^4.1.0",
     "vue": "^3.5.24",

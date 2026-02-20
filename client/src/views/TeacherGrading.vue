@@ -46,6 +46,41 @@
           </div>
         </div>
 
+        <div class="batch-toolbar">
+          <div class="batch-meta">
+            当前题目已勾选 <strong>{{ batchSelectedCount }}</strong> 人
+          </div>
+          <div class="batch-actions">
+            <button class="task-action ghost" type="button" @click="selectAllForCurrentQuestion">
+              全选可批改
+            </button>
+            <button
+              class="task-action ghost"
+              type="button"
+              :disabled="batchSelectedCount === 0 || batchLoading"
+              @click="clearBatchSelection"
+            >
+              清空
+            </button>
+            <button
+              class="task-action ghost"
+              type="button"
+              :disabled="batchSelectedCount === 0 || batchLoading"
+              @click="rerunBatchAi"
+            >
+              {{ batchLoading && batchMode === 'rerun' ? '批量重试中...' : '批量重新AI批改' }}
+            </button>
+            <button
+              class="task-action"
+              type="button"
+              :disabled="batchSelectedCount === 0 || batchLoading"
+              @click="adoptBatchAi"
+            >
+              {{ batchLoading && batchMode === 'adopt' ? '批量确认中...' : '批量采用AI并确认' }}
+            </button>
+          </div>
+        </div>
+
         <div class="grading-layout">
           <aside class="student-panel">
             <div class="student-title">学生列表</div>
@@ -58,7 +93,10 @@
                 :open="openGroups[group.key]"
               >
                 <summary class="student-group-title" @click.prevent="toggleGroup(group.key)">
-                  <span>{{ group.title }}</span>
+                  <span class="student-group-start">
+                    <span class="student-group-caret" :class="{ open: openGroups[group.key] }" />
+                    <span class="student-group-label">{{ group.title }}</span>
+                  </span>
                   <span class="student-group-count">({{ group.items.length }})</span>
                 </summary>
                 <div class="student-group-list">
@@ -70,8 +108,19 @@
                     @click="selectStudent(student.studentId)"
                   >
                     <div class="student-row">
+                      <input
+                        class="student-check"
+                        type="checkbox"
+                        :checked="batchSelectedStudentIds.has(student.studentId)"
+                        :disabled="!hasSubmissionForCurrentQuestion(student.studentId)"
+                        @click.stop
+                        @change="toggleBatchStudent(student.studentId)"
+                      />
                       <span class="student-name">{{ student.name || '学生' }}</span>
                       <span class="student-sub">{{ formatStudentAccount(student) }}</span>
+                      <span class="student-tag" :class="student.statusTone">
+                        {{ student.statusLabel }}
+                      </span>
                     </div>
                   </button>
                 </div>
@@ -93,19 +142,19 @@
 
             <div class="detail-section">
               <div class="detail-title">题目与标准答案</div>
-            <div class="detail-block">
-              <div class="detail-label">题目</div>
-              <div
-                class="detail-text"
-                v-mathjax
-                v-html="renderMath(currentQuestion?.prompt?.text)"
-              />
-            </div>
-            <div class="detail-block">
-              <div class="detail-label">标准答案</div>
-              <div
-                class="detail-text"
-                v-mathjax
+              <div class="detail-block">
+                <div class="detail-label">题目</div>
+                <div
+                  class="detail-text"
+                  v-mathjax
+                  v-html="renderMath(currentQuestion?.prompt?.text)"
+                />
+              </div>
+              <div class="detail-block">
+                <div class="detail-label">标准答案</div>
+                <div
+                  class="detail-text"
+                  v-mathjax
                   v-html="renderMath(currentQuestion?.standardAnswer?.text)"
                 />
               </div>
@@ -142,6 +191,16 @@
                 <div class="ai-status">状态：{{ aiPanel.statusLabel }}</div>
                 <div v-if="aiPanel.error" class="ai-error">{{ aiPanel.error }}</div>
                 <div v-if="aiPanel.result" class="ai-result">
+                  <div v-if="highRiskReasons.length" class="risk-alert">
+                    <div class="risk-title">高风险提示（建议优先复核）</div>
+                    <ul class="risk-list">
+                      <li v-for="(reason, idx) in highRiskReasons" :key="`risk-${idx}`">
+                        <span class="risk-code">{{ reason.code }}</span>
+                        <span>{{ reason.message || '存在高风险不确定项' }}</span>
+                      </li>
+                    </ul>
+                  </div>
+
                   <div class="ai-summary">
                     <div class="ai-row">
                       <span class="ai-label">总评：</span>
@@ -155,15 +214,48 @@
                     <div>置信度：{{ aiPanel.result?.result?.confidence ?? '-' }}</div>
                     <div>是否存疑：{{ aiPanel.result?.result?.isUncertain ? '是' : '否' }}</div>
                   </div>
-                  <div v-if="aiPanel.result?.result?.items?.length" class="ai-items">
-                    <div v-for="(item, idx) in aiPanel.result?.result?.items" :key="idx" class="ai-item">
-                      <div>评分项：{{ item.rubricItemKey || '-' }}</div>
-                      <div>得分：{{ item.score ?? '-' }} / {{ item.maxScore ?? '-' }}</div>
-                      <div class="ai-row">
-                        <span class="ai-label">理由：</span>
-                        <span class="ai-text" v-mathjax v-html="renderMath(item.reason)" />
+
+                  <div v-if="structuredAiItems.length" class="ai-items">
+                    <div
+                      v-for="(item, idx) in structuredAiItems"
+                      :key="`ai-item-${idx}`"
+                      class="ai-item"
+                    >
+                      <div class="ai-item-head">
+                        <span class="ai-item-key">{{ item.rubricItemKey || '-' }}</span>
+                        <span class="ai-item-score">{{ item.score }} / {{ item.maxScore }}</span>
                       </div>
+                      <div class="ai-item-meta">
+                        <span :class="{ danger: item.deduction > 0 }">
+                          扣分：{{ item.deduction.toFixed(2) }}
+                        </span>
+                        <span>不确定度：{{ Math.round((item.uncertaintyScore || 0) * 100) }}%</span>
+                      </div>
+                      <ul v-if="item.points.length" class="ai-point-list">
+                        <li
+                          v-for="(point, pointIdx) in item.points"
+                          :key="`ai-point-${idx}-${pointIdx}`"
+                          v-mathjax
+                          v-html="renderMath(point)"
+                        />
+                      </ul>
                     </div>
+                  </div>
+
+                  <div
+                    v-if="aiPanel.result?.result?.uncertaintyReasons?.length"
+                    class="ai-uncertainty-list"
+                  >
+                    <div class="ai-uncertainty-title">不确定原因</div>
+                    <ul>
+                      <li
+                        v-for="(reason, idx) in aiPanel.result?.result?.uncertaintyReasons"
+                        :key="`reason-${idx}`"
+                      >
+                        <span class="risk-code">{{ reason.code || 'UNKNOWN' }}</span>
+                        <span>{{ reason.message || '模型返回不确定原因' }}</span>
+                      </li>
+                    </ul>
                   </div>
                 </div>
               </details>
@@ -196,7 +288,8 @@
                   placeholder="本题评语（可选）"
                   :disabled="!canEditCurrent"
                 />
-              <div class="grading-actions">
+
+                <div class="grading-actions">
                   <template v-if="selectedSubmission && canEditCurrent">
                     <button class="task-action ghost" :disabled="saving" @click="submitGrading(true)">
                       采用AI评语
@@ -207,33 +300,34 @@
                       修改成绩
                     </button>
                   </template>
-                <div v-else class="graded-hint">该学生未提交，无法评分</div>
-                <div v-if="saveError" class="ai-error">{{ saveError }}</div>
-              </div>
-              <div class="publish-actions">
-                <div class="publish-button-row">
-                  <button
-                    class="task-action ghost"
-                    type="button"
-                    :disabled="rerunLoading || !selectedSubmission"
-                    @click="rerunCurrentAi"
-                  >
-                    {{ rerunLoading ? '重试中...' : 'AI 重新批改' }}
-                  </button>
-                  <button
-                    class="task-action"
-                    type="button"
-                    :disabled="saving || !selectedSubmission || !canEditCurrent || !hasCurrentChanges"
-                    @click="confirmCurrentChanges"
-                  >
-                    {{ saving ? '确认中...' : '确认修改' }}
-                  </button>
+                  <div v-else class="graded-hint">该学生未提交，无法评分</div>
+                  <div v-if="saveError" class="ai-error">{{ saveError }}</div>
                 </div>
-                <div v-if="rerunError" class="ai-error">{{ rerunError }}</div>
-                <div v-if="saveError" class="ai-error">{{ saveError }}</div>
+
+                <div class="publish-actions">
+                  <div class="publish-button-row">
+                    <button
+                      class="task-action ghost"
+                      type="button"
+                      :disabled="rerunLoading || !selectedSubmission"
+                      @click="rerunCurrentAi"
+                    >
+                      {{ rerunLoading ? '重试中...' : 'AI 重新批改' }}
+                    </button>
+                    <button
+                      class="task-action"
+                      type="button"
+                      :disabled="saving || !selectedSubmission || !canEditCurrent || !hasCurrentChanges"
+                      @click="confirmCurrentChanges"
+                    >
+                      {{ saving ? '确认中...' : '确认修改' }}
+                    </button>
+                  </div>
+                  <div v-if="rerunError" class="ai-error">{{ rerunError }}</div>
+                  <div v-if="saveError" class="ai-error">{{ saveError }}</div>
+                </div>
               </div>
             </div>
-          </div>
           </div>
         </div>
       </div>
@@ -279,6 +373,9 @@ const loadError = ref('')
 const questionMap = ref<Record<string, AssignmentSnapshotQuestion>>({})
 const selectedQuestionId = ref('')
 const selectedStudentId = ref('')
+const batchSelectedStudentIds = ref(new Set<string>())
+const batchLoading = ref(false)
+const batchMode = ref<'rerun' | 'adopt' | null>(null)
 const openGroups = ref<Record<string, boolean>>({
   graded: true,
   pending: true,
@@ -423,6 +520,53 @@ const groupedStudents = computed(() => {
   return groups
 })
 
+const batchSelectedCount = computed(() => batchSelectedStudentIds.value.size)
+
+const getSubmissionByStudentAndQuestion = (studentId: string, questionId: string) =>
+  submissionByKey.value.get(`${studentId}::${questionId}`) || null
+
+const hasSubmissionForCurrentQuestion = (studentId: string) => {
+  if (!selectedQuestionId.value) return false
+  return Boolean(getSubmissionByStudentAndQuestion(studentId, selectedQuestionId.value))
+}
+
+const normalizeReasonPoints = (reason?: string) => {
+  if (!reason) return []
+  return reason
+    .split(/\n|；|;|。/g)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+const structuredAiItems = computed(() =>
+  (aiPanel.value.result?.result?.items ?? []).map((item) => {
+    const maxScore = Number(item.maxScore ?? 0)
+    const score = Number(item.score ?? 0)
+    return {
+      rubricItemKey: item.rubricItemKey ?? '-',
+      maxScore,
+      score,
+      deduction: Math.max(0, maxScore - score),
+      uncertaintyScore: Number(item.uncertaintyScore ?? 0),
+      points: normalizeReasonPoints(item.reason),
+    }
+  }),
+)
+
+const highRiskCodes = new Set([
+  'UNREADABLE',
+  'FORMAT_AMBIGUOUS',
+  'NON_HANDWRITTEN',
+  'MISSING_INFO',
+])
+
+const highRiskReasons = computed(
+  () =>
+    (aiPanel.value.result?.result?.uncertaintyReasons ?? []).filter((item) =>
+      highRiskCodes.has(String(item.code ?? '').toUpperCase()),
+    ) ?? [],
+)
+
 const aiPanel = ref<{
   statusLabel: string
   error: string
@@ -467,6 +611,31 @@ const selectQuestion = (questionId: string) => {
 const selectStudent = (studentId: string) => {
   selectedStudentId.value = studentId
   editingOverride.value = false
+}
+
+const toggleBatchStudent = (studentId: string) => {
+  if (!hasSubmissionForCurrentQuestion(studentId)) return
+  const next = new Set(batchSelectedStudentIds.value)
+  if (next.has(studentId)) {
+    next.delete(studentId)
+  } else {
+    next.add(studentId)
+  }
+  batchSelectedStudentIds.value = next
+}
+
+const clearBatchSelection = () => {
+  batchSelectedStudentIds.value = new Set()
+}
+
+const selectAllForCurrentQuestion = () => {
+  const next = new Set<string>()
+  studentsWithStatus.value.forEach((student) => {
+    if (hasSubmissionForCurrentQuestion(student.studentId)) {
+      next.add(student.studentId)
+    }
+  })
+  batchSelectedStudentIds.value = next
 }
 
 const toggleGroup = (key: string) => {
@@ -708,6 +877,119 @@ const rerunCurrentAi = async () => {
   }
 }
 
+const collectBatchTargets = () => {
+  if (!selectedQuestionId.value) return []
+  const targets = Array.from(batchSelectedStudentIds.value)
+    .map((studentId) => {
+      const submission = getSubmissionByStudentAndQuestion(studentId, selectedQuestionId.value)
+      if (!submission?.submissionVersionId) return null
+      return { studentId, submission }
+    })
+    .filter(Boolean) as Array<{ studentId: string; submission: any }>
+  return targets
+}
+
+const rerunBatchAi = async () => {
+  if (batchLoading.value) return
+  const targets = collectBatchTargets()
+  if (!targets.length) {
+    showAppToast('请先勾选可批改学生', 'error')
+    return
+  }
+  batchLoading.value = true
+  batchMode.value = 'rerun'
+  try {
+    const results = await Promise.allSettled(
+      targets.map((target) =>
+        runAiGrading(target.submission.submissionVersionId, {
+          snapshotPolicy: 'LATEST_PUBLISHED',
+        }),
+      ),
+    )
+    let success = 0
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        success += 1
+        const target = targets[index]
+        if (target) {
+          target.submission.aiStatus = 'PENDING'
+          target.submission.aiIsUncertain = false
+        }
+      }
+    })
+    const failed = results.length - success
+    if (failed > 0) {
+      showAppToast(`批量重试完成：成功 ${success}，失败 ${failed}`, 'error')
+    } else {
+      showAppToast(`批量重试完成：${success} 条`, 'success')
+    }
+    if (
+      selectedSubmission.value &&
+      batchSelectedStudentIds.value.has(selectedStudentId.value) &&
+      selectedSubmission.value.submissionVersionId
+    ) {
+      await loadAiStatusOnly(selectedSubmission.value.submissionVersionId)
+    }
+  } catch (err) {
+    showAppToast(err instanceof Error ? err.message : '批量重试失败', 'error')
+  } finally {
+    batchLoading.value = false
+    batchMode.value = null
+  }
+}
+
+const adoptBatchAi = async () => {
+  if (batchLoading.value) return
+  const targets = collectBatchTargets()
+  if (!targets.length) {
+    showAppToast('请先勾选可批改学生', 'error')
+    return
+  }
+  batchLoading.value = true
+  batchMode.value = 'adopt'
+  let success = 0
+  let failed = 0
+  for (const target of targets) {
+    try {
+      const question = questionMap.value[target.submission.questionId]
+      if (!question) {
+        failed += 1
+        continue
+      }
+      const aiResult = await getAiGradingResult(target.submission.submissionVersionId)
+      const items = buildGradingItems(question, aiResult, { useAiReasons: true }).map((item) => ({
+        questionIndex: item.questionIndex,
+        rubricItemKey: item.rubricItemKey,
+        score: Number(item.score) || 0,
+        reason: item.reason ?? '',
+      }))
+      const totalScore = items.reduce((sum, item) => sum + (Number(item.score) || 0), 0)
+      await submitFinalGrading(target.submission.submissionVersionId, {
+        source: 'AI_ADOPTED',
+        totalScore,
+        finalComment: aiResult.result?.comment ?? undefined,
+        items,
+      })
+      target.submission.isFinal = true
+      target.submission.status = 'FINAL'
+      target.submission.aiStatus = 'SUCCESS'
+      target.submission.aiIsUncertain = Boolean(aiResult.result?.isUncertain)
+      success += 1
+    } catch {
+      failed += 1
+    }
+  }
+  if (failed > 0) {
+    showAppToast(`批量确认完成：成功 ${success}，失败 ${failed}`, 'error')
+  } else {
+    showAppToast(`批量确认完成：${success} 条`, 'success')
+  }
+  batchLoading.value = false
+  batchMode.value = null
+  clearBatchSelection()
+  await loadData()
+}
+
 const submitGrading = async (forceAiAdopt: boolean) => {
   const submission = selectedSubmission.value
   if (!submission) return
@@ -804,7 +1086,9 @@ watch(
 
 watch(
   () => selectedQuestionId.value,
-  () => {},
+  () => {
+    clearBatchSelection()
+  },
 )
 
 const loadData = async () => {
@@ -841,6 +1125,8 @@ const loadData = async () => {
   } catch (err) {
     missingStudents.value = []
   }
+
+  clearBatchSelection()
 
   const routeMatch = submissions.value.find(
     (item) => item.submissionVersionId === submissionVersionId.value,
@@ -945,18 +1231,42 @@ watch([assignmentId, submissionVersionId], async () => {
 }
 
 .ghost-action {
-  border: none;
+  border: 1px solid rgba(173, 188, 216, 0.55);
   background: rgba(255, 255, 255, 0.7);
   padding: 6px 14px;
   border-radius: 999px;
   font-size: 12px;
   color: rgba(26, 29, 51, 0.7);
   cursor: pointer;
+  box-shadow: 0 4px 10px rgba(56, 76, 126, 0.08);
 }
 
 .detail-body {
   display: grid;
   gap: 16px;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.batch-meta {
+  font-size: 13px;
+  color: rgba(26, 29, 51, 0.72);
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .grading-layout {
@@ -971,11 +1281,13 @@ watch([assignmentId, submissionVersionId], async () => {
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.6);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   position: sticky;
   top: 16px;
   align-self: start;
+  max-height: calc(100vh - 180px);
 }
 
 .student-title {
@@ -988,10 +1300,27 @@ watch([assignmentId, submissionVersionId], async () => {
 }
 
 .student-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  max-height: none;
-  overflow: visible;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.student-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.student-list::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 190, 0.45);
+  border-radius: 999px;
+}
+
+.student-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .student-group {
@@ -1003,9 +1332,10 @@ watch([assignmentId, submissionVersionId], async () => {
 }
 
 .student-group-title {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  column-gap: 8px;
   font-size: 12px;
   font-weight: 600;
   color: rgba(26, 29, 51, 0.75);
@@ -1013,21 +1343,43 @@ watch([assignmentId, submissionVersionId], async () => {
   cursor: pointer;
   border-bottom: 1px solid rgba(120, 140, 190, 0.15);
   list-style: none;
+  min-width: 0;
 }
 
-.student-group-title::before {
-  content: '▾';
-  font-size: 12px;
-  margin-right: 6px;
-  color: rgba(26, 29, 51, 0.55);
-  transition: transform 0.2s ease;
+.student-group-label {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.student-group[open] .student-group-title::before {
-  transform: rotate(180deg);
+.student-group-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.student-group-caret {
+  width: 6px;
+  height: 6px;
+  border-right: 1.8px solid rgba(26, 29, 51, 0.55);
+  border-bottom: 1.8px solid rgba(26, 29, 51, 0.55);
+  transform: rotate(-45deg);
+  transform-origin: center;
+  transition: transform 0.18s ease;
+  flex-shrink: 0;
+}
+
+.student-group-caret.open {
+  transform: rotate(45deg);
 }
 
 .student-group-count {
+  flex-shrink: 0;
   font-weight: 500;
   color: rgba(26, 29, 51, 0.55);
 }
@@ -1070,6 +1422,12 @@ watch([assignmentId, submissionVersionId], async () => {
   flex-wrap: wrap;
 }
 
+.student-check {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
 .student-name {
   font-weight: 600;
 }
@@ -1081,6 +1439,33 @@ watch([assignmentId, submissionVersionId], async () => {
 
 .student-item.active .student-sub {
   color: rgba(255, 255, 255, 0.85);
+}
+
+.student-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.student-tag.pending {
+  background: rgba(255, 196, 154, 0.32);
+  color: #9a4a12;
+}
+
+.student-tag.graded {
+  background: rgba(120, 200, 170, 0.3);
+  color: #1f7a4b;
+}
+
+.student-tag.objection {
+  background: rgba(244, 67, 54, 0.18);
+  color: #b42318;
+}
+
+.student-tag.missing {
+  background: rgba(190, 200, 220, 0.35);
+  color: rgba(26, 29, 51, 0.62);
 }
 
 .detail-status.pending {
@@ -1251,6 +1636,44 @@ watch([assignmentId, submissionVersionId], async () => {
   font-size: 13px;
 }
 
+.risk-alert {
+  border-radius: 12px;
+  border: 1px solid rgba(220, 90, 90, 0.36);
+  background: rgba(255, 239, 239, 0.72);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.risk-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #aa2a2a;
+}
+
+.risk-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.86);
+}
+
+.risk-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 6px;
+  background: rgba(220, 90, 90, 0.15);
+  color: #aa2a2a;
+}
+
 .ai-row {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1273,12 +1696,72 @@ watch([assignmentId, submissionVersionId], async () => {
 }
 
 .ai-item {
-  padding: 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(182, 198, 226, 0.28);
   font-size: 12px;
   display: grid;
+  gap: 6px;
+}
+
+.ai-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-item-key {
+  font-weight: 700;
+  color: rgba(26, 29, 51, 0.86);
+}
+
+.ai-item-score {
+  font-weight: 700;
+  color: #3f7de0;
+}
+
+.ai-item-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: rgba(26, 29, 51, 0.68);
+}
+
+.ai-item-meta .danger {
+  color: #b42318;
+  font-weight: 700;
+}
+
+.ai-point-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
   gap: 4px;
+}
+
+.ai-uncertainty-list {
+  margin-top: 8px;
+  border-top: 1px dashed rgba(180, 194, 220, 0.5);
+  padding-top: 8px;
+}
+
+.ai-uncertainty-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(26, 29, 51, 0.8);
+  margin-bottom: 4px;
+}
+
+.ai-uncertainty-list ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.8);
 }
 
 .grading-form {
@@ -1362,7 +1845,8 @@ watch([assignmentId, submissionVersionId], async () => {
 .task-action.ghost {
   background: rgba(255, 255, 255, 0.7);
   color: rgba(26, 29, 51, 0.8);
-  box-shadow: none;
+  border: 1px solid rgba(173, 188, 216, 0.55);
+  box-shadow: 0 4px 10px rgba(56, 76, 126, 0.08);
 }
 
 @media (max-width: 1500px) {
@@ -1386,16 +1870,25 @@ watch([assignmentId, submissionVersionId], async () => {
 
   .student-panel {
     position: static;
+    max-height: none;
   }
 }
 
 @media (max-width: 900px) {
+  .batch-toolbar {
+    align-items: flex-start;
+  }
+
   .grading-layout {
     grid-template-columns: 1fr;
   }
 
-  .student-list {
+  .student-panel {
     max-height: none;
+  }
+
+  .student-list {
+    max-height: 340px;
   }
 }
 </style>

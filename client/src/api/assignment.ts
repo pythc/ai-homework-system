@@ -9,6 +9,7 @@ export type AssignmentSummary = {
   description?: string | null
   totalScore?: number
   deadline?: string | null
+  createdAt?: string | null
   status: string
   aiEnabled?: boolean
   submitted?: boolean
@@ -16,6 +17,7 @@ export type AssignmentSummary = {
   allowViewAnswer?: boolean
   allowViewScore?: boolean
   handwritingRecognition?: boolean
+  aiConfidenceThreshold?: number
 }
 
 type AssignmentListResponse = {
@@ -71,6 +73,7 @@ export type CreateAssignmentRequest = {
   allowViewAnswer?: boolean
   allowViewScore?: boolean
   handwritingRecognition?: boolean
+  aiConfidenceThreshold?: number
   selectedQuestionIds?: string[]
 }
 
@@ -169,6 +172,7 @@ export async function updateAssignmentGradingConfig(
     allowViewAnswer?: boolean
     allowViewScore?: boolean
     handwritingRecognition?: boolean
+    aiConfidenceThreshold?: number
     questionWeights?: Array<{ questionId: string; weight: number }>
   },
 ) {

@@ -114,6 +114,7 @@ export class AiUncertaintyReasonDto {
       'MISSING_INFO',
       'FORMAT_AMBIGUOUS',
       'LOW_CONFIDENCE',
+      'NON_HANDWRITTEN',
     ],
   })
   code!: string;

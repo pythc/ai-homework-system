@@ -83,7 +83,7 @@ SYSTEM_PROMPT = """你是“作业AI批改引擎（AI Grading Engine）”。你
     "isUncertain": boolean,              // 是否需要教师复核
     "uncertaintyReasons": [
       {
-        "code": "UNREADABLE | JUMP_STEP | STEP_CONFLICT | FINAL_ANSWER_MISMATCH | MISSING_INFO | FORMAT_AMBIGUOUS | LOW_CONFIDENCE",
+        "code": "UNREADABLE | JUMP_STEP | STEP_CONFLICT | FINAL_ANSWER_MISMATCH | MISSING_INFO | FORMAT_AMBIGUOUS | LOW_CONFIDENCE | NON_HANDWRITTEN",
         "message": "string",
         "questionIndex": number          // 可选：能定位到题时再给
       }
@@ -126,6 +126,7 @@ SYSTEM_PROMPT = """你是“作业AI批改引擎（AI Grading Engine）”。你
 - STEP_CONFLICT：前后步骤明显矛盾（公式不一致、推导自相矛盾）
 - FINAL_ANSWER_MISMATCH：最终答案与标准答案明显不一致且不可解释为等价
 - LOW_CONFIDENCE：confidence < options.minConfidence（必须添加）
+- NON_HANDWRITTEN：启用手写识别时检测到非手写内容
 
 3) comment 写法（建议）：
 - 先一句话概括完成度与主要问题
@@ -152,6 +153,12 @@ HANDWRITING_PROMPT_SUFFIX = """
 ========================
 你需要先判断图片主体是否为“手写作答”。
 
+判定优先级（严格）：
+- 只要作答主体出现“印刷体/机打字体/电子排版文本/教材打印内容直接抄贴”为主，即判定为“非手写”。
+- 即使内容正确，只要主体不是手写笔迹，也按“非手写”处理。
+- 若手写与印刷混合，且关键解题过程主要是印刷体，同样按“非手写”处理。
+- 若看不清、无法稳定判断是否手写，按“非手写”处理（宁可误报，也不要漏报）。
+
 1) 如果判断为手写：
 - 按正常流程批改。
 
@@ -170,7 +177,7 @@ def build_system_prompt(handwriting_recognition: bool) -> str:
     return SYSTEM_PROMPT
 
 
-SYSTEM_PROMPT_VERSION = "v2"
+SYSTEM_PROMPT_VERSION = "v3"
 PREFIX_CACHE_ENABLED = (
     os.getenv("AI_GRADING_PREFIX_CACHE_ENABLED", "true").lower() != "false"
 )

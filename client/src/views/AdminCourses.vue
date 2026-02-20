@@ -1,7 +1,7 @@
 <template>
   <AdminLayout
     title="课程管理"
-    subtitle="查看课程、教师与学生，并调整课程状态"
+    subtitle="查看课程详情并调整课程状态"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="课程管理"

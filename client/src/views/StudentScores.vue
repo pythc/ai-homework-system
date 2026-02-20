@@ -17,10 +17,12 @@
             <div class="course-title">{{ course.name }}</div>
             <div class="course-sub">作业 {{ course.total }} 份</div>
           </div>
-          <div class="course-meta">
-            <span class="course-pill">可见 {{ course.viewable }} 份</span>
+          <div class="course-foot">
+            <div class="course-meta">
+              <span class="course-pill">可见 {{ course.viewable }} 份</span>
+            </div>
+            <button class="task-action" @click="goCourse(course.courseId)">查看成绩</button>
           </div>
-          <button class="task-action" @click="goCourse(course.courseId)">查看成绩</button>
         </div>
         <div v-if="!courseList.length" class="task-empty">
           {{ scoreError || '暂无成绩' }}
@@ -137,6 +139,13 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 8px;
   font-size: 12px;
+}
+
+.course-foot {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .course-pill {

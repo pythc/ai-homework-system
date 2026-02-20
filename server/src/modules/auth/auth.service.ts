@@ -310,7 +310,7 @@ export class AuthService {
           role,
           status: UserStatus.ACTIVE,
           name,
-          passwordHash: await this.hashPassword(`cqupt${account}`),
+          passwordHash: await this.hashPassword('123456'),
         });
         const saved = await userRepo.save(user);
         results.created += 1;
