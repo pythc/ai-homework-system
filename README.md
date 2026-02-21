@@ -1,4 +1,4 @@
-# AI Homework System｜高校 AI 作业管理与批改平台
+# AI Homework System｜ 高校 AI 作业管理与批改平台
 
 <p align="center">
   <a href="./README.md"><b>中文</b></a> ｜ <a href="./README_EN.md"><b>English</b></a>
