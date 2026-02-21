@@ -12,14 +12,18 @@ import { AiJobEntity, AiJobStage, AiJobStatus } from './entities/ai-job.entity';
 import { SubmissionVersionEntity, AiStatus, SubmissionStatus } from '../submission/entities/submission-version.entity';
 import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 import { TriggerAiGradingDto } from './dto/trigger-ai-grading.dto';
+import { QuestionType } from '../assignment/entities/assignment-question.entity';
 
 const execFileAsync = promisify(execFile);
 
 type SnapshotQuestion = {
   questionId: string;
   questionIndex: number;
-  prompt?: { text?: string };
-  standardAnswer?: { text?: string };
+  questionType?: string;
+  questionSchema?: Record<string, unknown> | null;
+  gradingPolicy?: Record<string, unknown> | null;
+  prompt?: { text?: string } | string | Record<string, unknown> | null;
+  standardAnswer?: Record<string, unknown> | string | null;
   rubric?: Array<{ rubricItemKey: string; maxScore: number; criteria: string }>;
 };
 
@@ -144,29 +148,52 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
         { status: SubmissionStatus.AI_GRADING, aiStatus: AiStatus.RUNNING, updatedAt: new Date() },
       );
 
-      const result = await this.runModelWithTimeout(
-        payload,
-        {
-          submissionVersionId: submissionVersion.id,
-          assignmentSnapshotId: snapshotId,
-          studentAnswerText: submissionVersion.contentText ?? '',
+      let parsed: ParsedAiOutput;
+      let modelName = payload.modelHint?.name || process.env.ARK_MODEL || 'unknown';
+      let modelVersion: string | null = payload.modelHint?.version || null;
+
+      const gradingMode = this.resolveGradingMode(question);
+      if (gradingMode === 'AUTO_RULE') {
+        const auto = this.runAutoRuleGrading({
           question,
+          studentAnswerText: submissionVersion.contentText ?? '',
+          studentAnswerPayload:
+            (submissionVersion.answerPayload as Record<string, unknown> | null) ?? null,
           minConfidence: payload.uncertaintyPolicy?.minConfidence,
           returnStudentMarkdown: payload.options?.returnStudentMarkdown,
-          handwritingRecognition: payload.options?.handwritingRecognition,
-          gradingStrictness: payload.options?.gradingStrictness,
-          customGuidance: payload.options?.customGuidance,
-        },
-        submissionVersion.fileUrl,
-        timeoutSeconds * 1000,
-      );
+        });
+        parsed = auto.parsed;
+        modelName = 'AUTO_RULE';
+        modelVersion = auto.modelVersion;
+      } else {
+        const result = await this.runModelWithTimeout(
+          payload,
+          {
+            submissionVersionId: submissionVersion.id,
+            assignmentSnapshotId: snapshotId,
+            studentAnswerText: submissionVersion.contentText ?? '',
+            studentAnswerPayload:
+              (submissionVersion.answerPayload as Record<string, unknown> | null) ?? null,
+            answerFormat: submissionVersion.answerFormat ?? null,
+            question,
+            minConfidence: payload.uncertaintyPolicy?.minConfidence,
+            returnStudentMarkdown: payload.options?.returnStudentMarkdown,
+            handwritingRecognition: payload.options?.handwritingRecognition,
+            gradingStrictness: payload.options?.gradingStrictness,
+            customGuidance: payload.options?.customGuidance,
+          },
+          submissionVersion.fileUrl,
+          timeoutSeconds * 1000,
+        );
+        parsed = this.parseModelOutput(result.outputText);
+        modelName = result.modelName;
+        modelVersion = result.modelVersion;
+      }
 
       await this.jobRepo.update(
         { id: job.id },
         { stage: AiJobStage.PARSE_OUTPUT, updatedAt: new Date() },
       );
-
-      const parsed = this.parseModelOutput(result.outputText);
 
       await this.jobRepo.update(
         { id: job.id },
@@ -177,8 +204,8 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
         submissionVersionId: submissionVersion.id,
         assignmentId: submissionVersion.assignmentId,
         assignmentSnapshotId: snapshotId,
-        modelName: result.modelName,
-        modelVersion: result.modelVersion,
+        modelName,
+        modelVersion: modelVersion ?? null,
         result: parsed.result,
         extracted: parsed.extracted ?? null,
       });
@@ -231,6 +258,8 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
       submissionVersionId: string;
       assignmentSnapshotId: string;
       studentAnswerText: string;
+      studentAnswerPayload?: Record<string, unknown> | null;
+      answerFormat?: string | null;
       question: SnapshotQuestion;
       minConfidence?: number;
       returnStudentMarkdown?: boolean;
@@ -249,8 +278,13 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
       submissionVersionId: input.submissionVersionId,
       assignmentSnapshotId: input.assignmentSnapshotId,
       studentAnswerText: input.studentAnswerText,
+      studentAnswerPayload: input.studentAnswerPayload ?? null,
+      answerFormat: input.answerFormat ?? null,
         question: {
           questionIndex: input.question.questionIndex,
+          questionType: input.question.questionType ?? 'SHORT_ANSWER',
+          questionSchema: input.question.questionSchema ?? null,
+          gradingPolicy: input.question.gradingPolicy ?? null,
           prompt: this.extractText(input.question.prompt),
           standardAnswer: this.extractText(input.question.standardAnswer),
           rubric: input.question.rubric ?? [],
@@ -314,6 +348,485 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
+  }
+
+  private resolveGradingMode(question: SnapshotQuestion): 'AUTO_RULE' | 'AI_RUBRIC' {
+    const policy = question.gradingPolicy;
+    const modeRaw =
+      policy && typeof policy === 'object' && !Array.isArray(policy)
+        ? String((policy as Record<string, unknown>).mode ?? '')
+        : '';
+    if (modeRaw.toUpperCase() === 'AUTO_RULE') {
+      return 'AUTO_RULE';
+    }
+    const objectiveTypes = new Set<string>([
+      QuestionType.SINGLE_CHOICE,
+      QuestionType.MULTI_CHOICE,
+      QuestionType.JUDGE,
+      QuestionType.FILL_BLANK,
+    ]);
+    const questionType = String(question.questionType ?? QuestionType.SHORT_ANSWER).toUpperCase();
+    return objectiveTypes.has(questionType) ? 'AUTO_RULE' : 'AI_RUBRIC';
+  }
+
+  private runAutoRuleGrading(input: {
+    question: SnapshotQuestion;
+    studentAnswerText: string;
+    studentAnswerPayload: Record<string, unknown> | null;
+    minConfidence?: number;
+    returnStudentMarkdown?: boolean;
+  }): { parsed: ParsedAiOutput; modelVersion: string } {
+    const questionType = String(
+      input.question.questionType ?? QuestionType.SHORT_ANSWER,
+    ).toUpperCase();
+    const questionIndex = Number(input.question.questionIndex ?? 1) || 1;
+    const minConfidence = this.clamp01(input.minConfidence ?? 0.75);
+    const standard = this.normalizeStructuredAnswer(
+      questionType,
+      input.question.standardAnswer ?? null,
+    );
+    const student = this.normalizeStructuredAnswer(
+      questionType,
+      input.studentAnswerPayload,
+      input.studentAnswerText,
+    );
+    const allowPartial = this.readAllowPartial(input.question.questionSchema);
+
+    const uncertaintyReasons: Array<{ code: string; message: string }> = [];
+    if (!standard.hasAnswer) {
+      uncertaintyReasons.push({
+        code: 'MISSING_INFO',
+        message: '标准答案缺少可判分结构，建议教师复核',
+      });
+    }
+    if (!student.hasAnswer) {
+      uncertaintyReasons.push({
+        code: 'MISSING_INFO',
+        message: '学生答案为空或格式无效',
+      });
+    }
+
+    let scoreRatio = 0;
+    let reason = '依据规则完成自动判分';
+    if (standard.hasAnswer && student.hasAnswer) {
+      const compared = this.compareStructuredAnswer(
+        questionType,
+        standard.value,
+        student.value,
+        allowPartial,
+      );
+      scoreRatio = compared.ratio;
+      reason = compared.reason;
+      if (compared.uncertain) {
+        uncertaintyReasons.push({
+          code: 'FORMAT_AMBIGUOUS',
+          message: compared.uncertain,
+        });
+      }
+    }
+
+    const rubricItems =
+      Array.isArray(input.question.rubric) && input.question.rubric.length
+        ? input.question.rubric.map((item, idx) => ({
+            rubricItemKey: item.rubricItemKey || `AUTO_${idx + 1}`,
+            maxScore: Number(item.maxScore ?? 0),
+            criteria: item.criteria ?? '自动判分',
+          }))
+        : [];
+    const fallbackMax =
+      this.readNumber(input.question.questionSchema, 'maxScore') ??
+      this.readNumber(input.question.questionSchema, 'score') ??
+      10;
+    const normalizedRubric = rubricItems.length
+      ? rubricItems
+      : [{ rubricItemKey: 'AUTO_SCORE', maxScore: fallbackMax, criteria: '自动判分' }];
+    const totalMax = normalizedRubric.reduce((sum, item) => sum + Math.max(0, item.maxScore), 0);
+    const safeRatio = this.clamp01(scoreRatio);
+    const itemScores = this.allocateScoresByRatio(normalizedRubric, safeRatio);
+    const totalScore = Number(itemScores.reduce((sum, item) => sum + item.score, 0).toFixed(2));
+
+    let confidence = this.estimateAutoConfidence({
+      ratio: safeRatio,
+      hasStandard: standard.hasAnswer,
+      hasStudent: student.hasAnswer,
+      hasUncertainReason: uncertaintyReasons.length > 0,
+    });
+    if (confidence < minConfidence) {
+      uncertaintyReasons.push({
+        code: 'LOW_CONFIDENCE',
+        message: `自动判分置信度 ${confidence.toFixed(2)} 低于阈值 ${minConfidence.toFixed(2)}`,
+      });
+    }
+    confidence = Number(confidence.toFixed(3));
+    const isUncertain =
+      uncertaintyReasons.length > 0 ||
+      confidence < minConfidence ||
+      itemScores.some((item) => item.uncertaintyScore >= 0.6);
+
+    const resultItems = itemScores.map((item) => ({
+      questionIndex,
+      rubricItemKey: item.rubricItemKey,
+      score: item.score,
+      maxScore: item.maxScore,
+      reason,
+      uncertaintyScore: item.uncertaintyScore,
+    }));
+
+    const parsed: ParsedAiOutput = {
+      result: {
+        comment: this.buildAutoComment({
+          isUncertain,
+          reason,
+          uncertaintyReasons,
+          ratio: safeRatio,
+        }),
+        confidence,
+        isUncertain,
+        uncertaintyReasons,
+        items: resultItems,
+        totalScore,
+      },
+    };
+    if (input.returnStudentMarkdown) {
+      parsed.extracted = {
+        studentMarkdown: this.formatStudentStructuredMarkdown(
+          questionType,
+          student.value,
+          input.studentAnswerText,
+        ),
+      };
+    }
+
+    return { parsed, modelVersion: 'auto-rule-v1' };
+  }
+
+  private normalizeStructuredAnswer(
+    questionType: string,
+    payload: unknown,
+    fallbackText = '',
+  ): { hasAnswer: boolean; value: unknown } {
+    if (questionType === QuestionType.JUDGE) {
+      const bool = this.extractBoolean(payload, fallbackText);
+      return { hasAnswer: bool !== null, value: bool };
+    }
+
+    if (questionType === QuestionType.SINGLE_CHOICE) {
+      const ids = this.extractOptionIds(payload, fallbackText);
+      return { hasAnswer: ids.length > 0, value: ids.length ? ids[0] : null };
+    }
+
+    if (questionType === QuestionType.MULTI_CHOICE) {
+      const ids = this.extractOptionIds(payload, fallbackText);
+      const unique = Array.from(new Set(ids));
+      return { hasAnswer: unique.length > 0, value: unique };
+    }
+
+    if (questionType === QuestionType.FILL_BLANK) {
+      const blanks = this.extractBlanks(payload, fallbackText);
+      return { hasAnswer: blanks.length > 0, value: blanks };
+    }
+
+    if (payload !== null && payload !== undefined) {
+      return { hasAnswer: true, value: payload };
+    }
+    const text = (fallbackText || '').trim();
+    return { hasAnswer: Boolean(text), value: text || null };
+  }
+
+  private compareStructuredAnswer(
+    questionType: string,
+    standard: unknown,
+    student: unknown,
+    allowPartial: boolean,
+  ): { ratio: number; reason: string; uncertain?: string } {
+    if (questionType === QuestionType.SINGLE_CHOICE) {
+      const expected = String(standard ?? '').trim();
+      const actual = String(student ?? '').trim();
+      const matched = expected && actual && expected === actual;
+      return {
+        ratio: matched ? 1 : 0,
+        reason: matched
+          ? `答案匹配（标准答案：${expected}）`
+          : `答案不匹配（标准答案：${expected || '未设置'}，学生答案：${actual || '空'}）`,
+      };
+    }
+
+    if (questionType === QuestionType.JUDGE) {
+      const expected = typeof standard === 'boolean' ? standard : null;
+      const actual = typeof student === 'boolean' ? student : null;
+      if (expected === null || actual === null) {
+        return {
+          ratio: 0,
+          reason: '判断题答案格式异常',
+          uncertain: '判断题答案格式异常',
+        };
+      }
+      const matched = expected === actual;
+      return {
+        ratio: matched ? 1 : 0,
+        reason: matched ? '判断结果正确' : `判断结果错误（标准：${expected ? '对' : '错'}）`,
+      };
+    }
+
+    if (questionType === QuestionType.MULTI_CHOICE) {
+      const expected = this.normalizeTokenSet(Array.isArray(standard) ? standard : []);
+      const actual = this.normalizeTokenSet(Array.isArray(student) ? student : []);
+      if (expected.size === 0) {
+        return { ratio: 0, reason: '多选题缺少标准答案', uncertain: '多选题缺少标准答案' };
+      }
+      const tp = Array.from(actual).filter((item) => expected.has(item)).length;
+      const fp = Array.from(actual).filter((item) => !expected.has(item)).length;
+      const fn = Array.from(expected).filter((item) => !actual.has(item)).length;
+      const exact = fp === 0 && fn === 0;
+      if (exact) {
+        return { ratio: 1, reason: '选项完全匹配' };
+      }
+      if (!allowPartial) {
+        return { ratio: 0, reason: '多选未完全匹配（该题不允许部分得分）' };
+      }
+      const denominator = expected.size + fp;
+      const ratio = denominator > 0 ? tp / denominator : 0;
+      return {
+        ratio: this.clamp01(ratio),
+        reason: `多选部分匹配（命中 ${tp}，多选 ${fp}，漏选 ${fn}）`,
+      };
+    }
+
+    if (questionType === QuestionType.FILL_BLANK) {
+      const expected = Array.isArray(standard)
+        ? standard.map((item) => this.normalizeToken(item))
+        : [];
+      const actual = Array.isArray(student)
+        ? student.map((item) => this.normalizeToken(item))
+        : [];
+      if (!expected.length) {
+        return { ratio: 0, reason: '填空题缺少标准答案', uncertain: '填空题缺少标准答案' };
+      }
+      let matched = 0;
+      expected.forEach((expectedValue, index) => {
+        if (expectedValue && expectedValue === (actual[index] ?? '')) {
+          matched += 1;
+        }
+      });
+      const exact = matched === expected.length;
+      if (exact) {
+        return { ratio: 1, reason: '填空答案全部正确' };
+      }
+      if (!allowPartial) {
+        return { ratio: 0, reason: '填空未全部正确（该题不允许部分得分）' };
+      }
+      return {
+        ratio: this.clamp01(matched / expected.length),
+        reason: `填空部分匹配（正确 ${matched}/${expected.length}）`,
+      };
+    }
+
+    return { ratio: 0, reason: '该题型未配置自动判分规则', uncertain: '题型未配置自动判分规则' };
+  }
+
+  private extractOptionIds(payload: unknown, fallbackText: string): string[] {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const obj = payload as Record<string, unknown>;
+      for (const key of ['selectedOptionIds', 'selectedOptions', 'optionIds', 'options']) {
+        const value = obj[key];
+        if (Array.isArray(value)) {
+          const ids = value
+            .map((item) => String(item).trim())
+            .filter(Boolean);
+          if (ids.length) return ids;
+        }
+      }
+      for (const key of ['selectedOptionId', 'selectedOption', 'optionId', 'value', 'answer']) {
+        const value = obj[key];
+        if (typeof value === 'string' && value.trim()) {
+          return [value.trim()];
+        }
+      }
+    }
+    if (typeof payload === 'string' && payload.trim()) {
+      return this.splitTokens(payload);
+    }
+    return this.splitTokens(fallbackText);
+  }
+
+  private extractBoolean(payload: unknown, fallbackText: string): boolean | null {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const obj = payload as Record<string, unknown>;
+      for (const key of ['value', 'answer', 'isTrue', 'correct']) {
+        const parsed = this.parseBoolean(obj[key]);
+        if (parsed !== null) return parsed;
+      }
+    }
+    const parsed = this.parseBoolean(payload);
+    if (parsed !== null) return parsed;
+    return this.parseBoolean(fallbackText);
+  }
+
+  private parseBoolean(value: unknown): boolean | null {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') {
+      if (value === 1) return true;
+      if (value === 0) return false;
+      return null;
+    }
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (['true', 't', 'yes', 'y', '1', '对', '正确'].includes(normalized)) return true;
+    if (['false', 'f', 'no', 'n', '0', '错', '错误'].includes(normalized)) return false;
+    return null;
+  }
+
+  private extractBlanks(payload: unknown, fallbackText: string): string[] {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const obj = payload as Record<string, unknown>;
+      for (const key of ['blanks', 'answers', 'values']) {
+        const value = obj[key];
+        if (Array.isArray(value)) {
+          return value.map((item) => String(item).trim()).filter(Boolean);
+        }
+      }
+      const single = obj.answer;
+      if (typeof single === 'string' && single.trim()) {
+        return this.splitTokens(single);
+      }
+    }
+    if (typeof payload === 'string' && payload.trim()) {
+      return this.splitTokens(payload);
+    }
+    return this.splitTokens(fallbackText);
+  }
+
+  private splitTokens(value: string): string[] {
+    if (!value) return [];
+    return value
+      .split(/[\n,，;；、\s]+/g)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  private normalizeTokenSet(values: unknown[]): Set<string> {
+    return new Set(
+      values
+        .map((item) => this.normalizeToken(item))
+        .filter(Boolean),
+    );
+  }
+
+  private normalizeToken(value: unknown): string {
+    return String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '');
+  }
+
+  private readAllowPartial(schema?: Record<string, unknown> | null): boolean {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+      return true;
+    }
+    const raw = (schema as Record<string, unknown>).allowPartial;
+    if (typeof raw === 'boolean') return raw;
+    return true;
+  }
+
+  private readNumber(schema: Record<string, unknown> | null | undefined, key: string): number | null {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return null;
+    const value = Number((schema as Record<string, unknown>)[key]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  private allocateScoresByRatio(
+    rubricItems: Array<{ rubricItemKey: string; maxScore: number }>,
+    ratio: number,
+  ) {
+    const safeRatio = this.clamp01(ratio);
+    const result = rubricItems.map((item) => ({
+      rubricItemKey: item.rubricItemKey,
+      maxScore: Number(item.maxScore.toFixed(2)),
+      score: Number((Math.max(0, item.maxScore) * safeRatio).toFixed(2)),
+      uncertaintyScore: Number((1 - safeRatio).toFixed(3)),
+    }));
+    const maxTotal = Number(result.reduce((sum, item) => sum + item.maxScore, 0).toFixed(2));
+    const targetTotal = Number((maxTotal * safeRatio).toFixed(2));
+    const currentTotal = Number(result.reduce((sum, item) => sum + item.score, 0).toFixed(2));
+    const diff = Number((targetTotal - currentTotal).toFixed(2));
+    if (result.length > 0 && Math.abs(diff) > 0) {
+      const last = result[result.length - 1];
+      last.score = Number(Math.max(0, Math.min(last.maxScore, last.score + diff)).toFixed(2));
+    }
+    return result;
+  }
+
+  private estimateAutoConfidence(input: {
+    ratio: number;
+    hasStandard: boolean;
+    hasStudent: boolean;
+    hasUncertainReason: boolean;
+  }) {
+    if (!input.hasStandard || !input.hasStudent) {
+      return 0.25;
+    }
+    if (input.hasUncertainReason) {
+      return 0.58;
+    }
+    if (input.ratio >= 0.999) {
+      return 0.97;
+    }
+    if (input.ratio >= 0.8) {
+      return 0.9;
+    }
+    if (input.ratio >= 0.5) {
+      return 0.82;
+    }
+    return 0.72;
+  }
+
+  private buildAutoComment(input: {
+    isUncertain: boolean;
+    reason: string;
+    uncertaintyReasons: Array<{ code: string; message: string }>;
+    ratio: number;
+  }) {
+    const base = `自动规则判分：${input.reason}。`;
+    if (!input.isUncertain) {
+      return `${base} 建议教师快速复核后确认成绩。`;
+    }
+    const reasonText = input.uncertaintyReasons
+      .map((item) => `${item.code}:${item.message}`)
+      .join('；');
+    return `${base} 存在待核验项（${reasonText}），建议教师人工确认。`;
+  }
+
+  private formatStudentStructuredMarkdown(
+    questionType: string,
+    structuredValue: unknown,
+    fallbackText: string,
+  ) {
+    if (questionType === QuestionType.JUDGE && typeof structuredValue === 'boolean') {
+      return structuredValue ? '对' : '错';
+    }
+    if (questionType === QuestionType.SINGLE_CHOICE) {
+      const value = String(structuredValue ?? '').trim();
+      return value || fallbackText || '[空答案]';
+    }
+    if (
+      (questionType === QuestionType.MULTI_CHOICE || questionType === QuestionType.FILL_BLANK) &&
+      Array.isArray(structuredValue)
+    ) {
+      const values = structuredValue.map((item) => String(item).trim()).filter(Boolean);
+      return values.length ? values.join('、') : fallbackText || '[空答案]';
+    }
+    if (structuredValue && typeof structuredValue === 'object') {
+      return JSON.stringify(structuredValue, null, 2);
+    }
+    return String(structuredValue ?? fallbackText ?? '').trim() || '[空答案]';
+  }
+
+  private clamp01(value: number) {
+    if (!Number.isFinite(value)) return 0;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
   }
 
   private parseModelOutput(raw: string): ParsedAiOutput {

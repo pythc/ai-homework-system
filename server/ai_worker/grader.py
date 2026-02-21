@@ -115,12 +115,55 @@ STRICTNESS_RULE_MAP = {
 """,
 }
 
+QUESTION_TYPE_PROMPT_MAP = {
+    "SHORT_ANSWER": """
+- 当前题型：SHORT_ANSWER（简答题）。
+- 重点看核心概念是否准确、关键结论是否成立，允许表达简洁但不能缺失关键论点。
+""",
+    "ESSAY": """
+- 当前题型：ESSAY（论述题）。
+- 重点看结构完整性、论证连贯性与观点支撑，避免仅按关键词机械给分。
+""",
+    "CALCULATION": """
+- 当前题型：CALCULATION（计算题）。
+- 重点检查公式使用、计算步骤与结果一致性；步骤缺失需在 reason 中明确扣分依据。
+""",
+    "PROOF": """
+- 当前题型：PROOF（证明题）。
+- 重点检查逻辑链条是否闭合、前提是否正确引用、推导是否严谨；结论正确但推导不足需扣分。
+""",
+    "SINGLE_CHOICE": """
+- 当前题型：SINGLE_CHOICE（单选题）。
+- 若走到模型批改，只做保守复核；与标准答案不一致时应直接扣分并标记依据。
+""",
+    "MULTI_CHOICE": """
+- 当前题型：MULTI_CHOICE（多选题）。
+- 若走到模型批改，按“漏选/错选/全对”说明判定依据，不要臆造未给出的选项。
+""",
+    "FILL_BLANK": """
+- 当前题型：FILL_BLANK（填空题）。
+- 若走到模型批改，逐空比对答案并说明差异，无法辨认时提高不确定性。
+""",
+    "JUDGE": """
+- 当前题型：JUDGE（判断题）。
+- 若走到模型批改，严格按对/错判定，不要扩展与题意无关的解释。
+""",
+}
+
 STRICTNESS_PROMPT_TEMPLATE = """
 
 ========================
 八、评分严厉程度（gradingStrictness）
 ========================
 {strictness_rules}
+"""
+
+QUESTION_TYPE_PROMPT_TEMPLATE = """
+
+========================
+十、题型补充规则（questionType）
+========================
+{type_rules}
 """
 
 CUSTOM_GUIDANCE_PROMPT_TEMPLATE = """
@@ -145,14 +188,28 @@ def normalize_grading_strictness(value: Optional[str]) -> str:
     return "BALANCED"
 
 
+def normalize_question_type(value: Optional[str]) -> str:
+    if not value:
+        return "SHORT_ANSWER"
+    normalized = str(value).strip().upper()
+    if normalized in QUESTION_TYPE_PROMPT_MAP:
+        return normalized
+    return "SHORT_ANSWER"
+
+
 def build_system_prompt(
     handwriting_recognition: bool,
     grading_strictness: str = "BALANCED",
     custom_guidance: str = "",
+    question_type: str = "SHORT_ANSWER",
 ) -> str:
     normalized_strictness = normalize_grading_strictness(grading_strictness)
+    normalized_question_type = normalize_question_type(question_type)
     prompt = SYSTEM_PROMPT + STRICTNESS_PROMPT_TEMPLATE.format(
         strictness_rules=STRICTNESS_RULE_MAP[normalized_strictness].strip()
+    )
+    prompt += QUESTION_TYPE_PROMPT_TEMPLATE.format(
+        type_rules=QUESTION_TYPE_PROMPT_MAP[normalized_question_type].strip()
     )
     trimmed_guidance = custom_guidance.strip()
     if trimmed_guidance:
@@ -311,6 +368,9 @@ def extract_question_payload(json_payload: Dict) -> Dict:
     question = json_payload.get("question") or {}
     return {
         "questionIndex": question.get("questionIndex"),
+        "questionType": question.get("questionType"),
+        "questionSchema": question.get("questionSchema"),
+        "gradingPolicy": question.get("gradingPolicy"),
         "prompt": question.get("prompt"),
         "standardAnswer": question.get("standardAnswer"),
         "rubric": question.get("rubric") or [],
@@ -534,8 +594,12 @@ def main() -> int:
     handwriting_recognition = bool(options_payload.get("handwritingRecognition"))
     grading_strictness = str(options_payload.get("gradingStrictness") or "BALANCED")
     custom_guidance = str(options_payload.get("customGuidance") or "")
+    question_type = str(question_payload.get("questionType") or "SHORT_ANSWER")
     system_prompt = build_system_prompt(
-        handwriting_recognition, grading_strictness, custom_guidance
+        handwriting_recognition,
+        grading_strictness,
+        custom_guidance,
+        question_type,
     )
 
     image_paths = args.image or []

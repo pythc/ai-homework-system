@@ -254,6 +254,15 @@ export class QuestionBankService {
     if (updateDto.rubric !== undefined) {
       existing.rubric = updateDto.rubric;
     }
+    if (updateDto.questionSchema !== undefined) {
+      existing.questionSchema = updateDto.questionSchema ?? null;
+    }
+    if (updateDto.gradingPolicy !== undefined) {
+      existing.gradingPolicy = this.normalizeGradingPolicy(
+        existing.questionType,
+        updateDto.gradingPolicy,
+      );
+    }
     if (updateDto.defaultScore !== undefined) {
       existing.defaultScore = this.normalizeScore(
         updateDto.defaultScore,
@@ -666,6 +675,11 @@ export class QuestionBankService {
       existing.standardAnswer = answerPayload;
       existing.defaultScore = defaultScore;
       existing.rubric = question.rubric ?? [];
+      existing.questionSchema = question.questionSchema ?? null;
+      existing.gradingPolicy = this.normalizeGradingPolicy(
+        existing.questionType,
+        question.gradingPolicy,
+      );
       existing.orderNo = question.orderNo ?? null;
       existing.updatedAt = new Date();
       const saved = await repo.save(existing);
@@ -689,6 +703,11 @@ export class QuestionBankService {
       standardAnswer: answerPayload,
       defaultScore,
       rubric: question.rubric ?? [],
+      questionSchema: question.questionSchema ?? null,
+      gradingPolicy: this.normalizeGradingPolicy(
+        this.resolveQuestionType(question.questionType, question.questionId),
+        question.gradingPolicy,
+      ),
       orderNo: question.orderNo ?? null,
       createdBy: userId,
     });
@@ -793,5 +812,23 @@ export class QuestionBankService {
   private isSupportedQuestionType(value: string): boolean {
     const upper = value.toUpperCase();
     return upper in QuestionType;
+  }
+
+  private normalizeGradingPolicy(
+    questionType: QuestionType,
+    value?: Record<string, unknown> | null,
+  ) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value;
+    }
+    const objectiveTypes = new Set<QuestionType>([
+      QuestionType.SINGLE_CHOICE,
+      QuestionType.MULTI_CHOICE,
+      QuestionType.FILL_BLANK,
+      QuestionType.JUDGE,
+    ]);
+    return {
+      mode: objectiveTypes.has(questionType) ? 'AUTO_RULE' : 'AI_RUBRIC',
+    };
   }
 }

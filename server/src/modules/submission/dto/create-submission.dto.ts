@@ -2,6 +2,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -33,4 +34,13 @@ export class CreateSubmissionDto {
   @IsString()
   @MaxLength(1000)
   contentText?: string;
+
+  @IsOptional()
+  @IsObject()
+  answerPayload?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  answerFormat?: string;
 }

@@ -71,8 +71,9 @@ export class AssignmentService {
           const defaultScore = this.resolveDefaultScore(question, dto.totalScore);
           const promptBlock = this.toTextBlock(question.prompt);
           const answerBlock = question.standardAnswer
-            ? this.toTextBlock(question.standardAnswer)
+            ? this.normalizeStandardAnswer(question.standardAnswer)
             : null;
+          const questionType = question.questionType ?? QuestionType.SHORT_ANSWER;
           const entity = manager.create(AssignmentQuestionEntity, {
             courseId: course.id,
             questionCode: this.resolveQuestionCode(question),
@@ -80,7 +81,12 @@ export class AssignmentService {
             description: question.prompt,
             prompt: promptBlock,
             standardAnswer: answerBlock,
-            questionType: question.questionType ?? QuestionType.SHORT_ANSWER,
+            questionType,
+            questionSchema: this.normalizeQuestionSchema(question.questionSchema),
+            gradingPolicy: this.normalizeGradingPolicy(
+              question.gradingPolicy,
+              questionType,
+            ),
             defaultScore: defaultScore.toFixed(2),
             rubric: question.rubric ?? null,
             createdBy: course.teacherId,
@@ -762,6 +768,41 @@ export class AssignmentService {
     return { text, media: [] };
   }
 
+  private normalizeStandardAnswer(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return this.toTextBlock(String(value ?? ''));
+  }
+
+  private normalizeQuestionSchema(
+    value?: Record<string, unknown> | null,
+  ): Record<string, unknown> | null {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value;
+    }
+    return null;
+  }
+
+  private normalizeGradingPolicy(
+    value: Record<string, unknown> | null | undefined,
+    questionType: QuestionType,
+  ): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value;
+    }
+
+    const autoRuleTypes = new Set<QuestionType>([
+      QuestionType.SINGLE_CHOICE,
+      QuestionType.MULTI_CHOICE,
+      QuestionType.FILL_BLANK,
+      QuestionType.JUDGE,
+    ]);
+    return {
+      mode: autoRuleTypes.has(questionType) ? 'AUTO_RULE' : 'AI_RUBRIC',
+    };
+  }
+
   private async loadQuestionsWithAncestors(questionIds: string[]) {
     const map = new Map<string, AssignmentQuestionEntity>();
     const seedIds = Array.from(new Set(questionIds.filter(Boolean)));
@@ -827,18 +868,79 @@ export class AssignmentService {
 
     const snapshots = orderedQuestions.map((question, index) => {
       const parentText = this.resolveParentPromptText(question, questionMap);
+      const questionType = question.questionType ?? QuestionType.SHORT_ANSWER;
+      const defaultScore = Number(question.defaultScore ?? 0);
+      const rawRubric = Array.isArray(question.rubric)
+        ? question.rubric
+        : question.rubric
+          ? [question.rubric]
+          : [];
+      const normalizedRubric = this.normalizeSnapshotRubric(
+        rawRubric,
+        defaultScore,
+        questionType,
+      );
       return {
         questionIndex: index + 1,
         questionId: question.id,
+        questionType,
+        questionSchema: this.normalizeQuestionSchema(question.questionSchema),
+        gradingPolicy: this.normalizeGradingPolicy(
+          question.gradingPolicy,
+          questionType,
+        ),
         prompt: question.prompt ?? this.toTextBlock(question.description),
         parentPrompt: parentText ? this.toTextBlock(String(parentText)) : null,
         standardAnswer: question.standardAnswer ?? this.toTextBlock(''),
-        rubric: Array.isArray(question.rubric) ? question.rubric : question.rubric ?? [],
+        defaultScore: Number.isFinite(defaultScore) ? defaultScore : 0,
+        rubric: normalizedRubric,
         weight: weightMap.get(question.id) ?? null,
       };
     });
 
     return { questions: snapshots };
+  }
+
+  private normalizeSnapshotRubric(
+    rubric: Array<Record<string, unknown>>,
+    defaultScore: number,
+    questionType: QuestionType,
+  ) {
+    const normalized = rubric
+      .filter((item) => item && typeof item === 'object')
+      .map((item, index) => {
+        const rubricItemKey = String(item.rubricItemKey ?? '').trim();
+        const maxScore = Number(item.maxScore ?? 0);
+        const criteria = String(item.criteria ?? '').trim();
+        if (!rubricItemKey || !Number.isFinite(maxScore) || maxScore <= 0) {
+          return null;
+        }
+        return {
+          rubricItemKey,
+          maxScore: Number(maxScore.toFixed(2)),
+          criteria: criteria || `评分点 ${index + 1}`,
+        };
+      })
+      .filter((item): item is { rubricItemKey: string; maxScore: number; criteria: string } => Boolean(item));
+
+    if (normalized.length > 0) {
+      return normalized;
+    }
+
+    const fallbackScore = Number.isFinite(defaultScore) && defaultScore > 0 ? defaultScore : 10;
+    const autoRuleTypes = new Set<QuestionType>([
+      QuestionType.SINGLE_CHOICE,
+      QuestionType.MULTI_CHOICE,
+      QuestionType.FILL_BLANK,
+      QuestionType.JUDGE,
+    ]);
+    return [
+      {
+        rubricItemKey: autoRuleTypes.has(questionType) ? 'AUTO_SCORE' : 'R1',
+        maxScore: Number(fallbackScore.toFixed(2)),
+        criteria: autoRuleTypes.has(questionType) ? '客观题自动判分' : '主观题评分',
+      },
+    ];
   }
 
   private buildWeightMap(

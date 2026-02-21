@@ -51,232 +51,323 @@
               />
             </div>
 
-            <div class="editor-shell">
-              <div class="editor-toolbar">
-                <button class="tool-btn" :disabled="isFinalized" type="button" title="撤销" @click="runCommand('undo')">
-                  <Undo2 class="tool-icon" />
-                </button>
-                <button class="tool-btn" :disabled="isFinalized" type="button" title="重做" @click="runCommand('redo')">
-                  <Redo2 class="tool-icon" />
-                </button>
-                <span class="tool-divider" />
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('heading', { level: 2 }) }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="标题"
-                  @click="runCommand('heading')"
-                >
-                  <Heading2 class="tool-icon" />
-                </button>
-                <span class="tool-divider" />
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('bulletList') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="无序列表"
-                  @click="runCommand('bulletList')"
-                >
-                  <List class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('orderedList') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="有序列表"
-                  @click="runCommand('orderedList')"
-                >
-                  <ListOrdered class="tool-icon" />
-                </button>
-                <span class="tool-divider" />
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('codeBlock') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="代码块"
-                  @click="runCommand('codeBlock')"
-                >
-                  <Code2 class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('bold') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="加粗"
-                  @click="runCommand('bold')"
-                >
-                  <Bold class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('italic') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="斜体"
-                  @click="runCommand('italic')"
-                >
-                  <Italic class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('underline') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="下划线"
-                  @click="runCommand('underline')"
-                >
-                  <Underline class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('strike') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="删除线"
-                  @click="runCommand('strike')"
-                >
-                  <Strikethrough class="tool-icon" />
-                </button>
-                <span class="tool-divider" />
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('superscript') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="上标"
-                  @click="runCommand('superscript')"
-                >
-                  <SuperscriptIcon class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('subscript') }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="下标"
-                  @click="runCommand('subscript')"
-                >
-                  <SubscriptIcon class="tool-icon" />
-                </button>
-                <span class="tool-divider" />
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('paragraph', { textAlign: 'left' }) }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="左对齐"
-                  @click="runCommand('alignLeft')"
-                >
-                  <AlignLeft class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('paragraph', { textAlign: 'center' }) }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="居中对齐"
-                  @click="runCommand('alignCenter')"
-                >
-                  <AlignCenter class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('paragraph', { textAlign: 'right' }) }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="右对齐"
-                  @click="runCommand('alignRight')"
-                >
-                  <AlignRight class="tool-icon" />
-                </button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: isEditorActive('paragraph', { textAlign: 'justify' }) }"
-                  :disabled="isFinalized"
-                  type="button"
-                  title="两端对齐"
-                  @click="runCommand('alignJustify')"
-                >
-                  <AlignJustify class="tool-icon" />
-                </button>
-                <span class="tool-divider" />
-                <button class="tool-btn" :disabled="isFinalized" type="button" title="添加图片" @click="triggerToolbarImageUpload">
-                  <ImagePlus class="tool-icon" />
-                </button>
-              </div>
-              <div
-                class="editor-content-wrap"
-                @paste="onEditorPaste"
-                @dragenter="onEditorDragEnter"
-                @dragover="onEditorDragOver"
-                @dragleave="onEditorDragLeave"
-                @drop="onEditorDrop"
-              >
-                <EditorContent class="editor-content" :class="{ 'drag-active': dragActive }" :editor="editor" />
-              </div>
-              <input
-                ref="toolbarFileInputRef"
-                type="file"
-                accept="image/*"
-                multiple
-                :disabled="isFinalized"
-                class="hidden-input"
-                @change="onToolbarFileChange"
-              />
+            <div v-if="isObjectiveQuestion(currentQuestion)" class="objective-shell">
+              <template v-if="objectiveTypeOf(currentQuestion) === 'SINGLE_CHOICE'">
+                <div class="objective-hint">请选择 1 个选项</div>
+                <div class="objective-option-list">
+                  <label
+                    v-for="option in getQuestionOptions(currentQuestion)"
+                    :key="`single-${currentQuestion.questionId}-${option.id}`"
+                    class="objective-option"
+                  >
+                    <input
+                      type="radio"
+                      :name="`single-${currentQuestion.questionId}`"
+                      :disabled="isFinalized"
+                      :checked="getSingleChoiceValue(currentQuestion.questionId) === option.id"
+                      @change="setSingleChoiceValue(currentQuestion.questionId, option.id)"
+                    />
+                    <span class="objective-option-id">{{ option.id }}</span>
+                    <span class="objective-option-text">{{ option.text || option.id }}</span>
+                  </label>
+                </div>
+              </template>
+
+              <template v-else-if="objectiveTypeOf(currentQuestion) === 'MULTI_CHOICE'">
+                <div class="objective-hint">可多选</div>
+                <div class="objective-option-list">
+                  <label
+                    v-for="option in getQuestionOptions(currentQuestion)"
+                    :key="`multi-${currentQuestion.questionId}-${option.id}`"
+                    class="objective-option"
+                  >
+                    <input
+                      type="checkbox"
+                      :disabled="isFinalized"
+                      :checked="getMultiChoiceValues(currentQuestion.questionId).includes(option.id)"
+                      @change="toggleMultiChoiceValue(currentQuestion.questionId, option.id)"
+                    />
+                    <span class="objective-option-id">{{ option.id }}</span>
+                    <span class="objective-option-text">{{ option.text || option.id }}</span>
+                  </label>
+                </div>
+              </template>
+
+              <template v-else-if="objectiveTypeOf(currentQuestion) === 'JUDGE'">
+                <div class="objective-hint">请选择正确或错误</div>
+                <div class="objective-option-list">
+                  <label
+                    v-for="option in getQuestionOptions(currentQuestion)"
+                    :key="`judge-${currentQuestion.questionId}-${option.id}`"
+                    class="objective-option"
+                  >
+                    <input
+                      type="radio"
+                      :name="`judge-${currentQuestion.questionId}`"
+                      :disabled="isFinalized"
+                      :checked="getJudgeValue(currentQuestion.questionId) === option.value"
+                      @change="setJudgeValue(currentQuestion.questionId, option.value)"
+                    />
+                    <span class="objective-option-id">{{ option.id }}</span>
+                    <span class="objective-option-text">{{ option.text }}</span>
+                  </label>
+                </div>
+              </template>
+
+              <template v-else-if="objectiveTypeOf(currentQuestion) === 'FILL_BLANK'">
+                <div class="objective-hint">请填写每个空位</div>
+                <div class="blank-answer-list">
+                  <label
+                    v-for="(blank, index) in getFillBlankValues(currentQuestion)"
+                    :key="`blank-${currentQuestion.questionId}-${index}`"
+                    class="blank-answer-item"
+                  >
+                    <span class="blank-answer-label">第 {{ index + 1 }} 空</span>
+                    <input
+                      type="text"
+                      :disabled="isFinalized"
+                      :value="blank"
+                      @input="handleFillBlankInput(currentQuestion.questionId, index, $event)"
+                    />
+                  </label>
+                </div>
+              </template>
             </div>
 
-            <div v-if="getFileCount(currentQuestion.questionId) > 0" class="submit-files">
-              已选择 {{ getFileCount(currentQuestion.questionId) }} 张图片
-            </div>
-            <div
-              v-if="getSelectedPreviews(currentQuestion.questionId).length"
-              class="submit-preview selected-preview"
-            >
-              <div class="preview-title">本次已选图片</div>
-              <div class="preview-media">
-                <div
-                  v-for="(item, index) in getSelectedPreviews(currentQuestion.questionId)"
-                  :key="item"
-                  class="preview-item"
-                >
-                  <img :src="item" alt="selected image" />
-                  <button
-                    class="preview-remove"
-                    type="button"
-                    aria-label="删除图片"
-                    :disabled="isFinalized"
-                    @click="removeSelectedFile(currentQuestion.questionId, index)"
-                  >
-                    ×
+            <div v-else>
+              <div class="editor-shell">
+                <div class="editor-toolbar">
+                  <button class="tool-btn" :disabled="isFinalized" type="button" title="撤销" @click="runCommand('undo')">
+                    <Undo2 class="tool-icon" />
                   </button>
+                  <button class="tool-btn" :disabled="isFinalized" type="button" title="重做" @click="runCommand('redo')">
+                    <Redo2 class="tool-icon" />
+                  </button>
+                  <span class="tool-divider" />
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('heading', { level: 2 }) }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="标题"
+                    @click="runCommand('heading')"
+                  >
+                    <Heading2 class="tool-icon" />
+                  </button>
+                  <span class="tool-divider" />
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('bulletList') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="无序列表"
+                    @click="runCommand('bulletList')"
+                  >
+                    <List class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('orderedList') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="有序列表"
+                    @click="runCommand('orderedList')"
+                  >
+                    <ListOrdered class="tool-icon" />
+                  </button>
+                  <span class="tool-divider" />
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('codeBlock') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="代码块"
+                    @click="runCommand('codeBlock')"
+                  >
+                    <Code2 class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('bold') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="加粗"
+                    @click="runCommand('bold')"
+                  >
+                    <Bold class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('italic') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="斜体"
+                    @click="runCommand('italic')"
+                  >
+                    <Italic class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('underline') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="下划线"
+                    @click="runCommand('underline')"
+                  >
+                    <Underline class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('strike') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="删除线"
+                    @click="runCommand('strike')"
+                  >
+                    <Strikethrough class="tool-icon" />
+                  </button>
+                  <span class="tool-divider" />
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('superscript') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="上标"
+                    @click="runCommand('superscript')"
+                  >
+                    <SuperscriptIcon class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('subscript') }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="下标"
+                    @click="runCommand('subscript')"
+                  >
+                    <SubscriptIcon class="tool-icon" />
+                  </button>
+                  <span class="tool-divider" />
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('paragraph', { textAlign: 'left' }) }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="左对齐"
+                    @click="runCommand('alignLeft')"
+                  >
+                    <AlignLeft class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('paragraph', { textAlign: 'center' }) }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="居中对齐"
+                    @click="runCommand('alignCenter')"
+                  >
+                    <AlignCenter class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('paragraph', { textAlign: 'right' }) }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="右对齐"
+                    @click="runCommand('alignRight')"
+                  >
+                    <AlignRight class="tool-icon" />
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :class="{ active: isEditorActive('paragraph', { textAlign: 'justify' }) }"
+                    :disabled="isFinalized"
+                    type="button"
+                    title="两端对齐"
+                    @click="runCommand('alignJustify')"
+                  >
+                    <AlignJustify class="tool-icon" />
+                  </button>
+                  <span class="tool-divider" />
+                  <button class="tool-btn" :disabled="isFinalized" type="button" title="添加图片" @click="triggerToolbarImageUpload">
+                    <ImagePlus class="tool-icon" />
+                  </button>
+                </div>
+                <div
+                  class="editor-content-wrap"
+                  @paste="onEditorPaste"
+                  @dragenter="onEditorDragEnter"
+                  @dragover="onEditorDragOver"
+                  @dragleave="onEditorDragLeave"
+                  @drop="onEditorDrop"
+                >
+                  <EditorContent class="editor-content" :class="{ 'drag-active': dragActive }" :editor="editor" />
+                </div>
+                <input
+                  ref="toolbarFileInputRef"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  :disabled="isFinalized"
+                  class="hidden-input"
+                  @change="onToolbarFileChange"
+                />
+              </div>
+              <div v-if="getFileCount(currentQuestion.questionId) > 0" class="submit-files">
+                已选择 {{ getFileCount(currentQuestion.questionId) }} 张图片
+              </div>
+              <div
+                v-if="getSelectedPreviews(currentQuestion.questionId).length"
+                class="submit-preview selected-preview"
+              >
+                <div class="preview-title">本次已选图片</div>
+                <div class="preview-media">
+                  <div
+                    v-for="(item, index) in getSelectedPreviews(currentQuestion.questionId)"
+                    :key="item"
+                    class="preview-item"
+                  >
+                    <img :src="item" alt="selected image" />
+                    <button
+                      class="preview-remove"
+                      type="button"
+                      aria-label="删除图片"
+                      :disabled="isFinalized"
+                      @click="removeSelectedFile(currentQuestion.questionId, index)"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
 
             <div v-if="submittedMap[currentQuestion.questionId]" class="submit-preview">
               <div class="preview-title">已提交内容</div>
-              <div
-                v-if="submittedMap[currentQuestion.questionId]?.contentText"
-                class="preview-text rich-text-preview"
-                v-html="renderAnswerHtml(submittedMap[currentQuestion.questionId]?.contentText || '')"
-              />
-              <div v-else class="preview-empty">未填写文字答案</div>
-              <div
-                v-if="submittedMap[currentQuestion.questionId]?.fileUrls?.length"
-                class="preview-media"
-              >
-                <img
-                  v-for="(img, index) in submittedMap[currentQuestion.questionId]?.fileUrls ?? []"
-                  :key="index"
-                  :src="resolveFileUrl(img)"
-                  alt="submission image"
+              <template v-if="isObjectiveQuestion(currentQuestion)">
+                <div class="preview-text">
+                  {{ formatSubmittedObjective(currentQuestion, submittedMap[currentQuestion.questionId]) }}
+                </div>
+              </template>
+              <template v-else>
+                <div
+                  v-if="submittedMap[currentQuestion.questionId]?.contentText"
+                  class="preview-text rich-text-preview"
+                  v-html="renderAnswerHtml(submittedMap[currentQuestion.questionId]?.contentText || '')"
                 />
-              </div>
+                <div v-else class="preview-empty">未填写文字答案</div>
+                <div
+                  v-if="submittedMap[currentQuestion.questionId]?.fileUrls?.length"
+                  class="preview-media"
+                >
+                  <img
+                    v-for="(img, index) in submittedMap[currentQuestion.questionId]?.fileUrls ?? []"
+                    :key="index"
+                    :src="resolveFileUrl(img)"
+                    alt="submission image"
+                  />
+                </div>
+              </template>
             </div>
           </div>
           <div v-if="questions.length > 1" class="question-nav">
@@ -339,7 +430,7 @@ import {
   Undo2,
 } from 'lucide-vue-next'
 import StudentLayout from '../components/StudentLayout.vue'
-import type { AssignmentSnapshotQuestion } from '../api/assignment'
+import type { AssignmentSnapshotQuestion, QuestionType } from '../api/assignment'
 import { getAssignmentSnapshot } from '../api/assignment'
 import { listLatestSubmissions, uploadSubmission } from '../api/submission'
 import { API_BASE_URL } from '../api/http'
@@ -358,23 +449,33 @@ const toolbarFileInputRef = ref<HTMLInputElement | null>(null)
 const dragDepth = ref(0)
 const dragActive = ref(false)
 
+type ObjectiveQuestionType = 'SINGLE_CHOICE' | 'MULTI_CHOICE' | 'FILL_BLANK' | 'JUDGE'
+type ObjectiveAnswerPayload = Record<string, unknown>
+type QuestionOption = { id: string; text: string; value?: boolean }
+
 type SubmitQuestion = {
   questionId: string
   questionIndex: number
   promptText: string
   parentPromptText?: string
   promptMedia: Array<{ url: string; caption?: string }>
+  questionType: QuestionType
+  questionSchema: Record<string, unknown> | null
+  standardAnswer: Record<string, unknown> | null
 }
 
 type SubmittedItem = {
   submissionVersionId: string
   contentText: string
   fileUrls: string[]
+  answerPayload?: Record<string, unknown> | null
+  answerFormat?: string | null
 }
 
 const questions = ref<SubmitQuestion[]>([])
 const currentIndex = ref(0)
 const answers = ref<Record<string, string>>({})
+const objectiveAnswers = ref<Record<string, ObjectiveAnswerPayload>>({})
 const filesByQuestion = ref<Record<string, File[]>>({})
 const previewUrls = ref<Record<string, string[]>>({})
 const submittedMap = ref<Record<string, SubmittedItem>>({})
@@ -447,6 +548,385 @@ const resolveFileUrl = (url: string) => {
   return url
 }
 
+const objectiveTypes = new Set<ObjectiveQuestionType>([
+  'SINGLE_CHOICE',
+  'MULTI_CHOICE',
+  'FILL_BLANK',
+  'JUDGE',
+])
+
+const questionTypeList: QuestionType[] = [
+  'SINGLE_CHOICE',
+  'MULTI_CHOICE',
+  'FILL_BLANK',
+  'JUDGE',
+  'SHORT_ANSWER',
+  'ESSAY',
+  'CALCULATION',
+  'PROOF',
+]
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+
+const normalizeQuestionType = (value: unknown): QuestionType => {
+  const type = String(value ?? '')
+    .trim()
+    .toUpperCase()
+  if (questionTypeList.includes(type as QuestionType)) {
+    return type as QuestionType
+  }
+  return 'SHORT_ANSWER'
+}
+
+const normalizeStructuredValue = (value: unknown): Record<string, unknown> | null => {
+  if (isRecord(value)) return value
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return null
+    return { text }
+  }
+  return null
+}
+
+const objectiveTypeOf = (question: SubmitQuestion | null | undefined): ObjectiveQuestionType | null => {
+  const type = normalizeQuestionType(question?.questionType)
+  return objectiveTypes.has(type as ObjectiveQuestionType) ? (type as ObjectiveQuestionType) : null
+}
+
+const isObjectiveQuestion = (question: SubmitQuestion | null | undefined) =>
+  Boolean(objectiveTypeOf(question))
+
+const parseBooleanValue = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') {
+    if (value === 1) return true
+    if (value === 0) return false
+    return null
+  }
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return null
+  if (['true', 't', 'yes', 'y', '1', '对', '正确'].includes(normalized)) return true
+  if (['false', 'f', 'no', 'n', '0', '错', '错误'].includes(normalized)) return false
+  return null
+}
+
+const splitAnswerTokens = (value: string) =>
+  value
+    .split(/[\n,，;；、]/g)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+
+const getQuestionOptions = (question: SubmitQuestion): QuestionOption[] => {
+  const schema = isRecord(question.questionSchema) ? question.questionSchema : {}
+  const raw = Array.isArray(schema.options) ? schema.options : []
+  const mapped = raw
+    .map((item, index) => {
+      if (!isRecord(item)) return null
+      const id = String(item.id ?? index + 1).trim()
+      if (!id) return null
+      const text = String(item.text ?? id).trim() || id
+      const parsedBool = parseBooleanValue(item.value)
+      return {
+        id,
+        text,
+        ...(parsedBool === null ? {} : { value: parsedBool }),
+      }
+    })
+    .filter((item): item is QuestionOption => Boolean(item))
+
+  if (mapped.length > 0) return mapped
+  if (objectiveTypeOf(question) === 'JUDGE') {
+    return [
+      { id: 'A', text: '正确', value: true },
+      { id: 'B', text: '错误', value: false },
+    ]
+  }
+  return []
+}
+
+const getBlankCount = (question: SubmitQuestion) => {
+  const schema = isRecord(question.questionSchema) ? question.questionSchema : {}
+  const countFromSchema = Number(schema.blankCount ?? 0)
+  const standard = isRecord(question.standardAnswer) ? question.standardAnswer : {}
+  const standardBlanks = Array.isArray(standard.blanks) ? standard.blanks.length : 0
+  const candidate = Math.max(Number.isFinite(countFromSchema) ? Math.floor(countFromSchema) : 0, standardBlanks, 1)
+  return Math.min(Math.max(candidate, 1), 20)
+}
+
+const clonePayload = (questionId: string) => ({ ...(objectiveAnswers.value[questionId] ?? {}) })
+
+const setObjectivePayload = (questionId: string, payload: ObjectiveAnswerPayload) => {
+  objectiveAnswers.value = {
+    ...objectiveAnswers.value,
+    [questionId]: payload,
+  }
+}
+
+const getSingleChoiceValue = (questionId: string) => {
+  const payload = objectiveAnswers.value[questionId] ?? {}
+  if (typeof payload.selectedOptionId === 'string' && payload.selectedOptionId.trim()) {
+    return payload.selectedOptionId.trim()
+  }
+  if (Array.isArray(payload.selectedOptionIds)) {
+    const first = payload.selectedOptionIds
+      .map((item) => String(item).trim())
+      .find((item) => item.length > 0)
+    return first ?? ''
+  }
+  if (typeof payload.value === 'string' && payload.value.trim()) {
+    return payload.value.trim()
+  }
+  return ''
+}
+
+const setSingleChoiceValue = (questionId: string, optionId: string) => {
+  const id = optionId.trim()
+  const payload = clonePayload(questionId)
+  setObjectivePayload(questionId, {
+    ...payload,
+    selectedOptionId: id,
+    selectedOptionIds: [id],
+  })
+}
+
+const getMultiChoiceValues = (questionId: string) => {
+  const payload = objectiveAnswers.value[questionId] ?? {}
+  if (Array.isArray(payload.selectedOptionIds)) {
+    return Array.from(
+      new Set(
+        payload.selectedOptionIds
+          .map((item) => String(item).trim())
+          .filter((item) => item.length > 0),
+      ),
+    )
+  }
+  if (typeof payload.selectedOptionId === 'string' && payload.selectedOptionId.trim()) {
+    return [payload.selectedOptionId.trim()]
+  }
+  return []
+}
+
+const toggleMultiChoiceValue = (questionId: string, optionId: string) => {
+  const id = optionId.trim()
+  const values = getMultiChoiceValues(questionId)
+  const next = values.includes(id) ? values.filter((item) => item !== id) : [...values, id]
+  const payload = clonePayload(questionId)
+  setObjectivePayload(questionId, {
+    ...payload,
+    selectedOptionIds: next,
+  })
+}
+
+const getJudgeValue = (questionId: string): boolean | null => {
+  const payload = objectiveAnswers.value[questionId] ?? {}
+  const parsed = parseBooleanValue(payload.value)
+  if (parsed !== null) return parsed
+  return parseBooleanValue(payload.answer)
+}
+
+const setJudgeValue = (questionId: string, value: boolean | undefined) => {
+  if (typeof value !== 'boolean') return
+  const payload = clonePayload(questionId)
+  setObjectivePayload(questionId, {
+    ...payload,
+    value,
+  })
+}
+
+const getFillBlankValues = (question: SubmitQuestion) => {
+  const payload = objectiveAnswers.value[question.questionId] ?? {}
+  const values = Array.isArray(payload.blanks)
+    ? payload.blanks.map((item) => String(item ?? ''))
+    : []
+  const count = getBlankCount(question)
+  if (values.length >= count) return values.slice(0, count)
+  return [...values, ...new Array(count - values.length).fill('')]
+}
+
+const setFillBlankValue = (questionId: string, index: number, value: string) => {
+  const question = questions.value.find((item) => item.questionId === questionId)
+  if (!question) return
+  const next = getFillBlankValues(question)
+  next[index] = value
+  const payload = clonePayload(questionId)
+  setObjectivePayload(questionId, {
+    ...payload,
+    blanks: next,
+  })
+}
+
+const handleFillBlankInput = (questionId: string, index: number, event: Event) => {
+  const target = event.target as HTMLInputElement | null
+  setFillBlankValue(questionId, index, target?.value ?? '')
+}
+
+const normalizeObjectivePayloadFromAny = (
+  question: SubmitQuestion,
+  payload: unknown,
+  fallbackText = '',
+): ObjectiveAnswerPayload => {
+  if (objectiveTypeOf(question) === 'SINGLE_CHOICE') {
+    const ids = (() => {
+      if (isRecord(payload)) {
+        if (typeof payload.selectedOptionId === 'string' && payload.selectedOptionId.trim()) {
+          return [payload.selectedOptionId.trim()]
+        }
+        if (Array.isArray(payload.selectedOptionIds)) {
+          const items = payload.selectedOptionIds
+            .map((item) => String(item).trim())
+            .filter((item) => item.length > 0)
+          if (items.length) return items
+        }
+        if (typeof payload.value === 'string' && payload.value.trim()) {
+          return [payload.value.trim()]
+        }
+      }
+      return splitAnswerTokens(fallbackText)
+    })()
+    if (ids.length > 0) {
+      return { selectedOptionId: ids[0], selectedOptionIds: [ids[0]] }
+    }
+    return {}
+  }
+
+  if (objectiveTypeOf(question) === 'MULTI_CHOICE') {
+    const ids = (() => {
+      if (isRecord(payload) && Array.isArray(payload.selectedOptionIds)) {
+        const items = payload.selectedOptionIds
+          .map((item) => String(item).trim())
+          .filter((item) => item.length > 0)
+        if (items.length) return items
+      }
+      if (isRecord(payload) && typeof payload.selectedOptionId === 'string' && payload.selectedOptionId.trim()) {
+        return [payload.selectedOptionId.trim()]
+      }
+      return splitAnswerTokens(fallbackText)
+    })()
+    if (ids.length > 0) {
+      return { selectedOptionIds: Array.from(new Set(ids)) }
+    }
+    return {}
+  }
+
+  if (objectiveTypeOf(question) === 'JUDGE') {
+    const bool = (() => {
+      if (isRecord(payload)) {
+        const parsed = parseBooleanValue(payload.value)
+        if (parsed !== null) return parsed
+        return parseBooleanValue(payload.answer)
+      }
+      return parseBooleanValue(payload ?? fallbackText)
+    })()
+    if (bool !== null) {
+      return { value: bool }
+    }
+    return {}
+  }
+
+  if (objectiveTypeOf(question) === 'FILL_BLANK') {
+    const blanks = (() => {
+      if (isRecord(payload) && Array.isArray(payload.blanks)) {
+        const items = payload.blanks
+          .map((item) => String(item ?? '').trim())
+          .filter((item) => item.length > 0)
+        if (items.length) return items
+      }
+      return splitAnswerTokens(fallbackText)
+    })()
+    if (blanks.length > 0) {
+      return { blanks }
+    }
+    return { blanks: new Array(getBlankCount(question)).fill('') }
+  }
+
+  return {}
+}
+
+const objectiveAnswerToText = (question: SubmitQuestion, payload: ObjectiveAnswerPayload) => {
+  const type = objectiveTypeOf(question)
+  if (type === 'SINGLE_CHOICE') {
+    if (typeof payload.selectedOptionId === 'string' && payload.selectedOptionId.trim()) {
+      return payload.selectedOptionId.trim()
+    }
+    if (Array.isArray(payload.selectedOptionIds)) {
+      const first = payload.selectedOptionIds
+        .map((item) => String(item).trim())
+        .find((item) => item.length > 0)
+      return first ?? ''
+    }
+    return ''
+  }
+  if (type === 'MULTI_CHOICE') {
+    const values = Array.isArray(payload.selectedOptionIds)
+      ? payload.selectedOptionIds
+        .map((item) => String(item).trim())
+        .filter((item) => item.length > 0)
+      : []
+    return values.join(',')
+  }
+  if (type === 'JUDGE') {
+    const value = parseBooleanValue(payload.value)
+    if (value === null) return ''
+    return value ? '对' : '错'
+  }
+  if (type === 'FILL_BLANK') {
+    const blanks = Array.isArray(payload.blanks)
+      ? payload.blanks.map((item) => String(item ?? '').trim()).filter((item) => item.length > 0)
+      : []
+    return blanks.join('；')
+  }
+  return ''
+}
+
+const buildObjectiveAnswer = (question: SubmitQuestion) => {
+  return normalizeObjectivePayloadFromAny(
+    question,
+    objectiveAnswers.value[question.questionId] ?? null,
+  )
+}
+
+const formatSubmittedObjective = (question: SubmitQuestion, submitted?: SubmittedItem) => {
+  if (!submitted) return '未提交答案'
+  const payload = normalizeObjectivePayloadFromAny(
+    question,
+    submitted.answerPayload,
+    submitted.contentText ?? '',
+  )
+  const type = objectiveTypeOf(question)
+  const optionMap = new Map(getQuestionOptions(question).map((item) => [item.id, item.text]))
+  if (type === 'SINGLE_CHOICE') {
+    const selected = typeof payload.selectedOptionId === 'string' ? payload.selectedOptionId.trim() : ''
+    if (!selected) return '未提交答案'
+    const text = optionMap.get(selected)
+    return text ? `${selected}. ${text}` : selected
+  }
+  if (type === 'MULTI_CHOICE') {
+    const selected = Array.isArray(payload.selectedOptionIds)
+      ? payload.selectedOptionIds.map((item) => String(item).trim()).filter((item) => item.length > 0)
+      : []
+    if (!selected.length) return '未提交答案'
+    return selected
+      .map((id) => (optionMap.has(id) ? `${id}. ${optionMap.get(id)}` : id))
+      .join('；')
+  }
+  if (type === 'JUDGE') {
+    const value = parseBooleanValue(payload.value)
+    if (value === null) return '未提交答案'
+    return value ? '正确' : '错误'
+  }
+  if (type === 'FILL_BLANK') {
+    const blanks = Array.isArray(payload.blanks)
+      ? payload.blanks.map((item) => String(item ?? '').trim())
+      : []
+    const valid = blanks.filter((item) => item.length > 0)
+    if (!valid.length) return '未提交答案'
+    return valid.map((item, index) => `第${index + 1}空：${item}`).join('；')
+  }
+  return submitted.contentText || '未提交答案'
+}
+
 const loadSnapshot = async () => {
   if (!assignmentId.value) {
     error.value = '缺少作业信息'
@@ -459,17 +939,25 @@ const loadSnapshot = async () => {
     questions.value = snapshotQuestions.map((item) => {
       const prompt = normalizePrompt(item.prompt)
       const parentPrompt = normalizePrompt((item as { parentPrompt?: unknown }).parentPrompt)
+      const questionType = normalizeQuestionType(item.questionType)
       return {
         questionId: item.questionId,
         questionIndex: item.questionIndex,
         promptText: prompt.text,
         parentPromptText: parentPrompt.text || '',
         promptMedia: prompt.media,
+        questionType,
+        questionSchema: normalizeStructuredValue(item.questionSchema),
+        standardAnswer: normalizeStructuredValue(item.standardAnswer),
       }
     })
     currentIndex.value = 0
     questions.value.forEach((question) => {
-      if (!(question.questionId in answers.value)) {
+      if (isObjectiveQuestion(question)) {
+        if (!(question.questionId in objectiveAnswers.value)) {
+          objectiveAnswers.value[question.questionId] = normalizeObjectivePayloadFromAny(question, null)
+        }
+      } else if (!(question.questionId in answers.value)) {
         answers.value[question.questionId] = ''
       }
     })
@@ -494,13 +982,24 @@ const loadLatestSubmissions = async () => {
     const response = await listLatestSubmissions(assignmentId.value)
     const items = response?.items ?? []
     isFinalized.value = items.some((item) => item.isFinal)
+    const questionMap = new Map(questions.value.map((question) => [question.questionId, question]))
     items.forEach((item) => {
+      const question = questionMap.get(item.questionId)
+      const answerPayload = isRecord(item.answerPayload) ? item.answerPayload : null
       submittedMap.value[item.questionId] = {
         submissionVersionId: item.submissionVersionId,
         contentText: item.contentText ?? '',
         fileUrls: item.fileUrls ?? [],
+        answerPayload,
+        answerFormat: item.answerFormat ?? null,
       }
-      if (!answers.value[item.questionId]) {
+      if (question && isObjectiveQuestion(question)) {
+        objectiveAnswers.value[item.questionId] = normalizeObjectivePayloadFromAny(
+          question,
+          answerPayload,
+          item.contentText ?? '',
+        )
+      } else if (!answers.value[item.questionId]) {
         answers.value[item.questionId] = item.contentText ?? ''
       }
     })
@@ -521,6 +1020,11 @@ const mergeImageFiles = (
   questionId: string,
   incomingFiles: File[],
 ) => {
+  const question = questions.value.find((item) => item.questionId === questionId)
+  if (question && isObjectiveQuestion(question)) {
+    showAppToast('客观题不支持上传图片', 'error')
+    return
+  }
   const imageFiles = incomingFiles.filter((file) => file.type.startsWith('image/'))
   if (imageFiles.length === 0) return
 
@@ -756,6 +1260,7 @@ const triggerToolbarImageUpload = () => {
 const syncEditorFromCurrentQuestion = () => {
   const question = currentQuestion.value
   if (!editor.value || !question) return
+  if (isObjectiveQuestion(question)) return
   const html = answers.value[question.questionId] ?? ''
   syncingFromQuestion.value = true
   editor.value.commands.setContent(html, false)
@@ -772,8 +1277,47 @@ watch(isFinalized, (locked) => {
   editor.value?.setEditable(!locked)
 })
 
+const validateObjectiveQuestion = (question: SubmitQuestion) => {
+  const payload = buildObjectiveAnswer(question)
+  const type = objectiveTypeOf(question)
+  if (type === 'SINGLE_CHOICE') {
+    const value =
+      typeof payload.selectedOptionId === 'string' ? payload.selectedOptionId.trim() : ''
+    if (!value) return `第 ${question.questionIndex} 题请选择一个选项`
+  }
+  if (type === 'MULTI_CHOICE') {
+    const values = Array.isArray(payload.selectedOptionIds)
+      ? payload.selectedOptionIds
+        .map((item) => String(item).trim())
+        .filter((item) => item.length > 0)
+      : []
+    if (!values.length) return `第 ${question.questionIndex} 题请至少选择一个选项`
+  }
+  if (type === 'JUDGE') {
+    if (parseBooleanValue(payload.value) === null) return `第 ${question.questionIndex} 题请选择正确或错误`
+  }
+  if (type === 'FILL_BLANK') {
+    const values = Array.isArray(payload.blanks)
+      ? payload.blanks.map((item) => String(item ?? '').trim())
+      : []
+    if (!values.length || values.some((item) => item.length === 0)) {
+      return `第 ${question.questionIndex} 题请填写所有空位`
+    }
+  }
+  return ''
+}
+
 const validate = () => {
   for (const question of questions.value) {
+    if (isObjectiveQuestion(question)) {
+      const files = filesByQuestion.value[question.questionId] ?? []
+      if (files.length > 0) {
+        return `第 ${question.questionIndex} 题为客观题，不支持上传图片`
+      }
+      const message = validateObjectiveQuestion(question)
+      if (message) return message
+      continue
+    }
     const html = answers.value[question.questionId] ?? ''
     const text = stripHtml(html)
     const files = filesByQuestion.value[question.questionId] ?? []
@@ -798,21 +1342,37 @@ const submit = async () => {
 
   submitting.value = true
   try {
-    const payloadAnswers = questions.value.map((question) => ({
-      questionId: question.questionId,
-      contentText: answers.value[question.questionId] ?? '',
-    }))
+    const payloadAnswers = questions.value.map((question) => {
+      if (isObjectiveQuestion(question)) {
+        const payload = buildObjectiveAnswer(question)
+        const contentText = objectiveAnswerToText(question, payload)
+        return {
+          questionId: question.questionId,
+          contentText,
+          answerPayload: payload,
+          answerFormat: 'STRUCTURED',
+        }
+      }
+      return {
+        questionId: question.questionId,
+        contentText: answers.value[question.questionId] ?? '',
+      }
+    })
     const response = await uploadSubmission({
       assignmentId: assignmentId.value,
       answers: payloadAnswers,
       filesByQuestion: filesByQuestion.value,
     })
     const items = response?.data?.items ?? []
+    const payloadAnswerMap = new Map(payloadAnswers.map((answer) => [answer.questionId, answer]))
     items.forEach((item) => {
+      const answer = payloadAnswerMap.get(item.questionId)
       submittedMap.value[item.questionId] = {
         submissionVersionId: item.submissionVersionId,
-        contentText: answers.value[item.questionId] ?? '',
+        contentText: answer?.contentText ?? '',
         fileUrls: item.fileUrls ?? [],
+        answerPayload: isRecord(answer?.answerPayload) ? answer?.answerPayload : null,
+        answerFormat: typeof answer?.answerFormat === 'string' ? answer.answerFormat : null,
       }
     })
     previewUrls.value = {}
@@ -931,6 +1491,86 @@ onBeforeUnmount(() => {
   max-width: 100%;
   border-radius: 10px;
   background: #ffffff;
+}
+
+.objective-shell {
+  border: 1px solid rgba(178, 194, 225, 0.55);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.objective-hint {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.58);
+}
+
+.objective-option-list {
+  display: grid;
+  gap: 8px;
+}
+
+.objective-option {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(182, 197, 226, 0.45);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.objective-option input {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.objective-option-id {
+  min-width: 20px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.62);
+  font-weight: 600;
+}
+
+.objective-option-text {
+  font-size: 13px;
+  color: rgba(26, 29, 51, 0.88);
+}
+
+.blank-answer-list {
+  display: grid;
+  gap: 8px;
+}
+
+.blank-answer-item {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.blank-answer-label {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.62);
+  font-weight: 600;
+}
+
+.blank-answer-item input {
+  border: 1px solid rgba(174, 190, 220, 0.55);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(26, 29, 51, 0.86);
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+.blank-answer-item input:focus {
+  outline: none;
+  border-color: rgba(84, 126, 255, 0.55);
 }
 
 .editor-shell {

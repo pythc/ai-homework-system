@@ -3,6 +3,8 @@ import { httpRequest } from './http'
 export type SubmissionAnswerInput = {
   questionId: string
   contentText?: string
+  answerPayload?: Record<string, unknown> | null
+  answerFormat?: string
 }
 
 type SubmissionResponse = {
@@ -53,6 +55,8 @@ export type SubmissionVersionResponse = {
   submitNo: number
   fileUrls: string[]
   contentText?: string | null
+  answerPayload?: Record<string, unknown> | null
+  answerFormat?: string | null
   status: string
   aiStatus: string
   submittedAt: string
@@ -72,6 +76,8 @@ type LatestSubmissionItem = {
   questionId: string
   submitNo: number
   contentText: string
+  answerPayload?: Record<string, unknown> | null
+  answerFormat?: string | null
   fileUrls: string[]
   submittedAt: string
   isFinal?: boolean

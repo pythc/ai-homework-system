@@ -2,6 +2,15 @@ import { httpRequest } from './http'
 import { getAccessToken } from '../auth/storage'
 
 export type AiGradingStrictness = 'LENIENT' | 'BALANCED' | 'STRICT'
+export type QuestionType =
+  | 'SINGLE_CHOICE'
+  | 'MULTI_CHOICE'
+  | 'FILL_BLANK'
+  | 'JUDGE'
+  | 'SHORT_ANSWER'
+  | 'ESSAY'
+  | 'CALCULATION'
+  | 'PROOF'
 
 export type AssignmentSummary = {
   id: string
@@ -22,6 +31,7 @@ export type AssignmentSummary = {
   aiPromptGuidance?: string | null
   aiGradingStrictness?: AiGradingStrictness
   aiConfidenceThreshold?: number
+  selectedQuestionIds?: string[]
 }
 
 type AssignmentListResponse = {
@@ -48,10 +58,14 @@ type TeacherAssignmentListResponse = {
 export type AssignmentSnapshotQuestion = {
   questionIndex: number
   questionId: string
+  questionType?: QuestionType
+  questionSchema?: Record<string, unknown> | null
+  gradingPolicy?: Record<string, unknown> | null
+  defaultScore?: number | null
   weight?: number | null
-  prompt?: { text?: string }
+  prompt?: { text?: string; media?: Array<{ url: string; caption?: string }> } | string
   parentPrompt?: { text?: string }
-  standardAnswer?: { text?: string }
+  standardAnswer?: { text?: string } | Record<string, unknown> | string
   rubric?: Array<{ rubricItemKey: string; maxScore: number; criteria: string }>
 }
 
@@ -81,6 +95,18 @@ export type CreateAssignmentRequest = {
   aiGradingStrictness?: AiGradingStrictness
   aiConfidenceThreshold?: number
   selectedQuestionIds?: string[]
+  questions?: Array<{
+    questionCode?: string
+    questionIndex?: number
+    title?: string
+    prompt: string
+    standardAnswer?: unknown
+    questionType?: QuestionType
+    defaultScore?: number
+    rubric?: Array<{ rubricItemKey: string; maxScore: number; criteria: string }>
+    questionSchema?: Record<string, unknown>
+    gradingPolicy?: Record<string, unknown>
+  }>
 }
 
 export async function listOpenAssignments() {

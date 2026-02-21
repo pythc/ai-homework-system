@@ -233,7 +233,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import StudentLayout from '../components/StudentLayout.vue'
 import { changePassword } from '../api/auth'
-import { listOpenAssignments } from '../api/assignment'
+import { listAllAssignments, listOpenAssignments } from '../api/assignment'
 import { listMyScores } from '../api/score'
 import { getAccessToken, getStoredUser, updateStoredUser } from '../auth/storage'
 import { useStudentProfile } from '../composables/useStudentProfile'
@@ -349,6 +349,8 @@ const taskList = computed(() =>
       id: item.id,
       title: item.title,
       course: item.courseName ?? item.courseId,
+      status: item.status,
+      rawDeadline: item.deadline ?? null,
       deadline: formatDeadline(item.deadline),
       submitted,
       isFinal,
@@ -357,8 +359,22 @@ const taskList = computed(() =>
   }),
 )
 
+const isOpenTask = (task) => {
+  const status = String(task.status ?? '').toUpperCase()
+  if (status && status !== 'OPEN') return false
+  const deadlineValue = task.rawDeadline ?? task.deadline
+  if (!deadlineValue) return true
+  const deadline = new Date(deadlineValue).getTime()
+  if (Number.isNaN(deadline)) return true
+  return deadline > Date.now()
+}
+
+const openTasks = computed(() =>
+  assignmentItems.value.filter((item) => isOpenTask(item)),
+)
+
 const pendingTasks = computed(() =>
-  taskList.value.filter((task) => !task.submitted),
+  taskList.value.filter((task) => !task.submitted && isOpenTask(task)),
 )
 
 const submittedTasks = computed(() =>
@@ -369,7 +385,7 @@ const gradedTasks = computed(() =>
   taskList.value.filter((task) => task.isFinal),
 )
 
-const openAssignmentCount = computed(() => taskList.value.length)
+const openAssignmentCount = computed(() => openTasks.value.length)
 
 const totalCourses = computed(() => {
   const keys = new Set(taskList.value.map((task) => `${task.course}`))
@@ -512,10 +528,21 @@ onMounted(async () => {
   }
 
   try {
-    const response = await listOpenAssignments()
+    const response = await listAllAssignments()
     assignmentItems.value = response?.items ?? []
-  } catch (err) {
-    assignmentError.value = err instanceof Error ? err.message : '加载作业失败'
+    if (!assignmentItems.value.length) {
+      const fallback = await listOpenAssignments()
+      assignmentItems.value = fallback?.items ?? []
+    }
+  } catch {
+    try {
+      const fallback = await listOpenAssignments()
+      assignmentItems.value = fallback?.items ?? []
+      assignmentError.value = ''
+    } catch (fallbackErr) {
+      assignmentError.value =
+        fallbackErr instanceof Error ? fallbackErr.message : '加载作业失败'
+    }
   }
 
   try {

@@ -10,7 +10,11 @@ import * as path from 'path';
 import { DataSource, In, Repository } from 'typeorm';
 import type { Express } from 'express';
 import { AssignmentEntity, AssignmentStatus } from '../assignment/entities/assignment.entity';
-import { AssignmentQuestionEntity, QuestionNodeType } from '../assignment/entities/assignment-question.entity';
+import {
+  AssignmentQuestionEntity,
+  QuestionNodeType,
+  QuestionType,
+} from '../assignment/entities/assignment-question.entity';
 import { CourseEntity } from '../assignment/entities/course.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { SubmissionEntity } from './entities/submission.entity';
@@ -26,6 +30,15 @@ import { UserRole } from '../auth/entities/user.entity';
 type SubmissionAnswerInput = {
   questionId: string;
   contentText?: string;
+  answerPayload?: unknown;
+  answerFormat?: string;
+};
+
+type SubmissionAnswerDraft = {
+  questionId: string;
+  contentText: string;
+  answerPayload: Record<string, unknown> | null;
+  answerFormat: string | null;
 };
 
 @Injectable()
@@ -61,13 +74,6 @@ export class SubmissionService {
     if (dto.fileUrls.some((fileUrl) => !this.isImageUrl(fileUrl))) {
       throw new BadRequestException('提交文件必须是图片');
     }
-    const contentText = dto.contentText?.trim() ?? '';
-    if (!contentText && dto.fileUrls.length === 0) {
-      throw new BadRequestException('每题需提交文字或图片');
-    }
-    if (contentText.length > 1000) {
-      throw new BadRequestException('文本内容不能超过1000字');
-    }
     const assignment = await this.assignmentRepo.findOne({
       where: { id: dto.assignmentId },
     });
@@ -90,6 +96,17 @@ export class SubmissionService {
     if (!question) {
       throw new NotFoundException('题目不存在');
     }
+
+    const answerDraft = this.normalizeAnswerDraftForQuestion(
+      question,
+      {
+        questionId: dto.questionId,
+        contentText: dto.contentText,
+        answerPayload: dto.answerPayload,
+        answerFormat: dto.answerFormat,
+      },
+      dto.fileUrls,
+    );
 
     const student = await this.userRepo.findOne({
       where: { id: dto.studentId },
@@ -132,7 +149,9 @@ export class SubmissionService {
       submissionId: submission.id,
       submitNo: nextSubmitNo,
       fileUrl: this.serializeFileUrls(dto.fileUrls),
-      contentText: contentText || null,
+      contentText: answerDraft.contentText || null,
+      answerPayload: answerDraft.answerPayload,
+      answerFormat: answerDraft.answerFormat,
       aiStatus: assignment.aiEnabled ? AiStatus.PENDING : AiStatus.SKIPPED,
     });
     const savedVersion = await this.versionRepo.save(version);
@@ -170,6 +189,8 @@ export class SubmissionService {
       submitNo: version.submitNo,
       fileUrls: this.toPublicFileUrls(this.parseFileUrls(version.fileUrl)),
       contentText: version.contentText ?? null,
+      answerPayload: version.answerPayload ?? null,
+      answerFormat: version.answerFormat ?? null,
       status: version.status,
       aiStatus: version.aiStatus,
       submittedAt: version.submittedAt,
@@ -217,7 +238,7 @@ export class SubmissionService {
       throw new BadRequestException('answers 不能为空');
     }
 
-    const answerMap = new Map<string, string>();
+    const answerMap = new Map<string, SubmissionAnswerInput>();
     for (const answer of answers) {
       if (!answer?.questionId || typeof answer.questionId !== 'string') {
         throw new BadRequestException('answers.questionId 不能为空');
@@ -231,7 +252,15 @@ export class SubmissionService {
       if (contentText.trim().length > 1000) {
         throw new BadRequestException('文本内容不能超过1000字');
       }
-      answerMap.set(answer.questionId, contentText);
+      answerMap.set(answer.questionId, {
+        questionId: answer.questionId,
+        contentText,
+        answerPayload: answer.answerPayload,
+        answerFormat:
+          typeof answer.answerFormat === 'string'
+            ? answer.answerFormat.trim() || undefined
+            : undefined,
+      });
     }
 
     const requiredIds = assignment.selectedQuestionIds;
@@ -271,17 +300,46 @@ export class SubmissionService {
       filesByQuestion.set(questionId, list);
     }
 
+    const savedPaths: string[] = [];
+
+    const questionRows = await this.questionRepo.find({
+      where: { id: In(requiredIds) },
+    });
+    if (questionRows.length !== requiredIds.length) {
+      await Promise.all(
+        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
+      );
+      throw new BadRequestException('作业题目存在无效项');
+    }
+    const nonLeaf = questionRows.find(
+      (question) => question.nodeType !== QuestionNodeType.LEAF,
+    );
+    if (nonLeaf) {
+      await Promise.all(
+        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
+      );
+      throw new BadRequestException('作业题目必须为叶子题');
+    }
+    const questionById = new Map(questionRows.map((item) => [item.id, item]));
+
+    const normalizedAnswers = new Map<string, SubmissionAnswerDraft>();
     for (const questionId of requiredIds) {
-      const contentText = (answerMap.get(questionId) ?? '').trim();
-      const questionFiles = filesByQuestion.get(questionId) ?? [];
-      if (!contentText && questionFiles.length === 0) {
-        throw new BadRequestException('每题需提交文字或图片');
+      const answer = answerMap.get(questionId);
+      const question = questionById.get(questionId);
+      if (!answer || !question) {
+        throw new BadRequestException('作业题目与提交答案不匹配');
       }
+      const questionFiles = filesByQuestion.get(questionId) ?? [];
+      const normalized = this.normalizeAnswerDraftForQuestion(
+        question,
+        answer,
+        questionFiles.map((file) => file.path),
+      );
+      normalizedAnswers.set(questionId, normalized);
     }
 
     await fs.mkdir(this.uploadDir, { recursive: true });
 
-    const savedPaths: string[] = [];
     const savedByQuestion = new Map<string, string[]>();
     try {
       for (const file of files) {
@@ -307,25 +365,6 @@ export class SubmissionService {
       );
       const message = error instanceof Error ? error.message : String(error);
       throw new InternalServerErrorException(`文件上传失败：${message}`);
-    }
-
-    const questionRows = await this.questionRepo.find({
-      where: { id: In(requiredIds) },
-    });
-    if (questionRows.length !== requiredIds.length) {
-      await Promise.all(
-        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
-      );
-      throw new BadRequestException('作业题目存在无效项');
-    }
-    const nonLeaf = questionRows.find(
-      (question) => question.nodeType !== QuestionNodeType.LEAF,
-    );
-    if (nonLeaf) {
-      await Promise.all(
-        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
-      );
-      throw new BadRequestException('作业题目必须为叶子题');
     }
 
     const student = await this.userRepo.findOne({
@@ -400,7 +439,10 @@ export class SubmissionService {
             submission = await submissionRepo.save(submission);
           }
 
-          const contentText = (answerMap.get(questionId) ?? '').trim();
+          const answerDraft = normalizedAnswers.get(questionId);
+          if (!answerDraft) {
+            throw new BadRequestException('题目答案缺失');
+          }
           const fileUrls = savedByQuestion.get(questionId) ?? [];
 
           const version = versionRepo.create({
@@ -411,7 +453,9 @@ export class SubmissionService {
             submissionId: submission.id,
             submitNo: nextSubmitNo,
             fileUrl: this.serializeFileUrls(fileUrls),
-            contentText: contentText || null,
+            contentText: answerDraft.contentText || null,
+            answerPayload: answerDraft.answerPayload,
+            answerFormat: answerDraft.answerFormat,
             aiStatus: assignment.aiEnabled ? AiStatus.PENDING : AiStatus.SKIPPED,
           });
           const savedVersion = await versionRepo.save(version);
@@ -511,6 +555,8 @@ export class SubmissionService {
           ai.result->>'confidence' AS "aiConfidence",
           ai.result->>'isUncertain' AS "aiIsUncertain",
           v.content_text AS "contentText",
+          v.answer_payload AS "answerPayload",
+          v.answer_format AS "answerFormat",
           v.file_url AS "fileUrl",
           v.submitted_at AS "submittedAt",
           (sc.id IS NOT NULL) AS "isFinal",
@@ -557,6 +603,8 @@ export class SubmissionService {
           row.aiIsUncertain === 'true',
         isFinal: row.isFinal === true || row.isFinal === 1,
         contentText: row.contentText ?? '',
+        answerPayload: row.answerPayload ?? null,
+        answerFormat: row.answerFormat ?? null,
         fileUrls: this.toPublicFileUrls(this.parseFileUrls(row.fileUrl ?? '')),
         submittedAt: row.submittedAt,
         scorePublished: row.scorePublished === true || row.scorePublished === 1,
@@ -633,6 +681,8 @@ export class SubmissionService {
           v.id AS "submissionVersionId",
           v.submit_no AS "submitNo",
           v.content_text AS "contentText",
+          v.answer_payload AS "answerPayload",
+          v.answer_format AS "answerFormat",
           v.file_url AS "fileUrl",
           v.submitted_at AS "submittedAt",
           (sc.id IS NOT NULL) AS "isFinal"
@@ -656,11 +706,189 @@ export class SubmissionService {
         questionId: row.questionId,
         submitNo: Number(row.submitNo ?? 0),
         contentText: row.contentText ?? '',
+        answerPayload: row.answerPayload ?? null,
+        answerFormat: row.answerFormat ?? null,
         fileUrls: this.toPublicFileUrls(this.parseFileUrls(row.fileUrl ?? '')),
         submittedAt: row.submittedAt,
         isFinal: row.isFinal === true || row.isFinal === 1,
       })),
     };
+  }
+
+  private normalizeAnswerDraftForQuestion(
+    question: AssignmentQuestionEntity,
+    answer: SubmissionAnswerInput,
+    fileRefs: Array<string | Express.Multer.File>,
+  ): SubmissionAnswerDraft {
+    const contentText = typeof answer.contentText === 'string' ? answer.contentText.trim() : '';
+    const rawFormat =
+      typeof answer.answerFormat === 'string' ? answer.answerFormat.trim() : '';
+    const answerFormat = rawFormat ? rawFormat.slice(0, 32) : null;
+
+    if (!this.isObjectiveQuestionType(question.questionType)) {
+      const payload = this.isRecord(answer.answerPayload)
+        ? (answer.answerPayload as Record<string, unknown>)
+        : null;
+      if (!contentText && fileRefs.length === 0 && !payload) {
+        throw new BadRequestException('每题需提交文字或图片');
+      }
+      return {
+        questionId: answer.questionId,
+        contentText,
+        answerPayload: payload,
+        answerFormat: answerFormat ?? (payload ? 'STRUCTURED' : 'RICH_TEXT'),
+      };
+    }
+
+    const normalizedPayload = this.normalizeObjectiveAnswerPayload(
+      question.questionType,
+      answer.answerPayload,
+      contentText,
+    );
+    if (!normalizedPayload) {
+      throw new BadRequestException(`第 ${question.questionCode ?? ''} 题缺少有效答案`);
+    }
+    return {
+      questionId: answer.questionId,
+      contentText,
+      answerPayload: normalizedPayload,
+      answerFormat: answerFormat ?? 'STRUCTURED',
+    };
+  }
+
+  private isObjectiveQuestionType(questionType?: QuestionType | null) {
+    return [
+      QuestionType.SINGLE_CHOICE,
+      QuestionType.MULTI_CHOICE,
+      QuestionType.JUDGE,
+      QuestionType.FILL_BLANK,
+    ].includes((questionType ?? QuestionType.SHORT_ANSWER) as QuestionType);
+  }
+
+  private normalizeObjectiveAnswerPayload(
+    questionType: QuestionType,
+    payload: unknown,
+    contentText: string,
+  ): Record<string, unknown> | null {
+    if (questionType === QuestionType.SINGLE_CHOICE) {
+      const ids = this.extractOptionIds(payload, contentText);
+      if (!ids.length) return null;
+      return { selectedOptionId: ids[0], selectedOptionIds: [ids[0]] };
+    }
+    if (questionType === QuestionType.MULTI_CHOICE) {
+      const ids = this.extractOptionIds(payload, contentText);
+      if (!ids.length) return null;
+      return { selectedOptionIds: Array.from(new Set(ids)) };
+    }
+    if (questionType === QuestionType.JUDGE) {
+      const bool = this.extractBooleanAnswer(payload, contentText);
+      if (bool === null) return null;
+      return { value: bool };
+    }
+    if (questionType === QuestionType.FILL_BLANK) {
+      const blanks = this.extractBlankAnswers(payload, contentText);
+      if (!blanks.length) return null;
+      return { blanks };
+    }
+
+    if (this.isRecord(payload)) {
+      return payload;
+    }
+    if (contentText) {
+      return { text: contentText };
+    }
+    return null;
+  }
+
+  private extractOptionIds(payload: unknown, fallbackText: string): string[] {
+    if (this.isRecord(payload)) {
+      const keys = ['selectedOptionIds', 'selectedOptions', 'optionIds', 'options'];
+      for (const key of keys) {
+        const value = payload[key];
+        if (Array.isArray(value)) {
+          const ids = value
+            .map((item) => String(item).trim())
+            .filter((item) => item.length > 0);
+          if (ids.length) return ids;
+        }
+      }
+      const singleKeys = ['selectedOptionId', 'selectedOption', 'optionId', 'value', 'answer'];
+      for (const key of singleKeys) {
+        const value = payload[key];
+        if (typeof value === 'string' && value.trim()) {
+          return [value.trim()];
+        }
+      }
+    }
+    if (typeof payload === 'string' && payload.trim()) {
+      return [payload.trim()];
+    }
+    return this.splitAnswerTokens(fallbackText);
+  }
+
+  private extractBooleanAnswer(payload: unknown, fallbackText: string): boolean | null {
+    if (this.isRecord(payload)) {
+      const keys = ['value', 'answer', 'isTrue', 'correct'];
+      for (const key of keys) {
+        const value = payload[key];
+        const parsed = this.parseBooleanValue(value);
+        if (parsed !== null) return parsed;
+      }
+    } else {
+      const parsed = this.parseBooleanValue(payload);
+      if (parsed !== null) return parsed;
+    }
+    return this.parseBooleanValue(fallbackText);
+  }
+
+  private parseBooleanValue(value: unknown): boolean | null {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') {
+      if (value === 1) return true;
+      if (value === 0) return false;
+      return null;
+    }
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (['true', 't', 'yes', 'y', '1', '对', '正确'].includes(normalized)) return true;
+    if (['false', 'f', 'no', 'n', '0', '错', '错误'].includes(normalized)) return false;
+    return null;
+  }
+
+  private extractBlankAnswers(payload: unknown, fallbackText: string): string[] {
+    if (this.isRecord(payload)) {
+      const keys = ['blanks', 'answers', 'values'];
+      for (const key of keys) {
+        const value = payload[key];
+        if (Array.isArray(value)) {
+          const answers = value
+            .map((item) => String(item).trim())
+            .filter((item) => item.length > 0);
+          if (answers.length) return answers;
+        }
+      }
+      const single = payload['answer'];
+      if (typeof single === 'string' && single.trim()) {
+        return [single.trim()];
+      }
+    }
+    if (typeof payload === 'string' && payload.trim()) {
+      return this.splitAnswerTokens(payload);
+    }
+    return this.splitAnswerTokens(fallbackText);
+  }
+
+  private splitAnswerTokens(value: string): string[] {
+    if (!value) return [];
+    return value
+      .split(/[\n,，;；、]/g)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
   }
 
   private serializeFileUrls(fileUrls: string[]): string {

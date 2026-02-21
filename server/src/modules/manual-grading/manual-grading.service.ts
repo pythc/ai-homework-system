@@ -48,6 +48,7 @@ export class ManualGradingService {
 
     const snapshot = await this.resolveSnapshot(version);
     const rubricMap = this.buildRubricMap(snapshot);
+    const questionMetaMap = this.buildSnapshotQuestionMeta(snapshot);
     this.validateItems(dto, rubricMap);
 
     await this.scoreRepo.update(
@@ -57,6 +58,8 @@ export class ManualGradingService {
 
     const graderType =
       dto.source === 'AI_ADOPTED' ? GraderType.AI : GraderType.TEACHER;
+    const questionIndex = this.resolveQuestionIndex({ items: dto.items });
+    const questionMeta = questionMetaMap.get(questionIndex) ?? null;
 
     const score = this.scoreRepo.create({
       submissionVersionId,
@@ -66,6 +69,9 @@ export class ManualGradingService {
         items: dto.items,
         finalComment: dto.finalComment ?? null,
         assignmentSnapshotId: snapshot.id,
+        questionType: questionMeta?.questionType ?? null,
+        gradingMode: questionMeta?.gradingMode ?? null,
+        schemaVersion: questionMeta?.schemaVersion ?? null,
       },
       graderType,
       gradedBy: graderId ?? null,
@@ -526,6 +532,8 @@ export class ManualGradingService {
     const snapshotPayload = snapshot.snapshot as {
       questions?: Array<{
         questionIndex?: number;
+        defaultScore?: number;
+        questionType?: string;
         rubric?: Array<{ rubricItemKey?: string; maxScore?: number }>;
       }>;
     };
@@ -550,6 +558,17 @@ export class ManualGradingService {
         const maxScore = Number(item.maxScore ?? 0);
         itemMap.set(item.rubricItemKey, maxScore);
       }
+      if (itemMap.size === 0) {
+        const fallbackScore = Number(question.defaultScore ?? 10);
+        const key =
+          String(question.questionType ?? '').toUpperCase() === 'SHORT_ANSWER'
+            ? 'R1'
+            : 'AUTO_SCORE';
+        itemMap.set(
+          key,
+          Number.isFinite(fallbackScore) && fallbackScore > 0 ? fallbackScore : 10,
+        );
+      }
       rubricMap.set(index, itemMap);
     }
 
@@ -560,6 +579,7 @@ export class ManualGradingService {
     const snapshotPayload = snapshot.snapshot as {
       questions?: Array<{
         questionIndex?: number;
+        defaultScore?: number;
         prompt?: { text?: string };
         standardAnswer?: { text?: string };
         rubric?: Array<{ rubricItemKey?: string; maxScore?: number }>;
@@ -589,7 +609,15 @@ export class ManualGradingService {
         const max = typeof item?.maxScore === 'number' ? item.maxScore : 0;
         return acc + max;
       }, 0);
-      questionMaxScore.set(index, maxScore);
+      const fallbackScore = Number(question.defaultScore ?? 0);
+      questionMaxScore.set(
+        index,
+        maxScore > 0
+          ? maxScore
+          : Number.isFinite(fallbackScore) && fallbackScore > 0
+            ? fallbackScore
+            : 10,
+      );
       const weight = Number(question.weight ?? 0);
       if (Number.isFinite(weight) && weight > 0) {
         questionWeight.set(index, weight);
@@ -611,6 +639,45 @@ export class ManualGradingService {
       defaultWeight,
       questionCount: count,
     };
+  }
+
+  private buildSnapshotQuestionMeta(snapshot: AssignmentSnapshotEntity) {
+    const snapshotPayload = snapshot.snapshot as {
+      questions?: Array<{
+        questionIndex?: number;
+        questionType?: string;
+        gradingPolicy?: { mode?: string } | null;
+        questionSchema?: { schemaVersion?: number } | null;
+      }>;
+    };
+    const questions = Array.isArray(snapshotPayload.questions)
+      ? snapshotPayload.questions
+      : [];
+    const metaMap = new Map<
+      number,
+      { questionType: string; gradingMode: string; schemaVersion: number }
+    >();
+
+    for (const question of questions) {
+      const index = Number(question.questionIndex);
+      if (!Number.isFinite(index)) continue;
+      const questionType = String(question.questionType ?? 'SHORT_ANSWER')
+        .trim()
+        .toUpperCase();
+      const gradingModeRaw = String(question.gradingPolicy?.mode ?? '')
+        .trim()
+        .toUpperCase();
+      const gradingMode =
+        gradingModeRaw === 'AUTO_RULE' ? 'AUTO_RULE' : 'AI_RUBRIC';
+      const schemaVersionRaw = Number(question.questionSchema?.schemaVersion ?? 1);
+      const schemaVersion =
+        Number.isFinite(schemaVersionRaw) && schemaVersionRaw > 0
+          ? Math.floor(schemaVersionRaw)
+          : 1;
+      metaMap.set(index, { questionType, gradingMode, schemaVersion });
+    }
+
+    return metaMap;
   }
 
   private resolveQuestionIndex(scoreDetail: any) {

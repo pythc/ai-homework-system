@@ -1,7 +1,7 @@
 <template>
   <TeacherLayout
     title="发布作业"
-    subtitle="从题库选择题目并发布"
+    subtitle="题库选题 + 自定义题混合组卷"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="教学面板"
@@ -163,124 +163,384 @@
       </div>
     </section>
 
-    <section v-if="step === 2" class="panel glass">
-      <div class="panel-title">
-        题库筛选
-        <span class="badge">{{ selectedQuestionIds.size }} 题已选择</span>
+    <section v-if="step === 2" class="panel glass question-picker-panel">
+      <div class="panel-title question-picker-title">
+        <span>题库筛选</span>
+        <span class="badge">{{ totalSelectedQuestionCount }} 题已选择</span>
       </div>
-      <div class="form-grid">
-        <div class="form-row">
-          <div class="form-field">
-            <label>课本</label>
-            <select v-model="selectedTextbookId" @change="handleTextbookChange">
-              <option value="">请选择课本</option>
-              <option v-for="book in textbooks" :key="book.id" :value="book.id">
-                {{ book.title }}
-              </option>
-            </select>
+
+      <div class="question-source-tabs">
+        <button
+          type="button"
+          class="source-tab"
+          :class="{ active: questionSourceMode === 'MIXED' }"
+          @click="questionSourceMode = 'MIXED'"
+        >
+          混合组卷
+        </button>
+        <button
+          type="button"
+          class="source-tab"
+          :class="{ active: questionSourceMode === 'BANK' }"
+          @click="questionSourceMode = 'BANK'"
+        >
+          从课本题库选题
+        </button>
+        <button
+          type="button"
+          class="source-tab"
+          :class="{ active: questionSourceMode === 'CUSTOM' }"
+          @click="questionSourceMode = 'CUSTOM'"
+        >
+          自定义题目
+        </button>
+        <span class="helper-text source-tab-hint">课本筛选作为选题来源之一，可与自定义题混合发布</span>
+      </div>
+
+      <div class="question-picker-layout">
+        <aside class="question-outline-panel">
+          <div class="question-outline-head">
+            <div class="question-outline-title">题目概览</div>
+            <div class="helper-text">
+              题库题 {{ bankSelectedCount }} · 自定义 {{ customSelectedCount }}
+            </div>
           </div>
-          <div class="form-field">
-            <label>章节</label>
-            <div class="form-row">
-              <div class="form-field">
-                <select v-model="selectedParentChapterId" @change="handleParentChapterChange">
-                  <option value="">请选择大章节</option>
-                  <option
-                    v-for="chapter in parentChapterOptions"
-                    :key="chapter.id"
-                    :value="chapter.id"
-                  >
-                    {{ chapter.title }}
-                  </option>
-                </select>
+          <div v-if="!questionTypeOutline.length" class="empty-box question-outline-empty">
+            尚未选题
+          </div>
+          <div v-else class="question-outline-list">
+            <div v-for="item in questionTypeOutline" :key="item.type" class="question-outline-item">
+              <span class="question-outline-label">{{ item.label }}</span>
+              <span class="badge">{{ item.count }}</span>
+            </div>
+          </div>
+        </aside>
+
+        <div class="question-main-panel">
+          <div
+            v-if="questionSourceMode !== 'CUSTOM'"
+            class="question-main-card"
+          >
+            <div class="question-main-card-head">
+              <div>
+                <div class="question-main-card-title">课本筛选</div>
+                <div class="helper-text">按课本章节筛选题库题目</div>
               </div>
-              <div class="form-field">
-                <select v-model="selectedChapterId">
-                  <option value="">请选择小章节</option>
-                  <option v-for="chapter in childChapterOptions" :key="chapter.id" :value="chapter.id">
-                    {{ chapter.title }}
-                  </option>
-                </select>
+              <div class="question-select-count">当前可选 {{ filteredQuestions.length }} 题</div>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-row">
+                <div class="form-field">
+                  <label>课本</label>
+                  <select v-model="selectedTextbookId" @change="handleTextbookChange">
+                    <option value="">请选择课本</option>
+                    <option v-for="book in textbooks" :key="book.id" :value="book.id">
+                      {{ book.title }}
+                    </option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>章节</label>
+                  <div class="form-row">
+                    <div class="form-field">
+                      <select v-model="selectedParentChapterId" @change="handleParentChapterChange">
+                        <option value="">请选择大章节</option>
+                        <option
+                          v-for="chapter in parentChapterOptions"
+                          :key="chapter.id"
+                          :value="chapter.id"
+                        >
+                          {{ chapter.title }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <select v-model="selectedChapterId">
+                        <option value="">请选择小章节</option>
+                        <option v-for="chapter in childChapterOptions" :key="chapter.id" :value="chapter.id">
+                          {{ chapter.title }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="question-select-actions">
+                <button class="primary-btn" type="button" @click="selectAllVisible">
+                  全选当前章节
+                </button>
+                <button class="primary-btn ghost" type="button" @click="clearSelection">
+                  清空选择
+                </button>
+              </div>
+            </div>
+
+            <div class="qb-list" :class="{ 'qb-list-scroll': !expandQuestionList }" style="margin-top: 14px;">
+              <div
+                v-for="item in visibleQuestions"
+                :key="item.id"
+                class="qb-item qb-question"
+                :class="{ 'is-child': item.depth > 0, active: selectedQuestionIds.has(item.id) }"
+              >
+                <div class="qb-item-title">
+                  <input
+                    v-if="item.nodeType === 'LEAF' || item.nodeType === 'GROUP'"
+                    type="checkbox"
+                    :checked="item.nodeType === 'GROUP' ? isGroupChecked(item.id) : selectedQuestionIds.has(item.id)"
+                    @change="toggleQuestion(item.id)"
+                  />
+                  <span v-if="item.depth" class="qb-indent" />
+                  <span
+                    v-if="item.isExpandable"
+                    class="qb-expand"
+                    @click.stop="toggleExpand(item.id)"
+                  >
+                    {{ expandedIds.has(item.id) ? '▾' : '▸' }}
+                  </span>
+                  <span
+                    class="qb-title-text"
+                    @click="item.isExpandable ? toggleExpand(item.id) : viewDetail(item.id)"
+                  >
+                    {{ getItemTitle(item) }}
+                  </span>
+                  <span
+                    v-if="item.isExpandable && getStemText(item)"
+                    class="qb-stem"
+                    v-mathjax
+                    v-html="renderStemHtml(item)"
+                  />
+                  <span
+                    v-if="item.nodeType === 'LEAF' && getQuestionPreview(item)"
+                    class="qb-preview-inline"
+                    v-mathjax
+                    v-html="getQuestionPreview(item)"
+                  />
+                  <button
+                    class="qb-action qb-detail-btn"
+                    type="button"
+                    @click.stop="viewDetail(item.id)"
+                  >
+                    详情
+                  </button>
+                </div>
+              </div>
+              <div v-if="!filteredQuestions.length" class="empty-box">
+                {{ questionError || '暂无题目' }}
+              </div>
+            </div>
+            <div v-if="filteredQuestions.length > 12" class="qb-footer">
+              <button class="qb-toggle" type="button" @click="expandQuestionList = !expandQuestionList">
+                {{ expandQuestionList ? '收起列表' : '展开全部' }}
+              </button>
+              <div class="helper-text">可滚动浏览更多题目</div>
+            </div>
+          </div>
+
+          <div
+            v-if="questionSourceMode !== 'BANK'"
+            class="question-main-card"
+          >
+            <div class="custom-builder">
+              <div class="custom-builder-header">
+                <div class="custom-builder-title">自定义题目</div>
+                <div class="custom-builder-actions">
+                  <button
+                    v-for="type in quickQuestionTypes"
+                    :key="type.value"
+                    class="custom-type-btn"
+                    type="button"
+                    @click="addCustomQuestion(type.value)"
+                  >
+                    + {{ type.label }}
+                  </button>
+                </div>
+              </div>
+              <div v-if="!customQuestions.length" class="empty-box">
+                还没有自定义题目，可点击上方按钮添加并与题库题混合发布
+              </div>
+              <div v-else class="custom-list">
+                <div
+                  v-for="(question, index) in customQuestions"
+                  :key="question.tempId"
+                  class="custom-card"
+                >
+                  <div class="custom-card-head">
+                    <div class="custom-card-title">
+                      <span class="badge">{{ customTypeLabel(question.questionType) }}</span>
+                      <span>自定义第 {{ index + 1 }} 题</span>
+                    </div>
+                    <button class="qb-action danger" type="button" @click="removeCustomQuestion(question.tempId)">
+                      删除
+                    </button>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-field">
+                      <label>题目标题（可选）</label>
+                      <input
+                        v-model="question.title"
+                        type="text"
+                        :placeholder="`例如：${customTypeLabel(question.questionType)}第 ${index + 1} 题`"
+                      />
+                    </div>
+                    <div class="form-field">
+                      <label>题目分值</label>
+                      <input v-model.number="question.defaultScore" type="number" min="1" step="1" />
+                    </div>
+                  </div>
+                  <div class="form-field">
+                    <label>题干</label>
+                    <TiptapInput
+                      v-model="question.prompt"
+                      :min-height="150"
+                      placeholder="请输入题干内容，可使用 LaTeX 公式"
+                    />
+                  </div>
+                  <div
+                    v-if="['SINGLE_CHOICE', 'MULTI_CHOICE', 'JUDGE'].includes(question.questionType)"
+                    class="form-field"
+                  >
+                    <label>选项</label>
+                    <div class="option-list">
+                      <div
+                        v-for="option in question.options"
+                        :key="option.id"
+                        class="option-row"
+                      >
+                        <span class="option-id">{{ option.id }}</span>
+                        <input
+                          v-model="option.text"
+                          type="text"
+                          :placeholder="`选项 ${option.id}`"
+                          :disabled="question.questionType === 'JUDGE'"
+                        />
+                        <button
+                          v-if="question.questionType !== 'JUDGE' && question.options.length > 2"
+                          class="qb-action"
+                          type="button"
+                          @click="removeOption(question.tempId, option.id)"
+                        >
+                          移除
+                        </button>
+                      </div>
+                      <button
+                        v-if="question.questionType !== 'JUDGE'"
+                        class="qb-action"
+                        type="button"
+                        @click="appendOption(question.tempId)"
+                      >
+                        添加选项
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="question.questionType === 'SINGLE_CHOICE'" class="form-field">
+                    <label>标准答案（单选）</label>
+                    <div class="answer-option-list">
+                      <label
+                        v-for="option in question.options"
+                        :key="`single-${question.tempId}-${option.id}`"
+                        class="answer-option"
+                      >
+                        <input
+                          type="radio"
+                          :name="`single-${question.tempId}`"
+                          :checked="question.correctOptionIds[0] === option.id"
+                          @change="setSingleChoiceAnswer(question.tempId, option.id)"
+                        />
+                        {{ option.id }}
+                      </label>
+                    </div>
+                  </div>
+                  <div v-if="question.questionType === 'MULTI_CHOICE'" class="form-field">
+                    <label>标准答案（多选）</label>
+                    <div class="answer-option-list">
+                      <label
+                        v-for="option in question.options"
+                        :key="`multi-${question.tempId}-${option.id}`"
+                        class="answer-option"
+                      >
+                        <input
+                          type="checkbox"
+                          :checked="question.correctOptionIds.includes(option.id)"
+                          @change="toggleMultiChoiceAnswer(question.tempId, option.id)"
+                        />
+                        {{ option.id }}
+                      </label>
+                    </div>
+                  </div>
+                  <div v-if="question.questionType === 'JUDGE'" class="form-field">
+                    <label>标准答案（判断）</label>
+                    <div class="answer-option-list">
+                      <label class="answer-option">
+                        <input
+                          type="radio"
+                          :name="`judge-${question.tempId}`"
+                          :checked="question.judgeAnswer === true"
+                          @change="setJudgeAnswer(question.tempId, true)"
+                        />
+                        正确
+                      </label>
+                      <label class="answer-option">
+                        <input
+                          type="radio"
+                          :name="`judge-${question.tempId}`"
+                          :checked="question.judgeAnswer === false"
+                          @change="setJudgeAnswer(question.tempId, false)"
+                        />
+                        错误
+                      </label>
+                    </div>
+                  </div>
+                  <div v-if="question.questionType === 'FILL_BLANK'" class="form-field">
+                    <label>标准答案（填空）</label>
+                    <div class="blank-list">
+                      <div
+                        v-for="(blank, blankIndex) in question.blankAnswers"
+                        :key="`blank-${question.tempId}-${blankIndex}`"
+                        class="blank-row"
+                      >
+                        <input
+                          v-model="question.blankAnswers[blankIndex]"
+                          type="text"
+                          :placeholder="`第 ${blankIndex + 1} 空答案`"
+                        />
+                        <button
+                          v-if="question.blankAnswers.length > 1"
+                          class="qb-action"
+                          type="button"
+                          @click="removeBlankAnswer(question.tempId, blankIndex)"
+                        >
+                          移除
+                        </button>
+                      </div>
+                      <button class="qb-action" type="button" @click="appendBlankAnswer(question.tempId)">
+                        添加空位
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    v-if="['SHORT_ANSWER', 'ESSAY', 'CALCULATION', 'PROOF'].includes(question.questionType)"
+                    class="form-field"
+                  >
+                    <label>标准答案（主观题）</label>
+                    <TiptapInput
+                      v-model="question.standardAnswerText"
+                      :min-height="140"
+                      placeholder="用于 AI 对照批改，可输入参考步骤、关键点或示例答案"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <div class="question-select-actions">
-          <button class="primary-btn" type="button" @click="selectAllVisible">
-            全选当前章节
-          </button>
-          <button class="primary-btn" type="button" @click="clearSelection">
-            清空选择
-          </button>
-          <div class="question-select-count">
-            当前可选 {{ filteredQuestions.length }} 题
-          </div>
-        </div>
       </div>
-      <div class="qb-list" :class="{ 'qb-list-scroll': !expandQuestionList }" style="margin-top: 14px;">
-        <div
-          v-for="item in visibleQuestions"
-          :key="item.id"
-          class="qb-item qb-question"
-          :class="{ 'is-child': item.depth > 0, active: selectedQuestionIds.has(item.id) }"
-        >
-          <div class="qb-item-title">
-            <input
-              v-if="item.nodeType === 'LEAF' || item.nodeType === 'GROUP'"
-              type="checkbox"
-              :checked="item.nodeType === 'GROUP' ? isGroupChecked(item.id) : selectedQuestionIds.has(item.id)"
-              @change="toggleQuestion(item.id)"
-            />
-            <span v-if="item.depth" class="qb-indent" />
-            <span
-              v-if="item.isExpandable"
-              class="qb-expand"
-              @click.stop="toggleExpand(item.id)"
-            >
-              {{ expandedIds.has(item.id) ? '▾' : '▸' }}
-            </span>
-            <span
-              class="qb-title-text"
-              @click="item.isExpandable ? toggleExpand(item.id) : viewDetail(item.id)"
-            >
-              {{ getItemTitle(item) }}
-            </span>
-            <span
-              v-if="item.isExpandable && getStemText(item)"
-              class="qb-stem"
-              v-mathjax
-              v-html="renderStemHtml(item)"
-            />
-            <span
-              v-if="item.nodeType === 'LEAF' && getQuestionPreview(item)"
-              class="qb-preview-inline"
-              v-mathjax
-              v-html="getQuestionPreview(item)"
-            />
-            <button
-              class="qb-action qb-detail-btn"
-              type="button"
-              @click.stop="viewDetail(item.id)"
-            >
-              详情
-            </button>
-          </div>
-        </div>
-        <div v-if="!filteredQuestions.length" class="empty-box">
-          {{ questionError || '暂无题目' }}
-        </div>
-      </div>
-      <div v-if="filteredQuestions.length > 12" class="qb-footer">
-        <button class="qb-toggle" type="button" @click="expandQuestionList = !expandQuestionList">
-          {{ expandQuestionList ? '收起列表' : '展开全部' }}
-        </button>
-        <div class="helper-text">可滚动浏览更多题目</div>
-      </div>
+
       <div class="step-actions">
         <button class="primary-btn ghost" type="button" @click="step = 1">
           上一步
         </button>
-        <button class="primary-btn" type="button" :disabled="!canEnterStep3" @click="step = 3">
+        <button class="primary-btn" type="button" :disabled="!canEnterStep3" @click="goStep3">
           下一步
         </button>
       </div>
@@ -291,22 +551,29 @@
         题目权重
         <span class="badge">合计 {{ weightSum.toFixed(2) }}%</span>
       </div>
-      <div v-if="!orderedSelectedQuestions.length" class="empty-box">请先选择题目</div>
+      <div v-if="!orderedPublishQuestions.length" class="empty-box">请先选择或创建题目</div>
       <div v-else class="weight-list">
         <div
-          v-for="(question, index) in orderedSelectedQuestions"
-          :key="question.id"
+          v-for="(question, index) in orderedPublishQuestions"
+          :key="question.key"
           class="weight-row"
         >
           <div class="weight-title">
             <div class="weight-index">第 {{ index + 1 }} 题</div>
-            <div v-if="getParentPromptText(question)" class="weight-parent" v-mathjax>
-              <div v-html="getParentPromptText(question)" />
+            <div class="weight-parent">
+              <span class="badge">{{ customTypeLabel(question.questionType) }}</span>
             </div>
-            <div class="weight-label" v-mathjax v-html="getWeightLabel(question)" />
+            <div
+              v-if="question.source === 'bank' && getParentPromptText(question.raw)"
+              class="weight-parent"
+              v-mathjax
+            >
+              <div v-html="getParentPromptText(question.raw)" />
+            </div>
+            <div class="weight-label" v-mathjax v-html="question.previewHtml" />
           </div>
           <input
-            v-model.number="questionWeights[question.id]"
+            v-model.number="questionWeights[question.key]"
             type="number"
             min="0"
             max="100"
@@ -388,10 +655,16 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
+import TiptapInput from '../components/TiptapInput.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getCourseSummary, listCourses } from '../api/course'
 import { getQuestionBankStructure, listQuestionBank } from '../api/questionBank'
-import { createAssignment, listTeacherAssignments, publishAssignment } from '../api/assignment'
+import {
+  createAssignment,
+  listTeacherAssignments,
+  publishAssignment,
+  replaceAssignmentQuestions,
+} from '../api/assignment'
 import { showAppToast } from '../composables/useAppToast'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
@@ -425,10 +698,13 @@ const courseAssignmentCount = ref(0)
 
 const selectedQuestionIds = ref(new Set())
 const selectedQuestionOrder = ref([])
+const customQuestions = ref([])
+const customQuestionCounter = ref(1)
 const isHydrating = ref(true)
 const questionWeights = ref({})
 const expandQuestionList = ref(false)
 const step = ref(1)
+const questionSourceMode = ref('MIXED')
 
 const questionError = ref('')
 const submitError = ref('')
@@ -452,6 +728,177 @@ const strictnessOptions = [
     distribution: '分布左移，对步骤完整性更敏感',
   },
 ]
+
+const customTypeLabel = (questionType) => customTypeLabels[questionType] ?? '题目'
+
+const createOptionList = (forJudge = false) => {
+  if (forJudge) {
+    return [
+      { id: 'A', text: '正确' },
+      { id: 'B', text: '错误' },
+    ]
+  }
+  return [
+    { id: 'A', text: '' },
+    { id: 'B', text: '' },
+  ]
+}
+
+const nextOptionId = (options) => {
+  const code = 'A'.charCodeAt(0) + options.length
+  if (code <= 'Z'.charCodeAt(0)) {
+    return String.fromCharCode(code)
+  }
+  return `OPT_${options.length + 1}`
+}
+
+const createCustomQuestionDraft = (questionType) => {
+  const tempId = `tmp-${Date.now()}-${customQuestionCounter.value}`
+  customQuestionCounter.value += 1
+  const isJudge = questionType === 'JUDGE'
+  const isObjective = ['SINGLE_CHOICE', 'MULTI_CHOICE', 'FILL_BLANK', 'JUDGE'].includes(questionType)
+  return {
+    tempId,
+    questionType,
+    title: '',
+    prompt: '',
+    defaultScore: 10,
+    allowPartial: questionType === 'MULTI_CHOICE' || questionType === 'FILL_BLANK',
+    options: ['SINGLE_CHOICE', 'MULTI_CHOICE', 'JUDGE'].includes(questionType)
+      ? createOptionList(isJudge)
+      : [],
+    correctOptionIds: questionType === 'JUDGE' ? ['A'] : [],
+    judgeAnswer: questionType === 'JUDGE' ? true : null,
+    blankAnswers: questionType === 'FILL_BLANK' ? [''] : [],
+    standardAnswerText: isObjective ? '' : '',
+    gradingMode: isObjective ? 'AUTO_RULE' : 'AI_RUBRIC',
+  }
+}
+
+const sanitizeCustomQuestionDraft = (input) => {
+  if (!input || typeof input !== 'object') return null
+  const questionType = String(input.questionType || '').toUpperCase()
+  if (!quickQuestionTypes.some((item) => item.value === questionType) && !['ESSAY', 'PROOF'].includes(questionType)) {
+    return null
+  }
+  const draft = createCustomQuestionDraft(questionType)
+  draft.title = String(input.title || '')
+  draft.prompt = String(input.prompt || '')
+  draft.defaultScore = Number(input.defaultScore) > 0 ? Number(input.defaultScore) : 10
+  draft.allowPartial = Boolean(input.allowPartial)
+  if (Array.isArray(input.options)) {
+    const options = input.options
+      .map((item) => ({
+        id: String(item?.id || '').trim(),
+        text: String(item?.text || ''),
+      }))
+      .filter((item) => item.id)
+    if (options.length >= 2) {
+      draft.options = options
+    }
+  }
+  if (Array.isArray(input.correctOptionIds)) {
+    draft.correctOptionIds = input.correctOptionIds.map((item) => String(item)).filter(Boolean)
+  }
+  if (typeof input.judgeAnswer === 'boolean') {
+    draft.judgeAnswer = input.judgeAnswer
+  }
+  if (Array.isArray(input.blankAnswers)) {
+    const blanks = input.blankAnswers.map((item) => String(item || ''))
+    if (blanks.length) {
+      draft.blankAnswers = blanks
+    }
+  }
+  draft.standardAnswerText = String(input.standardAnswerText || '')
+  return draft
+}
+
+const addCustomQuestion = (questionType) => {
+  customQuestions.value = [...customQuestions.value, createCustomQuestionDraft(questionType)]
+  syncWeights()
+}
+
+const removeCustomQuestion = (tempId) => {
+  customQuestions.value = customQuestions.value.filter((item) => item.tempId !== tempId)
+  const key = `custom:${tempId}`
+  if (questionWeights.value[key] !== undefined) {
+    const next = { ...questionWeights.value }
+    delete next[key]
+    questionWeights.value = next
+  }
+  syncWeights()
+}
+
+const findCustomQuestion = (tempId) =>
+  customQuestions.value.find((item) => item.tempId === tempId)
+
+const appendOption = (tempId) => {
+  const question = findCustomQuestion(tempId)
+  if (!question) return
+  question.options.push({ id: nextOptionId(question.options), text: '' })
+}
+
+const removeOption = (tempId, optionId) => {
+  const question = findCustomQuestion(tempId)
+  if (!question || question.options.length <= 2) return
+  question.options = question.options.filter((option) => option.id !== optionId)
+  question.correctOptionIds = question.correctOptionIds.filter((id) => id !== optionId)
+}
+
+const setSingleChoiceAnswer = (tempId, optionId) => {
+  const question = findCustomQuestion(tempId)
+  if (!question) return
+  question.correctOptionIds = [optionId]
+}
+
+const toggleMultiChoiceAnswer = (tempId, optionId) => {
+  const question = findCustomQuestion(tempId)
+  if (!question) return
+  if (question.correctOptionIds.includes(optionId)) {
+    question.correctOptionIds = question.correctOptionIds.filter((id) => id !== optionId)
+    return
+  }
+  question.correctOptionIds = [...question.correctOptionIds, optionId]
+}
+
+const setJudgeAnswer = (tempId, value) => {
+  const question = findCustomQuestion(tempId)
+  if (!question) return
+  question.judgeAnswer = value
+  question.correctOptionIds = [value ? 'A' : 'B']
+}
+
+const appendBlankAnswer = (tempId) => {
+  const question = findCustomQuestion(tempId)
+  if (!question) return
+  question.blankAnswers.push('')
+}
+
+const removeBlankAnswer = (tempId, blankIndex) => {
+  const question = findCustomQuestion(tempId)
+  if (!question || question.blankAnswers.length <= 1) return
+  question.blankAnswers.splice(blankIndex, 1)
+}
+
+const quickQuestionTypes = [
+  { value: 'SINGLE_CHOICE', label: '单选题' },
+  { value: 'MULTI_CHOICE', label: '多选题' },
+  { value: 'FILL_BLANK', label: '填空题' },
+  { value: 'JUDGE', label: '判断题' },
+  { value: 'SHORT_ANSWER', label: '简答题' },
+  { value: 'CALCULATION', label: '计算题' },
+]
+
+const customTypeLabels = {
+  SINGLE_CHOICE: '单选题',
+  MULTI_CHOICE: '多选题',
+  FILL_BLANK: '填空题',
+  JUDGE: '判断题',
+  SHORT_ANSWER: '简答题',
+  ESSAY: '论述题',
+  CALCULATION: '计算题',
+  PROOF: '证明题',
+}
 
 const normalizeStrictness = (value) => {
   const candidate = String(value || '').toUpperCase()
@@ -478,9 +925,37 @@ const strictnessDistributionLabel = computed(() => strictnessPreset.value.distri
 
 const strictnessModeText = computed(() => strictnessPreset.value.label)
 
-const selectedQuestionCount = computed(() =>
-  selectedQuestionOrder.value.filter((id) => selectedQuestionIds.value.has(id)).length,
+const selectedQuestionCount = computed(
+  () => selectedQuestionIds.value.size + customQuestions.value.length,
 )
+
+const bankSelectedCount = computed(() => selectedQuestionIds.value.size)
+const customSelectedCount = computed(() => customQuestions.value.length)
+
+const questionTypeOutline = computed(() => {
+  const typeOrder = [
+    'SINGLE_CHOICE',
+    'MULTI_CHOICE',
+    'FILL_BLANK',
+    'JUDGE',
+    'SHORT_ANSWER',
+    'CALCULATION',
+    'ESSAY',
+    'PROOF',
+  ]
+  const bucket = new Map()
+  orderedPublishQuestions.value.forEach((question) => {
+    const type = String(question.questionType || 'SHORT_ANSWER')
+    bucket.set(type, (bucket.get(type) || 0) + 1)
+  })
+  return typeOrder
+    .map((type) => ({
+      type,
+      label: customTypeLabel(type),
+      count: bucket.get(type) || 0,
+    }))
+    .filter((item) => item.count > 0)
+})
 
 const estimatedAiRuns = computed(() =>
   aiEnabled.value ? courseStudentCount.value * selectedQuestionCount.value : 0,
@@ -603,6 +1078,10 @@ const hydrateForm = async () => {
     totalScore.value =
       typeof payload?.totalScore === 'number' ? payload.totalScore : totalScore.value
     step.value = payload?.step ?? step.value
+    questionSourceMode.value =
+      payload?.questionSourceMode === 'BANK' || payload?.questionSourceMode === 'CUSTOM'
+        ? payload.questionSourceMode
+        : 'MIXED'
 
     const ids = Array.isArray(payload?.selectedQuestionIds)
       ? payload.selectedQuestionIds
@@ -614,6 +1093,15 @@ const hydrateForm = async () => {
     selectedQuestionOrder.value = order.length ? order : ids
     questionWeights.value = payload?.questionWeights ?? {}
     expandQuestionList.value = payload?.expandQuestionList ?? false
+    customQuestions.value = Array.isArray(payload?.customQuestions)
+      ? payload.customQuestions
+          .map((item) => sanitizeCustomQuestionDraft(item))
+          .filter((item) => Boolean(item))
+      : []
+    customQuestionCounter.value =
+      typeof payload?.customQuestionCounter === 'number' && payload.customQuestionCounter > 0
+        ? payload.customQuestionCounter
+        : customQuestions.value.length + 1
 
     const stepFromQuery = Number(route.query.step ?? 0)
     if ([1, 2, 3].includes(stepFromQuery)) {
@@ -643,8 +1131,11 @@ const persistForm = () => {
     aiConfidenceThreshold: aiConfidenceThreshold.value,
     totalScore: totalScore.value,
     step: step.value,
+    questionSourceMode: questionSourceMode.value,
     selectedQuestionIds: Array.from(selectedQuestionIds.value),
     selectedQuestionOrder: selectedQuestionOrder.value,
+    customQuestions: customQuestions.value,
+    customQuestionCounter: customQuestionCounter.value,
     questionWeights: questionWeights.value,
     expandQuestionList: expandQuestionList.value,
   }
@@ -665,9 +1156,9 @@ watch([selectedCourseId, selectedTextbookId, selectedParentChapterId, selectedCh
   persistFilters()
 })
 
-watch(selectedQuestionIds, () => {
+watch([selectedQuestionIds, selectedQuestionOrder, customQuestions], () => {
   syncWeights()
-})
+}, { deep: true })
 
 watch(aiEnabled, (enabled) => {
   if (!enabled) {
@@ -694,7 +1185,11 @@ watch(
     aiConfidenceThreshold,
     totalScore,
     step,
+    questionSourceMode,
     selectedQuestionIds,
+    selectedQuestionOrder,
+    customQuestions,
+    customQuestionCounter,
     questionWeights,
     expandQuestionList,
   ],
@@ -1011,6 +1506,28 @@ const orderedSelectedQuestions = computed(() => {
     .filter((item) => item && item.nodeType === 'LEAF')
 })
 
+const orderedPublishQuestions = computed(() => {
+  const bankPart = orderedSelectedQuestions.value.map((question, index) => ({
+    key: question.id,
+    source: 'bank',
+    questionType: String(question.questionType || 'SHORT_ANSWER'),
+    previewHtml: getWeightLabel(question),
+    orderNo: index + 1,
+    raw: question,
+  }))
+  const customPart = customQuestions.value.map((question, index) => ({
+    key: `custom:${question.tempId}`,
+    source: 'custom',
+    questionType: question.questionType,
+    previewHtml: (question.prompt || question.title || `自定义第 ${index + 1} 题`).replace(/\n/g, '<br />'),
+    orderNo: bankPart.length + index + 1,
+    raw: question,
+  }))
+  return [...bankPart, ...customPart]
+})
+
+const totalSelectedQuestionCount = computed(() => orderedPublishQuestions.value.length)
+
 const isDescendantOf = (itemId, ancestorId) => {
   let current = filteredQuestionById.value.get(itemId)
   while (current?.parentId) {
@@ -1046,13 +1563,11 @@ const canEnterStep2 = computed(() => {
 })
 
 const canEnterStep3 = computed(() => {
-  if (selectedQuestionIds.value.size > 0) return true
-  if (selectedQuestionOrder.value.length > 0) return true
-  return questions.value.some((item) => selectedQuestionIds.value.has(item.id))
+  return orderedPublishQuestions.value.length > 0
 })
 
 const canPublish = computed(() => {
-  if (!selectedQuestionIds.value.size) return false
+  if (!orderedPublishQuestions.value.length) return false
   if (!Number.isFinite(Number(totalScore.value)) || Number(totalScore.value) <= 0) return false
   if (
     !Number.isFinite(Number(aiConfidenceThreshold.value)) ||
@@ -1064,30 +1579,31 @@ const canPublish = computed(() => {
 })
 
 const syncWeights = () => {
-  const ids = Array.from(selectedQuestionIds.value)
+  const keys = orderedPublishQuestions.value.map((item) => item.key)
+  const keySet = new Set(keys)
   const next = { ...questionWeights.value }
   let changed = false
 
-  for (const id of ids) {
-    if (next[id] === undefined) {
-      next[id] = 0
+  for (const key of keys) {
+    if (next[key] === undefined) {
+      next[key] = 0
       changed = true
     }
   }
-  for (const id of Object.keys(next)) {
-    if (!selectedQuestionIds.value.has(id)) {
-      delete next[id]
+  for (const key of Object.keys(next)) {
+    if (!keySet.has(key)) {
+      delete next[key]
       changed = true
     }
   }
-  const hasAny = ids.length > 0
+  const hasAny = keys.length > 0
   const sum = Object.values(next).reduce((acc, val) => acc + (Number(val) || 0), 0)
   if (hasAny && sum === 0) {
-    const equal = Number((100 / ids.length).toFixed(2))
-    ids.forEach((id, index) => {
-      next[id] =
-        index === ids.length - 1
-          ? Number((100 - equal * (ids.length - 1)).toFixed(2))
+    const equal = Number((100 / keys.length).toFixed(2))
+    keys.forEach((key, index) => {
+      next[key] =
+        index === keys.length - 1
+          ? Number((100 - equal * (keys.length - 1)).toFixed(2))
           : equal
     })
     changed = true
@@ -1096,26 +1612,17 @@ const syncWeights = () => {
   if (changed) {
     questionWeights.value = next
   }
-
-  const order = selectedQuestionOrder.value.filter((id) =>
-    selectedQuestionIds.value.has(id),
-  )
-  if (order.length !== selectedQuestionOrder.value.length) {
-    selectedQuestionOrder.value = order
-  }
 }
 
 const autoBalanceWeights = () => {
-  const ids = [...selectedQuestionOrder.value].filter((id) =>
-    selectedQuestionIds.value.has(id),
-  )
-  if (!ids.length) return
-  const equal = Number((100 / ids.length).toFixed(2))
+  const keys = orderedPublishQuestions.value.map((item) => item.key)
+  if (!keys.length) return
+  const equal = Number((100 / keys.length).toFixed(2))
   const next = {}
-  ids.forEach((id, index) => {
-    next[id] =
-      index === ids.length - 1
-        ? Number((100 - equal * (ids.length - 1)).toFixed(2))
+  keys.forEach((key, index) => {
+    next[key] =
+      index === keys.length - 1
+        ? Number((100 - equal * (keys.length - 1)).toFixed(2))
         : equal
   })
   questionWeights.value = next
@@ -1189,19 +1696,173 @@ const goStep2 = async () => {
   }
 }
 
+const validateCustomQuestion = (question, displayIndex) => {
+  const label = `${customTypeLabel(question.questionType)}（第 ${displayIndex} 题）`
+  if (!String(question.prompt || '').trim()) {
+    return `${label}缺少题干`
+  }
+  if (!Number.isFinite(Number(question.defaultScore)) || Number(question.defaultScore) <= 0) {
+    return `${label}分值必须大于 0`
+  }
+  if (['SINGLE_CHOICE', 'MULTI_CHOICE', 'JUDGE'].includes(question.questionType)) {
+    const options = Array.isArray(question.options) ? question.options : []
+    if (options.length < 2) return `${label}至少需要 2 个选项`
+    const emptyOption = options.find((option) => !String(option.text || '').trim())
+    if (emptyOption) return `${label}存在空选项，请补全`
+    if (question.questionType === 'SINGLE_CHOICE' && question.correctOptionIds.length !== 1) {
+      return `${label}请选择 1 个标准答案`
+    }
+    if (question.questionType === 'MULTI_CHOICE' && question.correctOptionIds.length < 1) {
+      return `${label}请至少选择 1 个标准答案`
+    }
+    if (question.questionType === 'JUDGE' && typeof question.judgeAnswer !== 'boolean') {
+      return `${label}请设置判断题标准答案`
+    }
+  }
+  if (question.questionType === 'FILL_BLANK') {
+    const blanks = Array.isArray(question.blankAnswers) ? question.blankAnswers : []
+    if (!blanks.length) return `${label}至少需要 1 个填空答案`
+    const invalid = blanks.find((item) => !String(item || '').trim())
+    if (invalid !== undefined) return `${label}存在空白答案，请补全`
+  }
+  if (['SHORT_ANSWER', 'ESSAY', 'CALCULATION', 'PROOF'].includes(question.questionType)) {
+    if (!String(question.standardAnswerText || '').trim()) {
+      return `${label}请填写标准答案`
+    }
+  }
+  return ''
+}
+
+const goStep3 = () => {
+  submitError.value = ''
+  const mixed = orderedPublishQuestions.value
+  if (!mixed.length) {
+    submitError.value = '请至少选择或创建一道题目'
+    showAppToast(submitError.value, 'error')
+    return
+  }
+  for (let i = 0; i < customQuestions.value.length; i += 1) {
+    const message = validateCustomQuestion(customQuestions.value[i], i + 1)
+    if (message) {
+      submitError.value = message
+      showAppToast(message, 'error')
+      return
+    }
+  }
+  syncWeights()
+  step.value = 3
+}
+
+const buildCustomQuestionPayload = (question, questionIndex) => {
+  const type = String(question.questionType || 'SHORT_ANSWER')
+  const base = {
+    questionIndex,
+    title: String(question.title || '').trim() || `${customTypeLabel(type)} ${questionIndex}`,
+    prompt: String(question.prompt || '').trim(),
+    questionType: type,
+    defaultScore: Number(question.defaultScore || 10),
+    gradingPolicy: {
+      mode: ['SINGLE_CHOICE', 'MULTI_CHOICE', 'FILL_BLANK', 'JUDGE'].includes(type)
+        ? 'AUTO_RULE'
+        : 'AI_RUBRIC',
+    },
+  }
+
+  if (['SINGLE_CHOICE', 'MULTI_CHOICE'].includes(type)) {
+    const options = question.options.map((item) => ({
+      id: String(item.id),
+      text: String(item.text || '').trim(),
+    }))
+    return {
+      ...base,
+      questionSchema: {
+        options,
+        allowPartial: type === 'MULTI_CHOICE' ? Boolean(question.allowPartial) : false,
+      },
+      standardAnswer: {
+        correctOptionIds: question.correctOptionIds,
+      },
+    }
+  }
+
+  if (type === 'JUDGE') {
+    return {
+      ...base,
+      questionSchema: {
+        options: [
+          { id: 'A', text: '正确' },
+          { id: 'B', text: '错误' },
+        ],
+        allowPartial: false,
+      },
+      standardAnswer: {
+        value: Boolean(question.judgeAnswer),
+      },
+    }
+  }
+
+  if (type === 'FILL_BLANK') {
+    const blanks = question.blankAnswers.map((item) => String(item || '').trim())
+    return {
+      ...base,
+      questionSchema: {
+        blankCount: blanks.length,
+        allowPartial: Boolean(question.allowPartial),
+      },
+      standardAnswer: {
+        blanks,
+      },
+    }
+  }
+
+  const answerText = String(question.standardAnswerText || '').trim()
+  return {
+    ...base,
+    standardAnswer: {
+      text: answerText,
+    },
+    rubric: [
+      {
+        rubricItemKey: 'R1',
+        maxScore: Number(question.defaultScore || 10),
+        criteria: '依据标准答案与步骤完整性评分',
+      },
+    ],
+  }
+}
+
 const handlePublish = async () => {
   submitError.value = ''
 
   if (!selectedCourseId.value) {
     submitError.value = '请先选择课程'
+    showAppToast(submitError.value, 'error')
     return
   }
   if (!title.value.trim()) {
     submitError.value = '请填写作业标题'
+    showAppToast(submitError.value, 'error')
     return
   }
-  if (!selectedQuestionIds.value.size) {
-    submitError.value = '请至少选择一道题目'
+
+  const mixed = orderedPublishQuestions.value
+  if (!mixed.length) {
+    submitError.value = '请至少选择或创建一道题目'
+    showAppToast(submitError.value, 'error')
+    return
+  }
+  for (let i = 0; i < customQuestions.value.length; i += 1) {
+    const message = validateCustomQuestion(customQuestions.value[i], i + 1)
+    if (message) {
+      submitError.value = message
+      showAppToast(message, 'error')
+      return
+    }
+  }
+  syncWeights()
+  if (Math.abs(weightSum.value - 100) > 0.01) {
+    submitError.value = '题目权重之和必须为 100%'
+    showAppToast(submitError.value, 'error')
     return
   }
 
@@ -1211,8 +1872,14 @@ const handlePublish = async () => {
     const duplicateExists = await hasDuplicateAssignmentTitle()
     if (duplicateExists) {
       submitError.value = '同一课程下作业标题已存在，请更换后再发布'
+      showAppToast(submitError.value, 'error')
       return
     }
+
+    const bankQuestionIds = orderedSelectedQuestions.value.map((item) => item.id)
+    const customPayload = customQuestions.value.map((question, index) =>
+      buildCustomQuestionPayload(question, index + 1),
+    )
 
     const created = await createAssignment({
       courseId: selectedCourseId.value,
@@ -1228,13 +1895,48 @@ const handlePublish = async () => {
       allowViewScore: allowViewScore.value,
       handwritingRecognition: handwritingRecognition.value,
       aiConfidenceThreshold: normalizeConfidenceThreshold(aiConfidenceThreshold.value),
-      selectedQuestionIds: Array.from(selectedQuestionIds.value),
+      selectedQuestionIds: bankQuestionIds,
+      questions: customPayload,
     })
     const assignmentId = created.id
-    const weightsPayload = Array.from(selectedQuestionIds.value).map((id) => ({
-      questionId: id,
-      weight: Number(questionWeights.value[id] ?? 0),
-    }))
+    const customIdMap = new Map()
+    const createdQuestionIds = Array.isArray(created.selectedQuestionIds)
+      ? created.selectedQuestionIds
+      : []
+    customQuestions.value.forEach((item, index) => {
+      const createdId = createdQuestionIds[index]
+      if (createdId) {
+        customIdMap.set(item.tempId, createdId)
+      }
+    })
+    if (customQuestions.value.length > 0 && customIdMap.size !== customQuestions.value.length) {
+      throw new Error('部分自定义题创建失败，请重试')
+    }
+
+    const finalOrderedQuestionIds = mixed
+      .map((item) => {
+        if (item.source === 'bank') return String(item.key)
+        const tempId = String(item.raw?.tempId || '')
+        return customIdMap.get(tempId) ?? ''
+      })
+      .filter((item) => Boolean(item))
+
+    if (finalOrderedQuestionIds.length !== mixed.length) {
+      throw new Error('题目顺序映射失败，请重试发布')
+    }
+
+    await replaceAssignmentQuestions(assignmentId, finalOrderedQuestionIds)
+
+    const weightsPayload = mixed.map((item) => {
+      const questionId =
+        item.source === 'bank'
+          ? String(item.key)
+          : customIdMap.get(String(item.raw?.tempId || '')) || ''
+      return {
+        questionId,
+        weight: Number(questionWeights.value[item.key] ?? 0),
+      }
+    })
     await publishAssignment(assignmentId, { questionWeights: weightsPayload })
     showAppToast('作业发布成功', 'success')
     sessionStorage.removeItem(FORM_KEY)
@@ -1255,11 +1957,15 @@ const handlePublish = async () => {
     totalScore.value = 100
     selectedQuestionIds.value = new Set()
     selectedQuestionOrder.value = []
+    customQuestions.value = []
+    customQuestionCounter.value = 1
     questionWeights.value = {}
     expandQuestionList.value = false
     step.value = 1
+    questionSourceMode.value = 'MIXED'
   } catch (err) {
     submitError.value = err instanceof Error ? err.message : '发布失败'
+    showAppToast(submitError.value, 'error')
   } finally {
     submitLoading.value = false
   }
@@ -1267,6 +1973,303 @@ const handlePublish = async () => {
 </script>
 
 <style scoped>
+.question-picker-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.question-picker-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.question-source-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(196, 213, 238, 0.5);
+}
+
+.source-tab {
+  border: 1px solid rgba(183, 201, 230, 0.7);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: rgba(26, 29, 51, 0.74);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.source-tab:hover {
+  border-color: rgba(122, 166, 233, 0.8);
+  color: rgba(26, 29, 51, 0.9);
+}
+
+.source-tab.active {
+  border-color: rgba(99, 146, 232, 0.85);
+  background: linear-gradient(135deg, rgba(90, 140, 255, 0.85), rgba(120, 200, 230, 0.85));
+  color: #fff;
+}
+
+.source-tab-hint {
+  margin-left: auto;
+}
+
+.question-picker-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.question-outline-panel {
+  border-radius: 14px;
+  border: 1px solid rgba(196, 213, 238, 0.5);
+  background: rgba(255, 255, 255, 0.66);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.question-outline-head {
+  display: grid;
+  gap: 4px;
+}
+
+.question-outline-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(26, 29, 51, 0.92);
+}
+
+.question-outline-empty {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.question-outline-list {
+  display: grid;
+  gap: 8px;
+}
+
+.question-outline-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(211, 223, 243, 0.56);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.question-outline-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(26, 29, 51, 0.85);
+}
+
+.question-main-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.question-main-card {
+  border-radius: 14px;
+  border: 1px solid rgba(196, 213, 238, 0.5);
+  background: rgba(255, 255, 255, 0.66);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.question-main-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.question-main-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(26, 29, 51, 0.92);
+}
+
+.question-select-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.question-select-count {
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.62);
+  font-weight: 600;
+}
+
+.qb-list {
+  display: grid;
+  gap: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(209, 223, 245, 0.58);
+  background: rgba(255, 255, 255, 0.75);
+  padding: 10px;
+}
+
+.qb-item {
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 8px 10px;
+}
+
+.qb-item.active {
+  border-color: rgba(112, 160, 232, 0.78);
+  background: rgba(230, 241, 255, 0.75);
+}
+
+.custom-builder {
+  display: grid;
+  gap: 12px;
+}
+
+.custom-builder-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.custom-builder-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(26, 29, 51, 0.92);
+}
+
+.custom-builder-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.custom-type-btn {
+  border: 1px solid rgba(183, 201, 230, 0.7);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: rgba(26, 29, 51, 0.76);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.custom-type-btn:hover {
+  border-color: rgba(122, 166, 233, 0.8);
+  color: rgba(26, 29, 51, 0.92);
+}
+
+.custom-list {
+  display: grid;
+  gap: 12px;
+}
+
+.custom-card {
+  border-radius: 12px;
+  border: 1px solid rgba(209, 223, 245, 0.58);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.custom-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.custom-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.option-list,
+.blank-list {
+  display: grid;
+  gap: 8px;
+}
+
+.option-row,
+.blank-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.option-id {
+  width: 24px;
+  font-weight: 700;
+  color: rgba(26, 29, 51, 0.66);
+}
+
+.answer-option-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.answer-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(203, 217, 241, 0.7);
+  background: rgba(255, 255, 255, 0.84);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.78);
+}
+
+.qb-action {
+  border: 1px solid rgba(185, 205, 236, 0.76);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 6px 12px;
+  color: rgba(26, 29, 51, 0.78);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.qb-action.danger {
+  border-color: rgba(236, 167, 180, 0.8);
+  color: rgba(182, 68, 92, 0.92);
+  background: rgba(255, 238, 242, 0.9);
+}
+
+.qb-action:hover {
+  border-color: rgba(120, 165, 236, 0.9);
+}
+
 .weight-list {
   display: grid;
   gap: 10px;
@@ -1651,6 +2654,25 @@ const handlePublish = async () => {
 }
 
 @media (max-width: 900px) {
+  .question-picker-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .source-tab-hint {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .question-main-card-head {
+    align-items: flex-start;
+  }
+
+  .option-row,
+  .blank-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
   .estimate-grid {
     grid-template-columns: 1fr;
   }

@@ -47,6 +47,8 @@ export interface LeafQuestionInput extends BaseQuestionInput {
   defaultScore: number;
   rubric: RubricItem[];
   orderNo?: number;
+  questionSchema?: Record<string, unknown>;
+  gradingPolicy?: Record<string, unknown>;
 }
 
 export interface GroupQuestionInput extends BaseQuestionInput {
@@ -83,4 +85,6 @@ export interface QuestionBankUpdateDto {
   defaultScore?: number;
   rubric?: RubricItem[];
   orderNo?: number;
+  questionSchema?: Record<string, unknown>;
+  gradingPolicy?: Record<string, unknown>;
 }

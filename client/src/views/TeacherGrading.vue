@@ -147,7 +147,7 @@
                 <div
                   class="detail-text"
                   v-mathjax
-                  v-html="renderMath(currentQuestion?.prompt?.text)"
+                  v-html="renderMath(extractPromptText(currentQuestion?.prompt))"
                 />
               </div>
               <div class="detail-block">
@@ -155,7 +155,7 @@
                 <div
                   class="detail-text"
                   v-mathjax
-                  v-html="renderMath(currentQuestion?.standardAnswer?.text)"
+                  v-html="renderMath(extractStandardAnswerText(currentQuestion?.standardAnswer))"
                 />
               </div>
             </div>
@@ -598,6 +598,25 @@ const resolveFileUrl = (url: string) => {
     return `${apiBaseOrigin}${url}`
   }
   return url
+}
+
+const extractPromptText = (
+  prompt?: string | { text?: string; media?: Array<{ url: string; caption?: string }> },
+) => {
+  if (!prompt) return ''
+  if (typeof prompt === 'string') return prompt
+  return String(prompt.text ?? '')
+}
+
+const extractStandardAnswerText = (
+  standardAnswer?: string | { text?: string } | Record<string, unknown>,
+) => {
+  if (!standardAnswer) return ''
+  if (typeof standardAnswer === 'string') return standardAnswer
+  if ('text' in standardAnswer) {
+    return String((standardAnswer as { text?: unknown }).text ?? '')
+  }
+  return ''
 }
 
 const renderMath = (text?: string) => {

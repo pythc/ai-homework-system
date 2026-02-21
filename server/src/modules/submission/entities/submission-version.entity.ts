@@ -46,6 +46,12 @@ export class SubmissionVersionEntity {
   @Column({ name: 'content_text', type: 'text', nullable: true })
   contentText?: string | null;
 
+  @Column({ name: 'answer_payload', type: 'jsonb', nullable: true })
+  answerPayload?: Record<string, unknown> | null;
+
+  @Column({ name: 'answer_format', type: 'varchar', length: 32, nullable: true })
+  answerFormat?: string | null;
+
   @Column({
     type: 'enum',
     enum: SubmissionStatus,

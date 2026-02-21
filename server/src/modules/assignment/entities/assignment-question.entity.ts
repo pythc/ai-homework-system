@@ -4,6 +4,7 @@ export enum QuestionType {
   SINGLE_CHOICE = 'SINGLE_CHOICE',
   MULTI_CHOICE = 'MULTI_CHOICE',
   FILL_BLANK = 'FILL_BLANK',
+  JUDGE = 'JUDGE',
   SHORT_ANSWER = 'SHORT_ANSWER',
   ESSAY = 'ESSAY',
   CALCULATION = 'CALCULATION',
@@ -69,6 +70,12 @@ export class AssignmentQuestionEntity {
     enum: QuestionType,
   })
   questionType!: QuestionType;
+
+  @Column({ name: 'question_schema', type: 'jsonb', nullable: true })
+  questionSchema?: Record<string, unknown> | null;
+
+  @Column({ name: 'grading_policy', type: 'jsonb', nullable: true })
+  gradingPolicy?: Record<string, unknown> | null;
 
   @Column({ name: 'default_score', type: 'numeric', precision: 8, scale: 2 })
   defaultScore!: string;

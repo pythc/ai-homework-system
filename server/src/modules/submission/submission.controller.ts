@@ -85,7 +85,12 @@ export class SubmissionController {
     if (!answersRaw) {
       throw new BadRequestException('缺少answers');
     }
-    let answers: Array<{ questionId: string; contentText?: string }> = [];
+    let answers: Array<{
+      questionId: string;
+      contentText?: string;
+      answerPayload?: Record<string, unknown>;
+      answerFormat?: string;
+    }> = [];
     try {
       answers = JSON.parse(answersRaw);
     } catch (error) {

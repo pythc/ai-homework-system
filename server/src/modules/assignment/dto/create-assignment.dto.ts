@@ -37,8 +37,7 @@ export class CreateAssignmentQuestionDto {
   prompt!: string;
 
   @IsOptional()
-  @IsString()
-  standardAnswer?: string;
+  standardAnswer?: unknown;
 
   @IsOptional()
   @IsEnum(QuestionType)
@@ -50,6 +49,12 @@ export class CreateAssignmentQuestionDto {
 
   @IsOptional()
   rubric?: Record<string, unknown> | Array<Record<string, unknown>>;
+
+  @IsOptional()
+  questionSchema?: Record<string, unknown>;
+
+  @IsOptional()
+  gradingPolicy?: Record<string, unknown>;
 }
 
 export class CreateAssignmentDto {
