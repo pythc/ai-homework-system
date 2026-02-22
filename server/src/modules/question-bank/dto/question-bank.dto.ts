@@ -88,3 +88,19 @@ export interface QuestionBankUpdateDto {
   questionSchema?: Record<string, unknown>;
   gradingPolicy?: Record<string, unknown>;
 }
+
+export interface QuestionBankPaperContentDto {
+  questionSourceMode?: 'MIXED' | 'BANK' | 'CUSTOM';
+  selectedTextbookId?: string;
+  selectedParentChapterId?: string;
+  selectedChapterId?: string;
+  selectedQuestionIds?: string[];
+  selectedQuestionOrder?: string[];
+  customQuestions?: unknown[];
+}
+
+export interface SaveQuestionBankPaperDto {
+  id?: string;
+  name: string;
+  content: QuestionBankPaperContentDto;
+}

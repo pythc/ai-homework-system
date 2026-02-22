@@ -17,6 +17,7 @@ import { UserRole } from '../auth/entities/user.entity';
 import { QuestionBankService } from './question-bank.service';
 import {
   QuestionBankImportDto,
+  SaveQuestionBankPaperDto,
   QuestionBankVisibilityUpdateDto,
   QuestionBankUpdateDto,
 } from './dto/question-bank.dto';
@@ -87,6 +88,61 @@ export class QuestionBankController {
       return { textbooks: [], chapters: [] };
     }
     return this.questionBankService.getStructure(courseId, schoolId);
+  }
+
+  @Get('papers')
+  @UseGuards(JwtAuthGuard)
+  async listPapers(
+    @Req() req: { user?: { sub?: string; schoolId?: string } },
+  ) {
+    const userId = req.user?.sub;
+    const schoolId = req.user?.schoolId;
+    if (!userId || !schoolId) {
+      return [];
+    }
+    return this.questionBankService.listPapers(userId, schoolId);
+  }
+
+  @Get('papers/:id')
+  @UseGuards(JwtAuthGuard)
+  async getPaper(
+    @Param('id') id: string,
+    @Req() req: { user?: { sub?: string; schoolId?: string } },
+  ) {
+    const userId = req.user?.sub;
+    const schoolId = req.user?.schoolId;
+    if (!userId || !schoolId) {
+      return { code: 401, message: '缺少用户信息' };
+    }
+    return this.questionBankService.getPaper(id, userId, schoolId);
+  }
+
+  @Post('papers')
+  @UseGuards(JwtAuthGuard)
+  async savePaper(
+    @Body() body: SaveQuestionBankPaperDto,
+    @Req() req: { user?: { sub?: string; schoolId?: string } },
+  ) {
+    const userId = req.user?.sub;
+    const schoolId = req.user?.schoolId;
+    if (!userId || !schoolId) {
+      return { code: 401, message: '缺少用户信息' };
+    }
+    return this.questionBankService.savePaper(body, userId, schoolId);
+  }
+
+  @Delete('papers/:id')
+  @UseGuards(JwtAuthGuard)
+  async deletePaper(
+    @Param('id') id: string,
+    @Req() req: { user?: { sub?: string; schoolId?: string } },
+  ) {
+    const userId = req.user?.sub;
+    const schoolId = req.user?.schoolId;
+    if (!userId || !schoolId) {
+      return { code: 401, message: '缺少用户信息' };
+    }
+    return this.questionBankService.deletePaper(id, userId, schoolId);
   }
 
   @Get(':id')

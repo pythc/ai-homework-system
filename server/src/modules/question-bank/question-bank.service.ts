@@ -13,6 +13,7 @@ import {
 } from '../assignment/entities/assignment-question.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { ChapterEntity } from './entities/chapter.entity';
+import { QuestionBankPaperEntity } from './entities/question-bank-paper.entity';
 import { TextbookEntity } from './entities/textbook.entity';
 import {
   ChapterInput,
@@ -22,6 +23,7 @@ import {
   QuestionBankVisibilityUpdateDto,
   QuestionBankUpdateDto,
   QuestionBankImportDto,
+  SaveQuestionBankPaperDto,
   TextBlock,
 } from './dto/question-bank.dto';
 
@@ -39,6 +41,8 @@ export class QuestionBankService {
     private readonly courseRepo: Repository<CourseEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+    @InjectRepository(QuestionBankPaperEntity)
+    private readonly paperRepo: Repository<QuestionBankPaperEntity>,
   ) {}
 
   async importQuestionBank(payload: QuestionBankImportDto, userId: string) {
@@ -198,6 +202,75 @@ export class QuestionBankService {
       `,
     );
     return { items: rows };
+  }
+
+  async listPapers(userId: string, schoolId: string) {
+    const rows = await this.paperRepo.find({
+      where: { createdBy: userId, schoolId },
+      order: { updatedAt: 'DESC', createdAt: 'DESC' },
+    });
+    return rows.map((item) => this.toPaperSummary(item));
+  }
+
+  async getPaper(id: string, userId: string, schoolId: string) {
+    const paper = await this.paperRepo.findOne({
+      where: { id, createdBy: userId, schoolId },
+    });
+    if (!paper) {
+      throw new NotFoundException('Paper not found');
+    }
+    return {
+      ...this.toPaperSummary(paper),
+      content: paper.content ?? {},
+    };
+  }
+
+  async savePaper(payload: SaveQuestionBankPaperDto, userId: string, schoolId: string) {
+    const name = String(payload?.name ?? '').trim();
+    if (!name) {
+      throw new BadRequestException('试卷名称不能为空');
+    }
+    const content = this.normalizePaperContent(payload?.content);
+
+    let entity: QuestionBankPaperEntity | null = null;
+    if (payload?.id) {
+      entity = await this.paperRepo.findOne({
+        where: { id: payload.id, createdBy: userId, schoolId },
+      });
+      if (!entity) {
+        throw new NotFoundException('Paper not found');
+      }
+    }
+
+    if (!entity) {
+      entity = this.paperRepo.create({
+        createdBy: userId,
+        schoolId,
+        name,
+        content,
+      });
+    } else {
+      entity.name = name;
+      entity.content = content;
+      entity.updatedAt = new Date();
+    }
+
+    const saved = await this.paperRepo.save(entity);
+    return {
+      ...this.toPaperSummary(saved),
+      content: saved.content ?? {},
+    };
+  }
+
+  async deletePaper(id: string, userId: string, schoolId: string) {
+    const entity = await this.paperRepo.findOne({
+      where: { id, createdBy: userId, schoolId },
+    });
+    if (!entity) {
+      throw new NotFoundException('Paper not found');
+    }
+    await this.paperRepo.remove(entity);
+    return { success: true };
   }
 
   async updateTextbookVisibility(textbookId: string, payload: QuestionBankVisibilityUpdateDto) {
@@ -829,6 +902,56 @@ export class QuestionBankService {
     ]);
     return {
       mode: objectiveTypes.has(questionType) ? 'AUTO_RULE' : 'AI_RUBRIC',
+    };
+  }
+
+  private normalizePaperContent(input: unknown) {
+    const source = input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
+    const modeRaw = String(source.questionSourceMode ?? 'MIXED').toUpperCase();
+    const questionSourceMode =
+      modeRaw === 'BANK' || modeRaw === 'CUSTOM' ? modeRaw : 'MIXED';
+    const selectedQuestionIds = Array.isArray(source.selectedQuestionIds)
+      ? source.selectedQuestionIds.map((item) => String(item)).filter(Boolean)
+      : [];
+    const selectedQuestionOrder = Array.isArray(source.selectedQuestionOrder)
+      ? source.selectedQuestionOrder.map((item) => String(item)).filter(Boolean)
+      : selectedQuestionIds;
+    const customQuestions = Array.isArray(source.customQuestions)
+      ? source.customQuestions
+      : [];
+
+    return {
+      questionSourceMode,
+      selectedTextbookId: String(source.selectedTextbookId ?? ''),
+      selectedParentChapterId: String(source.selectedParentChapterId ?? ''),
+      selectedChapterId: String(source.selectedChapterId ?? ''),
+      selectedQuestionIds,
+      selectedQuestionOrder,
+      customQuestions,
+    } as Record<string, unknown>;
+  }
+
+  private toPaperSummary(item: QuestionBankPaperEntity) {
+    const content =
+      item.content && typeof item.content === 'object' && !Array.isArray(item.content)
+        ? (item.content as Record<string, unknown>)
+        : {};
+    const selectedQuestionIds = Array.isArray(content.selectedQuestionIds)
+      ? content.selectedQuestionIds
+      : [];
+    const customQuestions = Array.isArray(content.customQuestions)
+      ? content.customQuestions
+      : [];
+    return {
+      id: item.id,
+      name: item.name,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      bankCount: selectedQuestionIds.length,
+      customCount: customQuestions.length,
+      totalCount: selectedQuestionIds.length + customQuestions.length,
     };
   }
 }

@@ -24,11 +24,13 @@ import TeacherGradingSubmissions from '../views/TeacherGradingSubmissions.vue'
 import TeacherGradingAssignmentConfig from '../views/TeacherGradingAssignmentConfig.vue'
 import TeacherAssistant from '../views/TeacherAssistant.vue'
 import TeacherClassImport from '../views/TeacherClassImport.vue'
+import TeacherQuestionBankCourses from '../views/TeacherQuestionBankCourses.vue'
 import TeacherQuestionBankTextbooks from '../views/TeacherQuestionBankTextbooks.vue'
 import TeacherQuestionBankChapters from '../views/TeacherQuestionBankChapters.vue'
 import TeacherQuestionBankChapterChildren from '../views/TeacherQuestionBankChapterChildren.vue'
 import TeacherQuestionBankQuestions from '../views/TeacherQuestionBankQuestions.vue'
 import TeacherQuestionBankQuestionDetail from '../views/TeacherQuestionBankQuestionDetail.vue'
+import TeacherQuestionBankPapers from '../views/TeacherQuestionBankPapers.vue'
 import AdminDashboard from '../views/AdminDashboard.vue'
 import AdminQuestionBank from '../views/AdminQuestionBank.vue'
 import AdminClassImport from '../views/AdminClassImport.vue'
@@ -136,7 +138,11 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/teacher/question-bank',
-    component: TeacherQuestionBankTextbooks,
+    component: TeacherQuestionBankCourses,
+  },
+  {
+    path: '/teacher/question-bank/papers',
+    component: TeacherQuestionBankPapers,
   },
   {
     path: '/teacher/question-bank/courses/:courseId/textbooks',

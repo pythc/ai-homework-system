@@ -106,3 +106,56 @@ export async function updateTextbookVisibility(textbookId: string, schoolIds: st
     },
   )
 }
+
+export type QuestionBankPaperSummary = {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  bankCount: number
+  customCount: number
+  totalCount: number
+}
+
+export type QuestionBankPaperContent = {
+  questionSourceMode?: 'MIXED' | 'BANK' | 'CUSTOM'
+  selectedTextbookId?: string
+  selectedParentChapterId?: string
+  selectedChapterId?: string
+  selectedQuestionIds?: string[]
+  selectedQuestionOrder?: string[]
+  customQuestions?: unknown[]
+}
+
+export type QuestionBankPaperDetail = QuestionBankPaperSummary & {
+  content: QuestionBankPaperContent
+}
+
+export async function listQuestionBankPapers() {
+  return httpRequest<QuestionBankPaperSummary[]>('/question-bank/papers', {
+    method: 'GET',
+  })
+}
+
+export async function getQuestionBankPaper(id: string) {
+  return httpRequest<QuestionBankPaperDetail>(`/question-bank/papers/${id}`, {
+    method: 'GET',
+  })
+}
+
+export async function saveQuestionBankPaper(payload: {
+  id?: string
+  name: string
+  content: QuestionBankPaperContent
+}) {
+  return httpRequest<QuestionBankPaperDetail>('/question-bank/papers', {
+    method: 'POST',
+    body: payload,
+  })
+}
+
+export async function deleteQuestionBankPaper(id: string) {
+  return httpRequest<{ success: boolean }>(`/question-bank/papers/${id}`, {
+    method: 'DELETE',
+  })
+}

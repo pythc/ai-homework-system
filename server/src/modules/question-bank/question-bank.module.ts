@@ -8,6 +8,7 @@ import { UserEntity } from '../auth/entities/user.entity';
 import { QuestionBankController } from './question-bank.controller';
 import { QuestionBankService } from './question-bank.service';
 import { ChapterEntity } from './entities/chapter.entity';
+import { QuestionBankPaperEntity } from './entities/question-bank-paper.entity';
 import { TextbookEntity } from './entities/textbook.entity';
 
 @Module({
@@ -15,6 +16,7 @@ import { TextbookEntity } from './entities/textbook.entity';
     TypeOrmModule.forFeature([
       TextbookEntity,
       ChapterEntity,
+      QuestionBankPaperEntity,
       AssignmentQuestionEntity,
       CourseEntity,
       UserEntity,

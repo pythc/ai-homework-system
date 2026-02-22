@@ -26,6 +26,13 @@
             <span>不跨学校</span>
           </div>
         </button>
+        <button class="qb-item" type="button" @click="goPapers">
+          <div class="qb-item-title">试卷</div>
+          <div class="qb-item-meta">
+            <span>复用布置作业题库筛选界面</span>
+            <span>支持自定义题 + 本地保存</span>
+          </div>
+        </button>
       </div>
     </section>
   </TeacherLayout>
@@ -47,5 +54,8 @@ onMounted(async () => {
 const goTextbooks = () => {
   router.push('/teacher/question-bank/courses/shared/textbooks')
 }
-</script>
 
+const goPapers = () => {
+  router.push('/teacher/question-bank/papers')
+}
+</script>
