@@ -1,14 +1,54 @@
-// AI Grading ID 只是用于展示，不需要具体字段
-import { GradingUncertaintyCode } from '../../ai-grading/interfaces/ai-grading.interface';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+export enum GradingSource {
+  MANUAL = 'MANUAL',
+  AI_ADOPTED = 'AI_ADOPTED',
+  MIXED = 'MIXED',
+}
+
+export class UpdateGradingItemDto {
+  @IsInt()
+  @Min(1)
+  questionIndex!: number;
+
+  @IsString()
+  rubricItemKey!: string;
+
+  @IsNumber()
+  @Min(0)
+  score!: number;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
 
 export class UpdateGradingDto {
-  source: 'MANUAL' | 'AI_ADOPTED' | 'MIXED';
-  totalScore: number;
+  @IsEnum(GradingSource)
+  source!: GradingSource;
+
+  @IsNumber()
+  @Min(0)
+  totalScore!: number;
+
+  @IsOptional()
+  @IsString()
   finalComment?: string;
-  items: {
-    questionIndex: number;
-    rubricItemKey: string;
-    score: number;
-    reason?: string;
-  }[];
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => UpdateGradingItemDto)
+  items!: UpdateGradingItemDto[];
 }

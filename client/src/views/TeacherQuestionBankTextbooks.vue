@@ -1,0 +1,78 @@
+<template>
+  <TeacherLayout
+    title="课本列表"
+    subtitle="全校共享课本目录"
+    :profile-name="profileName"
+    :profile-account="profileAccount"
+    brand-sub="题库目录"
+  >
+    <template #actions>
+      <div class="topbar-profile">
+        <div class="topbar-avatar">{{ profileName[0] }}</div>
+        <div>
+          <div class="topbar-name">{{ profileName }}</div>
+          <div class="topbar-id">工号 {{ profileAccount }}</div>
+        </div>
+      </div>
+    </template>
+
+    <section class="panel glass">
+      <div class="panel-title">课本</div>
+      <div class="qb-list">
+        <button
+          v-for="book in textbooks"
+          :key="book.id"
+          class="qb-item"
+          type="button"
+          @click="goTextbook(book.id)"
+        >
+          <div class="qb-item-title">{{ book.title }}</div>
+          <div class="qb-item-meta">
+            <span>{{ book.subject }}</span>
+          </div>
+        </button>
+        <div v-if="!textbooks.length" class="empty-box">
+          {{ loadError || '暂无课本' }}
+        </div>
+      </div>
+    </section>
+  </TeacherLayout>
+</template>
+
+<script setup>
+import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import TeacherLayout from '../components/TeacherLayout.vue'
+import { useTeacherProfile } from '../composables/useTeacherProfile'
+import { getQuestionBankStructure } from '../api/questionBank'
+
+const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
+const route = useRoute()
+const router = useRouter()
+const textbooks = ref([])
+const loadError = ref('')
+
+const courseId = String(route.params.courseId ?? 'shared')
+const isShared = courseId === 'shared'
+
+onMounted(async () => {
+  await refreshProfile()
+  await fetchTextbooks()
+})
+
+const fetchTextbooks = async () => {
+  loadError.value = ''
+  try {
+    const response = await getQuestionBankStructure(isShared ? undefined : courseId)
+    textbooks.value = response.textbooks ?? []
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '加载课本失败'
+  }
+}
+
+const goTextbook = (textbookId) => {
+  router.push(
+    `/teacher/question-bank/courses/${courseId}/textbooks/${textbookId}/chapters`,
+  )
+}
+</script>

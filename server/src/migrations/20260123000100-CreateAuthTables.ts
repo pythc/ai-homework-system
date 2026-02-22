@@ -29,6 +29,9 @@ export class CreateAuthTables20260123000100 implements MigrationInterface {
       )
     `);
     await queryRunner.query(
+      `COMMENT ON TABLE "users" IS 'User accounts for authentication and roles.'`,
+    );
+    await queryRunner.query(
       `CREATE UNIQUE INDEX "users_school_account_idx" ON "users" ("school_id", "account")`,
     );
     await queryRunner.query(`
@@ -45,6 +48,9 @@ export class CreateAuthTables20260123000100 implements MigrationInterface {
         "revoked_at" timestamptz
       )
     `);
+    await queryRunner.query(
+      `COMMENT ON TABLE "auth_sessions" IS 'Refresh token sessions for users.'`,
+    );
     await queryRunner.query(
       `CREATE INDEX "auth_sessions_user_idx" ON "auth_sessions" ("user_id")`,
     );

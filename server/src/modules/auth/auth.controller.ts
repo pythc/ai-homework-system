@@ -1,13 +1,19 @@
+import * as path from 'path';
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  Patch,
   Post,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
+import type { Express, Request } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './auth.guard';
 import { LoginRequestDto, LoginResponseDto } from './dto/login.dto';
@@ -18,9 +24,11 @@ import {
 import { LogoutRequestDto, LogoutResponseDto } from './dto/logout.dto';
 import { MeResponseDto } from './dto/me.dto';
 import { RegisterRequestDto, RegisterResponseDto } from './dto/register.dto';
+import { ChangePasswordRequestDto, ChangePasswordResponseDto } from './dto/change-password.dto';
 import { Roles } from './roles.decorator';
 import { RolesGuard } from './roles.guard';
 import { UserRole } from './entities/user.entity';
+import { CourseStatus } from '../assignment/entities/course.entity';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -57,6 +65,8 @@ export class AuthController {
           accountType: result.user.accountType,
           account: result.user.account,
           name: result.user.name ?? null,
+          createdAt: result.user.createdAt,
+          updatedAt: result.user.updatedAt,
         },
       },
     };
@@ -78,10 +88,96 @@ export class AuthController {
         schoolId: user.schoolId,
         accountType: user.accountType,
         account: user.account,
+        email: user.email ?? null,
         role: user.role,
         status: user.status,
         name: user.name ?? null,
       },
+    };
+  }
+
+  @Post('register/bulk')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  @UseInterceptors(FileInterceptor('file'))
+  async registerBulk(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request,
+  ) {
+    if (!file) {
+      throw new BadRequestException('请上传Excel文件');
+    }
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext !== '.xlsx') {
+      throw new BadRequestException('仅支持 .xlsx 文件');
+    }
+    if (!file.buffer || file.buffer.length === 0) {
+      throw new BadRequestException('文件内容为空');
+    }
+
+    const payload = req.user as { sub?: string; role?: UserRole; schoolId?: string };
+    const schoolId = payload?.schoolId;
+    if (!schoolId) {
+      throw new BadRequestException('缺少schoolId');
+    }
+    const requester = payload?.sub
+      ? await this.authService.getUserById(payload.sub)
+      : null;
+    if (!requester) {
+      throw new BadRequestException('用户信息不存在');
+    }
+
+    const body = req.body as {
+      schoolId?: string;
+      courseName?: string;
+      className?: string;
+      semester?: string;
+      status?: string;
+    };
+    if (body?.schoolId && body.schoolId !== schoolId) {
+      throw new BadRequestException('学校信息不匹配');
+    }
+    const courseName = String(body?.courseName ?? '').trim();
+    const className = String(body?.className ?? '').trim();
+    const semester = String(body?.semester ?? '').trim();
+    const status = String(body?.status ?? '').trim();
+    if (!courseName) {
+      throw new BadRequestException('课程名称不能为空');
+    }
+    if (!semester) {
+      throw new BadRequestException('学期不能为空');
+    }
+    const statusValue =
+      payload?.role === UserRole.TEACHER
+        ? CourseStatus.ACTIVE
+        : status === CourseStatus.ARCHIVED
+          ? CourseStatus.ARCHIVED
+          : CourseStatus.ACTIVE;
+    const normalizedCourseName =
+      payload?.role === UserRole.TEACHER
+        ? `${courseName}（${className}）`
+        : courseName;
+    if (payload?.role === UserRole.TEACHER && !className) {
+      throw new BadRequestException('班级名称不能为空');
+    }
+
+    const result = await this.authService.registerBulkFromExcel(
+      file.buffer,
+      schoolId,
+      ext,
+      {
+        name: normalizedCourseName,
+        semester,
+        status: statusValue,
+      },
+      payload?.role === UserRole.TEACHER
+        ? { expectedTeacherAccount: requester.account }
+        : undefined,
+    );
+    return {
+      code: 201,
+      message: '批量导入完成',
+      data: result,
     };
   }
 
@@ -141,7 +237,23 @@ export class AuthController {
         accountType: user.accountType,
         account: user.account,
         name: user.name ?? null,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
       },
     };
+  }
+
+  @Patch('password')
+  @ApiOperation({ summary: 'Change password for current user.' })
+  @ApiBody({ type: ChangePasswordRequestDto })
+  @ApiResponse({ status: 200, type: ChangePasswordResponseDto })
+  @UseGuards(JwtAuthGuard)
+  async changePassword(
+    @Body() body: ChangePasswordRequestDto,
+    @Req() req: Request,
+  ) {
+    const payload = req.user as { sub: string };
+    await this.authService.changePassword(payload.sub, body);
+    return { code: 200, message: '密码修改成功' };
   }
 }

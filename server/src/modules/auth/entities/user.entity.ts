@@ -31,6 +31,9 @@ export class UserEntity {
   @Column({ type: 'varchar', length: 128 })
   account!: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  email?: string | null;
+
   @Column({ type: 'enum', enum: UserRole })
   role!: UserRole;
 

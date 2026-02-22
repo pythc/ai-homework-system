@@ -1,0 +1,73 @@
+import { httpRequest } from './http'
+import { getAccessToken } from '../auth/storage'
+
+export type AiJobStatusResponse = {
+  aiJobId: string
+  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
+  progress?: { stage?: string }
+  error?: string | null
+  updatedAt?: string
+}
+
+export type AiGradingResult = {
+  aiGradingId: string
+  submissionVersionId: string
+  assignmentSnapshotId: string
+  model?: { name?: string; version?: string }
+  result: {
+    comment?: string
+    confidence?: number
+    isUncertain?: boolean
+    uncertaintyReasons?: Array<{
+      code?: string
+      message?: string
+      questionIndex?: number
+    }>
+    items?: Array<{
+      questionIndex?: number
+      rubricItemKey?: string
+      score?: number
+      maxScore?: number
+      reason?: string
+      uncertaintyScore?: number
+    }>
+    totalScore?: number
+  }
+  extracted?: { studentMarkdown?: string }
+  createdAt?: string
+}
+
+export async function getAiJobStatus(submissionVersionId: string) {
+  const token = getAccessToken('teacher')
+  return httpRequest<AiJobStatusResponse>(
+    `/submissions/${submissionVersionId}/ai-grading/job`,
+    { method: 'GET', token },
+  )
+}
+
+export async function getAiGradingResult(submissionVersionId: string) {
+  const token = getAccessToken('teacher')
+  return httpRequest<AiGradingResult>(
+    `/submissions/${submissionVersionId}/ai-grading`,
+    { method: 'GET', token },
+  )
+}
+
+export async function runAiGrading(
+  submissionVersionId: string,
+  payload: {
+    snapshotPolicy: 'LATEST_PUBLISHED' | 'SPECIFIC'
+    assignmentSnapshotId?: string
+    uncertaintyPolicy?: { minConfidence?: number }
+  } = { snapshotPolicy: 'LATEST_PUBLISHED' },
+) {
+  const token = getAccessToken('teacher')
+  return httpRequest<{ job?: { aiJobId: string; status: string } }>(
+    `/submissions/${submissionVersionId}/ai-grading:run`,
+    {
+      method: 'POST',
+      token,
+      body: payload,
+    },
+  )
+}

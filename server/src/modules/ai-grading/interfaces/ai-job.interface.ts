@@ -15,6 +15,7 @@ export enum AiJobStage {
 export interface AiJob {
   aiJobId: string;                 // AI批改任务ID
   submissionVersionId: string;     // 对应的学生提交版本ID
+  assignmentSnapshotId?: string;   // 关联作业快照ID
   status: AiJobStatus;             // 当前任务状态
   
   progress?: {
