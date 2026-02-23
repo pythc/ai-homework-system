@@ -449,7 +449,11 @@ const selectedSubmission = computed(() => {
 
 const currentQuestion = computed(() => {
   if (!selectedQuestionId.value) return questions.value[0] || null
-  return questions.value.find((q) => q.questionId === selectedQuestionId.value) || null
+  return (
+    questions.value.find(
+      (q: AssignmentSnapshotQuestion) => q.questionId === selectedQuestionId.value,
+    ) || null
+  )
 })
 
 const selectedStudent = computed(() =>
@@ -1156,7 +1160,7 @@ const loadData = async () => {
     const sorted = [...(snapshot?.questions ?? [])].sort(
       (a, b) => a.questionIndex - b.questionIndex,
     )
-    sorted.forEach((q) => {
+    sorted.forEach((q: AssignmentSnapshotQuestion) => {
       map[q.questionId] = q
     })
     questions.value = sorted
