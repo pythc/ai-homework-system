@@ -29,7 +29,7 @@
           :disabled="!canEnterStep2"
           @click="goStep2"
         >
-          2. 题库筛选
+          2. 题目筛选与权重
         </button>
         <span class="step-arrow" aria-hidden="true">→</span>
         <button
@@ -38,7 +38,7 @@
           :disabled="!canEnterStep3"
           @click="step = 3"
         >
-          3. 权重与发布
+          3. 发布确认
         </button>
       </div>
     </section>
@@ -536,6 +536,51 @@
         </div>
       </div>
 
+      <section class="panel glass inner-weight-panel">
+        <div class="panel-title">
+          题目权重
+          <span class="badge">合计 {{ weightSum.toFixed(2) }}%</span>
+        </div>
+        <div v-if="!orderedPublishQuestions.length" class="empty-box">请先选择或创建题目</div>
+        <div v-else class="weight-list">
+          <div
+            v-for="(question, index) in orderedPublishQuestions"
+            :key="question.key"
+            class="weight-row"
+          >
+            <div class="weight-title">
+              <div class="weight-index">第 {{ index + 1 }} 题</div>
+              <div class="weight-parent">
+                <span class="badge">{{ customTypeLabel(question.questionType) }}</span>
+              </div>
+              <div
+                v-if="question.source === 'bank' && getParentPromptText(question.raw)"
+                class="weight-parent"
+                v-mathjax
+              >
+                <div v-html="getParentPromptText(question.raw)" />
+              </div>
+              <div class="weight-label" v-mathjax v-html="question.previewHtml" />
+            </div>
+            <input
+              v-model.number="questionWeights[question.key]"
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              class="weight-input"
+            />
+            <span class="weight-suffix">%</span>
+          </div>
+          <div class="weight-actions">
+            <button class="primary-btn" type="button" @click="autoBalanceWeights">
+              平均分配
+            </button>
+            <span class="helper-text">权重合计需为 100%</span>
+          </div>
+        </div>
+      </section>
+
       <div class="step-actions">
         <button class="primary-btn ghost" type="button" @click="step = 1">
           上一步
@@ -543,51 +588,6 @@
         <button class="primary-btn" type="button" :disabled="!canEnterStep3" @click="goStep3">
           下一步
         </button>
-      </div>
-    </section>
-
-    <section v-if="step === 3" class="panel glass">
-      <div class="panel-title">
-        题目权重
-        <span class="badge">合计 {{ weightSum.toFixed(2) }}%</span>
-      </div>
-      <div v-if="!orderedPublishQuestions.length" class="empty-box">请先选择或创建题目</div>
-      <div v-else class="weight-list">
-        <div
-          v-for="(question, index) in orderedPublishQuestions"
-          :key="question.key"
-          class="weight-row"
-        >
-          <div class="weight-title">
-            <div class="weight-index">第 {{ index + 1 }} 题</div>
-            <div class="weight-parent">
-              <span class="badge">{{ customTypeLabel(question.questionType) }}</span>
-            </div>
-            <div
-              v-if="question.source === 'bank' && getParentPromptText(question.raw)"
-              class="weight-parent"
-              v-mathjax
-            >
-              <div v-html="getParentPromptText(question.raw)" />
-            </div>
-            <div class="weight-label" v-mathjax v-html="question.previewHtml" />
-          </div>
-          <input
-            v-model.number="questionWeights[question.key]"
-            type="number"
-            min="0"
-            max="100"
-            step="0.1"
-            class="weight-input"
-          />
-          <span class="weight-suffix">%</span>
-        </div>
-        <div class="weight-actions">
-          <button class="primary-btn" type="button" @click="autoBalanceWeights">
-            平均分配
-          </button>
-          <span class="helper-text">权重合计需为 100%</span>
-        </div>
       </div>
     </section>
 
@@ -1750,6 +1750,11 @@ const goStep3 = () => {
     }
   }
   syncWeights()
+  if (Math.abs(weightSum.value - 100) > 0.01) {
+    submitError.value = '题目权重之和必须为 100%'
+    showAppToast(submitError.value, 'error')
+    return
+  }
   step.value = 3
 }
 
@@ -1976,6 +1981,12 @@ const handlePublish = async () => {
 .question-picker-panel {
   display: grid;
   gap: 14px;
+}
+
+.inner-weight-panel {
+  box-shadow: none;
+  border: 1px solid rgba(196, 213, 238, 0.52);
+  background: rgba(255, 255, 255, 0.58);
 }
 
 .question-picker-title {
