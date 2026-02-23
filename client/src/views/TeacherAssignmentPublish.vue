@@ -1378,7 +1378,7 @@ const visibleQuestions = computed(() => {
 
 
 const toggleQuestion = (id) => {
-  const item = questions.value.find((q) => q.id === id)
+  const item = questions.value.find((q: any) => q.id === id)
   const next = new Set(selectedQuestionIds.value)
   const order = [...selectedQuestionOrder.value]
   if (!item) return
