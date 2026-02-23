@@ -711,7 +711,7 @@ const isGroupChecked = (groupId: string) => {
 }
 
 const toggleQuestion = (id: string) => {
-  const item: any = questions.value.find((q) => q.id === id)
+  const item: any = questions.value.find((q: any) => q.id === id)
   if (!item) return
   const next = new Set(selectedQuestionIds.value)
   const order = [...selectedQuestionOrder.value]
