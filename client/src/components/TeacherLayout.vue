@@ -106,7 +106,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { fetchAssistantUsage } from '../api/assistant'
-import { clearAuth } from '../auth/storage'
+import { clearCurrentAuth } from '../auth/storage'
 
 defineProps({
   title: { type: String, required: true },
@@ -161,9 +161,7 @@ onBeforeUnmount(() => {
 })
 
 const handleLogout = () => {
-  clearAuth()
-  sessionStorage.clear()
-  localStorage.clear()
+  clearCurrentAuth()
   window.location.replace('/login')
 }
 </script>

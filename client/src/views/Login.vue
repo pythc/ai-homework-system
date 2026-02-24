@@ -648,6 +648,11 @@ const goToResetPassword = () => {
   height: 18px;
 }
 
+.form-item input[type='password']::-ms-reveal,
+.form-item input[type='password']::-ms-clear {
+  display: none;
+}
+
 .options {
   margin-bottom: 26px;
   font-size: 14px;

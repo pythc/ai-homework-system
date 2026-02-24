@@ -165,9 +165,9 @@
               <div
                 v-if="selectedSubmission?.contentText"
                 class="detail-text student-submission-text"
-              >
-                {{ selectedSubmission.contentText }}
-              </div>
+                v-mathjax
+                v-html="renderAnswerHtml(selectedSubmission.contentText)"
+              />
               <div v-else-if="!selectedSubmission" class="empty-box">该学生未提交此题</div>
               <div v-if="selectedSubmission?.fileUrls?.length" class="detail-media">
                 <img
@@ -284,10 +284,21 @@
                 </div>
                 <div class="grading-total">本题得分：{{ totalScore }}</div>
                 <textarea
+                  v-if="commentEditorOpen || !finalComment"
+                  ref="finalCommentInputRef"
                   class="grading-comment"
                   v-model="finalComment"
                   placeholder="本题评语（可选）"
                   :disabled="!canEditCurrent"
+                  @blur="closeCommentEditor"
+                />
+                <div
+                  v-else
+                  class="grading-comment grading-comment-rendered detail-text"
+                  :class="{ disabled: !canEditCurrent }"
+                  v-mathjax
+                  v-html="renderAnswerHtml(finalComment)"
+                  @click="openCommentEditor"
                 />
 
                 <div class="grading-actions">
@@ -338,7 +349,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
@@ -585,6 +596,8 @@ const aiPanel = ref<{
 
 const gradingItems = ref<GradingRow[]>([])
 const finalComment = ref('')
+const commentEditorOpen = ref(true)
+const finalCommentInputRef = ref<HTMLTextAreaElement | null>(null)
 const totalScoreInput = ref(0)
 const saving = ref(false)
 const rerunLoading = ref(false)
@@ -626,6 +639,29 @@ const extractStandardAnswerText = (
 const renderMath = (text?: string) => {
   if (!text) return '—'
   return text.replace(/\n/g, '<br />')
+}
+
+const renderAnswerHtml = (text?: string | null) => {
+  if (!text) return ''
+  if (/<\/?[a-z][\s\S]*>/i.test(text)) return text
+  return renderMath(text)
+}
+
+const syncCommentEditorMode = () => {
+  commentEditorOpen.value = !finalComment.value
+}
+
+const openCommentEditor = async () => {
+  if (!canEditCurrent.value) return
+  commentEditorOpen.value = true
+  await nextTick()
+  finalCommentInputRef.value?.focus()
+}
+
+const closeCommentEditor = () => {
+  if (finalComment.value) {
+    commentEditorOpen.value = false
+  }
 }
 
 const selectQuestion = (questionId: string) => {
@@ -757,6 +793,7 @@ const loadFinalForSubmission = async (submissionId: string, questionId: string) 
       }
     })
     finalComment.value = result?.finalComment ?? ''
+    syncCommentEditorMode()
     totalScoreInput.value = gradingItems.value.reduce(
       (sum, item) => sum + (Number(item.score) || 0),
       0,
@@ -767,6 +804,7 @@ const loadFinalForSubmission = async (submissionId: string, questionId: string) 
   } catch (err) {
     gradingItems.value = buildGradingItems(question, aiPanel.value.result)
     finalComment.value = ''
+    syncCommentEditorMode()
     totalScoreInput.value = gradingItems.value.reduce(
       (sum, item) => sum + (Number(item.score) || 0),
       0,
@@ -828,6 +866,7 @@ const loadAiForSubmission = async (submissionId: string, questionId: string) => 
     aiPanel.value = { statusLabel: '完成', error: '', result }
     gradingItems.value = buildGradingItems(questionMap.value[questionId], result)
     finalComment.value = ''
+    syncCommentEditorMode()
     totalScoreInput.value = gradingItems.value.reduce(
       (sum, item) => sum + (Number(item.score) || 0),
       0,
@@ -1053,6 +1092,7 @@ const submitGrading = async (forceAiAdopt: boolean) => {
         { useAiReasons: true },
       )
       finalComment.value = aiPanel.value.result.result?.comment ?? ''
+      commentEditorOpen.value = false
       totalScoreInput.value = gradingItems.value.reduce(
         (sum, item) => sum + (Number(item.score) || 0),
         0,
@@ -1079,6 +1119,7 @@ const submitGrading = async (forceAiAdopt: boolean) => {
     editingOverride.value = false
     baselineScore.value = Number(totalScoreInput.value) || 0
     baselineComment.value = finalComment.value || ''
+    syncCommentEditorMode()
     const publishState = await tryAutoPublishForStudent(String(submission?.student?.studentId ?? ''))
     published = publishState.published
     pendingPublish = publishState.pending
@@ -1100,6 +1141,8 @@ const submitGrading = async (forceAiAdopt: boolean) => {
 
 const startEdit = () => {
   editingOverride.value = true
+  commentEditorOpen.value = true
+  void nextTick(() => finalCommentInputRef.value?.focus())
 }
 
 const confirmCurrentChanges = async () => {
@@ -1134,6 +1177,7 @@ watch(
     aiPanel.value = { statusLabel: '未加载', error: '', result: null }
     gradingItems.value = buildGradingItems(currentQuestion.value ?? undefined, null)
     finalComment.value = ''
+    syncCommentEditorMode()
     totalScoreInput.value = 0
     baselineScore.value = 0
     baselineComment.value = ''
@@ -1883,6 +1927,16 @@ watch([assignmentId, submissionVersionId], async () => {
   min-height: 70px;
   padding: 8px 10px;
   resize: vertical;
+}
+
+.grading-comment-rendered {
+  min-height: 70px;
+  cursor: text;
+  white-space: normal;
+}
+
+.grading-comment-rendered.disabled {
+  cursor: default;
 }
 
 .grading-total {

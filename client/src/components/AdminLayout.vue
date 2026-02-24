@@ -70,7 +70,7 @@
 
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
-import { clearAuth } from '../auth/storage'
+import { clearCurrentAuth } from '../auth/storage'
 
 defineProps({
   title: { type: String, required: true },
@@ -85,9 +85,7 @@ const router = useRouter()
 const isActive = (path) => route.path === path
 
 const handleLogout = () => {
-  clearAuth()
-  sessionStorage.clear()
-  localStorage.clear()
+  clearCurrentAuth()
   window.location.replace('/login')
 }
 </script>

@@ -68,9 +68,12 @@
 
                 <div class="detail-submission">
                   <div class="detail-sub-title">我的提交</div>
-                  <div v-if="submittedMap[currentQuestion.questionId]?.contentText" class="detail-text">
-                    {{ submittedMap[currentQuestion.questionId]?.contentText }}
-                  </div>
+                  <div
+                    v-if="submittedMap[currentQuestion.questionId]?.contentText"
+                    class="detail-text"
+                    v-mathjax
+                    v-html="renderAnswerHtml(submittedMap[currentQuestion.questionId]?.contentText)"
+                  />
                   <div
                     v-if="submittedMap[currentQuestion.questionId]?.fileUrls?.length"
                     class="detail-media"
@@ -165,6 +168,12 @@ const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
 const renderMath = (text?: string | null) => {
   if (!text) return '—'
   return text.replace(/\n/g, '<br />')
+}
+
+const renderAnswerHtml = (text?: string | null) => {
+  if (!text) return ''
+  if (/<\/?[a-z][\s\S]*>/i.test(text)) return text
+  return renderMath(text)
 }
 
 const resolveFileUrl = (url: string) => {

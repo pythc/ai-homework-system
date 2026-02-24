@@ -28,31 +28,19 @@ export type StoredUser = {
   updatedAt?: string
 }
 
-function pickStorage(remember: boolean) {
-  return remember ? localStorage : sessionStorage
-}
-
 function setActiveStorage(storage: Storage) {
   const value = storage === localStorage ? 'local' : 'session'
-  storage.setItem(STORAGE_KEY, value)
-  const otherStorage = storage === localStorage ? sessionStorage : localStorage
-  otherStorage.removeItem(STORAGE_KEY)
-}
-
-function getActiveStorage(): Storage | null {
-  const localValue = localStorage.getItem(STORAGE_KEY)
-  if (localValue === 'local') return localStorage
-  const sessionValue = sessionStorage.getItem(STORAGE_KEY)
-  if (sessionValue === 'session') return sessionStorage
-  return null
+  // Keep active storage selection tab-scoped to avoid cross-tab token mixing.
+  sessionStorage.setItem(STORAGE_KEY, value)
 }
 
 export function setCurrentAuthScope(scope: AuthScope) {
-  localStorage.setItem(SCOPE_KEY, scope)
+  // Scope is part of the active tab state and should not leak across tabs.
+  sessionStorage.setItem(SCOPE_KEY, scope)
 }
 
 export function getCurrentAuthScope(): AuthScope {
-  const value = localStorage.getItem(SCOPE_KEY)
+  const value = sessionStorage.getItem(SCOPE_KEY)
   if (value === 'teacher' || value === 'admin' || value === 'student') {
     return value
   }
@@ -65,68 +53,52 @@ export function saveAuth(payload: {
   user: StoredUser
   remember: boolean
 }) {
-  const storage = pickStorage(payload.remember)
   const scope = resolveScope(payload.user?.role)
+  const localKeyAccess = getScopedKey(ACCESS_TOKEN_KEY, scope)
+  const localKeyRefresh = getScopedKey(REFRESH_TOKEN_KEY, scope)
+  const localKeyUser = getScopedKey(USER_KEY, scope)
 
-  storage.setItem(getScopedKey(ACCESS_TOKEN_KEY, scope), payload.accessToken)
-  storage.setItem(getScopedKey(REFRESH_TOKEN_KEY, scope), payload.refreshToken)
-  storage.setItem(getScopedKey(USER_KEY, scope), JSON.stringify(payload.user))
-  setActiveStorage(storage)
+  // Always keep a tab-local active copy so each tab can hold a different account.
+  sessionStorage.setItem(localKeyAccess, payload.accessToken)
+  sessionStorage.setItem(localKeyRefresh, payload.refreshToken)
+  sessionStorage.setItem(localKeyUser, JSON.stringify(payload.user))
+  setActiveStorage(sessionStorage)
   setCurrentAuthScope(scope)
 
-  const otherStorage = payload.remember ? sessionStorage : localStorage
-  otherStorage.removeItem(getScopedKey(ACCESS_TOKEN_KEY, scope))
-  otherStorage.removeItem(getScopedKey(REFRESH_TOKEN_KEY, scope))
-  otherStorage.removeItem(getScopedKey(USER_KEY, scope))
+  // Do not persist auth tokens in localStorage, otherwise same-role accounts
+  // (e.g. two teachers) will overwrite each other across tabs.
+  localStorage.removeItem(localKeyAccess)
+  localStorage.removeItem(localKeyRefresh)
+  localStorage.removeItem(localKeyUser)
 }
 
 export function getAccessToken(scope = getCurrentAuthScope()) {
-  const storage = getActiveStorage()
   const scopedKey = getScopedKey(ACCESS_TOKEN_KEY, scope)
-  if (storage) {
-    return storage.getItem(scopedKey)
-  }
-  return localStorage.getItem(scopedKey) ?? sessionStorage.getItem(scopedKey)
+  return sessionStorage.getItem(scopedKey)
 }
 
 export function getRefreshToken(scope = getCurrentAuthScope()) {
-  const storage = getActiveStorage()
   const scopedKey = getScopedKey(REFRESH_TOKEN_KEY, scope)
-  if (storage) {
-    return storage.getItem(scopedKey)
-  }
-  return localStorage.getItem(scopedKey) ?? sessionStorage.getItem(scopedKey)
+  return sessionStorage.getItem(scopedKey)
 }
 
 export function setTokens(
   tokens: { accessToken: string; refreshToken?: string },
   scope = getCurrentAuthScope(),
 ) {
-  const active = getActiveStorage()
-  const hasLocal = localStorage.getItem(getScopedKey(REFRESH_TOKEN_KEY, scope))
-  const hasSession = sessionStorage.getItem(getScopedKey(REFRESH_TOKEN_KEY, scope))
-  const storage =
-    active ??
-    (hasLocal ? localStorage : hasSession ? sessionStorage : localStorage)
-
-  storage.setItem(getScopedKey(ACCESS_TOKEN_KEY, scope), tokens.accessToken)
+  const accessKey = getScopedKey(ACCESS_TOKEN_KEY, scope)
+  const refreshKey = getScopedKey(REFRESH_TOKEN_KEY, scope)
+  sessionStorage.setItem(accessKey, tokens.accessToken)
   if (tokens.refreshToken) {
-    storage.setItem(getScopedKey(REFRESH_TOKEN_KEY, scope), tokens.refreshToken)
+    sessionStorage.setItem(refreshKey, tokens.refreshToken)
   }
-  setActiveStorage(storage)
+  setActiveStorage(sessionStorage)
   setCurrentAuthScope(scope)
-
-  const otherStorage = storage === localStorage ? sessionStorage : localStorage
-  otherStorage.removeItem(getScopedKey(ACCESS_TOKEN_KEY, scope))
-  otherStorage.removeItem(getScopedKey(REFRESH_TOKEN_KEY, scope))
 }
 
 export function getStoredUser(scope = getCurrentAuthScope()): StoredUser | null {
-  const storage = getActiveStorage()
   const scopedKey = getScopedKey(USER_KEY, scope)
-  const raw = storage
-    ? storage.getItem(scopedKey)
-    : localStorage.getItem(scopedKey) ?? sessionStorage.getItem(scopedKey)
+  const raw = sessionStorage.getItem(scopedKey)
   if (!raw) return null
   try {
     return JSON.parse(raw) as StoredUser
@@ -139,25 +111,29 @@ export function updateStoredUser(
   patch: Partial<StoredUser>,
   scope = getCurrentAuthScope(),
 ) {
-  const storage = getActiveStorage()
-  const localRaw = storage ? null : localStorage.getItem(getScopedKey(USER_KEY, scope))
-  const sessionRaw = storage ? null : sessionStorage.getItem(getScopedKey(USER_KEY, scope))
-  const targetRaw =
-    storage?.getItem(getScopedKey(USER_KEY, scope)) ?? localRaw ?? sessionRaw
+  const scopedKey = getScopedKey(USER_KEY, scope)
+  const sessionRaw = sessionStorage.getItem(scopedKey)
+  const targetRaw = sessionRaw
   if (!targetRaw) return
   try {
     const user = JSON.parse(targetRaw) as StoredUser
     const next = { ...user, ...patch }
-    if (storage) {
-      storage.setItem(getScopedKey(USER_KEY, scope), JSON.stringify(next))
-    } else if (localRaw) {
-      localStorage.setItem(getScopedKey(USER_KEY, scope), JSON.stringify(next))
-    } else {
-      sessionStorage.setItem(getScopedKey(USER_KEY, scope), JSON.stringify(next))
+    if (sessionRaw) {
+      sessionStorage.setItem(scopedKey, JSON.stringify(next))
     }
   } catch (err) {
     return
   }
+}
+
+export function clearCurrentAuth() {
+  for (const scope of ['student', 'teacher', 'admin'] as AuthScope[]) {
+    sessionStorage.removeItem(getScopedKey(ACCESS_TOKEN_KEY, scope))
+    sessionStorage.removeItem(getScopedKey(REFRESH_TOKEN_KEY, scope))
+    sessionStorage.removeItem(getScopedKey(USER_KEY, scope))
+  }
+  sessionStorage.removeItem(STORAGE_KEY)
+  sessionStorage.removeItem(SCOPE_KEY)
 }
 
 export function clearAuth() {
@@ -172,6 +148,7 @@ export function clearAuth() {
   localStorage.removeItem(STORAGE_KEY)
   sessionStorage.removeItem(STORAGE_KEY)
   localStorage.removeItem(SCOPE_KEY)
+  sessionStorage.removeItem(SCOPE_KEY)
 }
 
 export function ensureDeviceId() {
