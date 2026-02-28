@@ -9,9 +9,7 @@
   <img src="https://img.shields.io/github/forks/pythc/ai-homework-system?style=flat&logo=github" alt="GitHub forks"/>
   <img src="https://img.shields.io/github/license/pythc/ai-homework-system?style=flat" alt="License"/>
   <img src="https://img.shields.io/badge/language-Chinese-brightgreen?style=flat" alt="Language"/>
-  <a href="https://github.com/pythc/ai-homework-system">
-    <img src="https://img.shields.io/badge/GitHub-Project-blue?style=flat&logo=github" alt="GitHub Project"/>
-  </a>
+  <img src="https://img.shields.io/badge/GitHub-Project-blue?style=flat&logo=github" alt="GitHub Project"/>
   <img src="https://img.shields.io/badge/AI-Grading-blue?style=flat" alt="AI Grading"/>
   <img src="https://img.shields.io/badge/Private-Deployment-success?style=flat" alt="Private Deployment"/>
   <img src="https://img.shields.io/badge/Commercial-License-orange?style=flat" alt="Commercial License"/>
