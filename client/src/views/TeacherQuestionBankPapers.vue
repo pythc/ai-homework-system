@@ -981,11 +981,16 @@ const loadPaper = async (paperId: string) => {
     selectedQuestionOrder.value = Array.isArray(content.selectedQuestionOrder)
       ? content.selectedQuestionOrder.map((v: any) => String(v)).filter(Boolean)
       : Array.from(selectedQuestionIds.value)
-    customQuestions.value = Array.isArray(content.customQuestions)
-      ? content.customQuestions
-          .map((q: any) => sanitizeCustomQuestionDraft(q))
-          .filter((q: CustomQuestionDraft | null): q is CustomQuestionDraft => q !== null)
-      : []
+    const restoredCustomQuestions: CustomQuestionDraft[] = []
+    if (Array.isArray(content.customQuestions)) {
+      for (const rawQuestion of content.customQuestions) {
+        const normalized = sanitizeCustomQuestionDraft(rawQuestion)
+        if (normalized) {
+          restoredCustomQuestions.push(normalized)
+        }
+      }
+    }
+    customQuestions.value = restoredCustomQuestions
     customQuestionCounter.value = customQuestions.value.length + 1
     showAppToast('试卷已载入', 'success')
   } catch (err: any) {
