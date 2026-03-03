@@ -1,20 +1,22 @@
 <template>
-  <view class="tabbar-wrap">
-    <view class="tabbar-shell">
-      <view class="tab-item" :class="{ active: active === 'assignments' }" @click="goAssignments">
-        <view class="tab-icon">作</view>
-        <text class="tab-label">作业</text>
+  <view class="dock-wrap">
+    <view class="dock-shell ui-card">
+      <view class="dock-item" :class="{ active: active === 'assignments' }" @click="goAssignments">
+        <view class="dock-icon">作</view>
+        <text class="dock-label">作业</text>
       </view>
 
-      <view class="tab-item" :class="{ active: active === 'mine' }" @click="goMine">
-        <view class="tab-icon">我</view>
-        <text class="tab-label">我的</text>
+      <view class="dock-spacer" />
+
+      <view class="dock-item" :class="{ active: active === 'mine' }" @click="goMine">
+        <view class="dock-icon">我</view>
+        <text class="dock-label">我的</text>
       </view>
     </view>
 
-    <view class="ai-wrap" @click="goAssistant">
-      <view class="ai-bubble" :class="{ active: active === 'ai' }">
-        <text class="ai-text">AI</text>
+    <view class="dock-ai" @click="goAssistant">
+      <view class="dock-ai-core" :class="{ active: active === 'ai' }">
+        <text class="dock-ai-text">AI</text>
       </view>
     </view>
   </view>
@@ -44,46 +46,44 @@ function goAssistant() {
 </script>
 
 <style scoped>
-.tabbar-wrap {
+.dock-wrap {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 60;
-  height: calc(126rpx + env(safe-area-inset-bottom));
+  z-index: 100;
+  height: calc(136rpx + env(safe-area-inset-bottom));
+  pointer-events: none;
 }
 
-.tabbar-shell {
+.dock-shell {
+  pointer-events: auto;
   position: absolute;
   left: 24rpx;
   right: 24rpx;
-  bottom: calc(14rpx + env(safe-area-inset-bottom));
-  height: 96rpx;
-  border-radius: 28rpx;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8rpx 30rpx rgba(27, 42, 78, 0.14);
+  bottom: calc(12rpx + env(safe-area-inset-bottom));
+  height: 102rpx;
+  border-radius: 26rpx;
+  padding: 0 36rpx;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0 68rpx;
+  justify-content: space-between;
 }
 
-.tab-item {
+.dock-item {
   width: 180rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10rpx;
-  color: #667084;
-  font-size: 24rpx;
-  font-weight: 600;
+  color: #69758f;
 }
 
-.tab-item.active {
-  color: #1f4fa8;
+.dock-item.active {
+  color: #2a58b7;
 }
 
-.tab-icon {
+.dock-icon {
   width: 34rpx;
   height: 34rpx;
   border-radius: 10rpx;
@@ -93,46 +93,53 @@ function goAssistant() {
   justify-content: center;
   font-size: 18rpx;
   font-weight: 700;
+  line-height: 1;
 }
 
-.tab-label {
-  font-size: 24rpx;
+.dock-label {
+  font-size: 26rpx;
+  font-weight: 600;
 }
 
-.ai-wrap {
+.dock-spacer {
+  width: 120rpx;
+}
+
+.dock-ai {
+  pointer-events: auto;
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(52rpx + env(safe-area-inset-bottom));
-  width: 128rpx;
-  height: 128rpx;
-  border-radius: 64rpx;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8rpx 30rpx rgba(27, 42, 78, 0.16);
+  bottom: calc(40rpx + env(safe-area-inset-bottom));
+  width: 124rpx;
+  height: 124rpx;
+  border-radius: 62rpx;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10rpx 24rpx rgba(37, 53, 89, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.ai-bubble {
-  width: 108rpx;
-  height: 108rpx;
-  border-radius: 54rpx;
-  background: linear-gradient(135deg, #ffb27d 0%, #ff6b6b 52%, #ff8a65 100%);
+.dock-ai-core {
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: 52rpx;
+  background: linear-gradient(135deg, #ffb48a 0%, #ff6f67 52%, #ff8d7d 100%);
+  box-shadow: inset 0 4rpx 16rpx rgba(255, 255, 255, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.dock-ai-core.active {
+  transform: scale(1.04);
+}
+
+.dock-ai-text {
   color: #fff;
-  font-weight: 800;
-  box-shadow: inset 0 2rpx 10rpx rgba(255, 255, 255, 0.35);
-}
-
-.ai-bubble.active {
-  transform: scale(1.03);
-}
-
-.ai-text {
   font-size: 30rpx;
+  font-weight: 800;
   letter-spacing: 1rpx;
 }
 </style>

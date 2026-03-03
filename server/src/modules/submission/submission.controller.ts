@@ -62,10 +62,13 @@ export class SubmissionController {
   }
 
   @Get(':submissionVersionId')
+  @UseGuards(JwtAuthGuard)
   async getSubmission(
     @Param('submissionVersionId') submissionVersionId: string,
+    @Req() req: { user?: { sub?: string; role?: UserRole; schoolId?: string } },
   ) {
-    return this.submissionService.getSubmissionVersion(submissionVersionId);
+    const payload = req.user as { sub: string; role: UserRole; schoolId: string };
+    return this.submissionService.getSubmissionVersion(submissionVersionId, payload);
   }
 
   @Post('upload')

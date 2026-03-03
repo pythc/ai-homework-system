@@ -1,41 +1,54 @@
 <template>
-  <view class="page">
-    <view class="card header">
-      <view>
-        <view class="title">作业库</view>
-        <view class="desc">{{ isCourseMode ? `课程：${courseName}` : '按课程查看作业' }}</view>
+  <view class="page ui-shell">
+    <view class="ui-card ui-header-card">
+      <view class="ui-header-main">
+        <view class="ui-title">作业库</view>
+        <view class="ui-subtitle">{{ isCourseMode ? `课程：${courseName}` : '按课程查看作业' }}</view>
       </view>
-      <button v-if="isCourseMode" class="ghost header-action" @click="goBack">返回</button>
+      <button v-if="isCourseMode" class="ui-btn-ghost back-btn" @click="goBack">返回</button>
+      <view v-else class="ui-chip orange count-chip">{{ courseCards.length }} 门</view>
     </view>
 
-    <view class="card section" v-if="!isCourseMode">
-      <view class="section-title">课程列表</view>
-      <view v-if="loading" class="empty">加载中...</view>
-      <view v-else-if="!courseCards.length" class="empty">暂无作业</view>
-      <view v-else class="list">
+    <view class="ui-card section-card" v-if="!isCourseMode">
+      <view class="section-head">
+        <view class="ui-card-title">课程列表</view>
+      </view>
+
+      <view v-if="loading" class="ui-empty">加载中...</view>
+      <view v-else-if="!courseCards.length" class="ui-empty">暂无作业</view>
+      <view v-else class="course-list">
         <view v-for="course in courseCards" :key="course.id" class="course-item">
-          <view>
-            <view class="name">{{ course.name }}</view>
-            <view class="meta">作业 {{ course.total }} 份 · 开放中 {{ course.open }} 份</view>
+          <view class="course-main">
+            <view class="course-name">{{ course.name }}</view>
+            <view class="course-meta">作业 {{ course.total }} 份</view>
+            <view class="chip-row">
+              <text class="ui-chip blue">进行中 {{ course.open }}</text>
+              <text class="ui-chip orange">已截止 {{ course.closed }}</text>
+              <text class="ui-chip gray">已归档 {{ course.archived }}</text>
+            </view>
           </view>
-          <button class="btn" @click="openCourse(course)">进入作业</button>
+          <button class="ui-btn-primary action-btn" @click="openCourse(course)">进入作业</button>
         </view>
       </view>
     </view>
 
-    <view class="card section" v-else>
-      <view class="section-title">课程作业</view>
-      <view v-if="loading" class="empty">加载中...</view>
-      <view v-else-if="!assignments.length" class="empty">暂无作业</view>
-      <view v-else class="list">
+    <view class="ui-card section-card" v-else>
+      <view class="section-head">
+        <view class="ui-card-title">课程作业</view>
+        <view class="ui-chip orange">{{ assignments.length }} 份</view>
+      </view>
+
+      <view v-if="loading" class="ui-empty">加载中...</view>
+      <view v-else-if="!assignments.length" class="ui-empty">暂无作业</view>
+      <view v-else class="assignment-list">
         <view v-for="item in assignments" :key="item.id || item.assignmentId" class="assignment-item">
-          <view class="left">
-            <view class="name">{{ item.title }}</view>
-            <view class="meta">状态：{{ statusLabel(item) }}</view>
-            <view class="deadline">截止 {{ formatDateTime(item.deadline) }}</view>
+          <view class="assignment-main">
+            <view class="assignment-name">{{ item.title }}</view>
+            <view class="assignment-meta">状态：{{ statusLabel(item) }}</view>
+            <view class="assignment-deadline">截止 {{ formatDateTime(item.deadline) }}</view>
           </view>
           <button
-            class="btn"
+            class="ui-btn-primary action-btn"
             :class="{ disabled: isDisabled(item) }"
             :disabled="isDisabled(item)"
             @click="openAssignment(item)"
@@ -76,11 +89,15 @@ const courseCards = computed(() => {
         name: item.courseName || id,
         total: 0,
         open: 0,
+        closed: 0,
+        archived: 0,
       })
     }
     const row = map.get(id)
     row.total += 1
     if (item.status === 'OPEN') row.open += 1
+    else if (item.status === 'CLOSED') row.closed += 1
+    else row.archived += 1
   })
   return Array.from(map.values())
 })
@@ -144,121 +161,92 @@ function goBack() {
 </script>
 
 <style scoped>
-.page {
-  min-height: 100vh;
-  padding: 24rpx;
-  padding-bottom: 170rpx;
-  display: flex;
-  flex-direction: column;
-  gap: 20rpx;
+.back-btn {
+  margin-left: auto;
+  height: 62rpx;
+  line-height: 62rpx;
+  font-size: 22rpx;
+  padding: 0 18rpx;
 }
 
-.card {
-  border-radius: 24rpx;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 12rpx 24rpx rgba(44, 57, 87, 0.1);
-}
-
-.header {
-  padding: 28rpx;
-  display: flex;
-  align-items: center;
-}
-
-.header-action {
+.count-chip {
   margin-left: auto;
 }
 
-.title {
-  font-size: 42rpx;
-  font-weight: 700;
-}
-
-.desc {
-  margin-top: 6rpx;
-  font-size: 24rpx;
-  color: #79849a;
-}
-
-.ghost {
-  border-radius: 16rpx;
-  border: 2rpx solid #d3dbec;
-  background: #fff;
-  color: #47536d;
-  font-size: 26rpx;
-  height: 72rpx;
-  padding: 0 24rpx;
-}
-
-.section {
+.section-card {
   padding: 24rpx;
 }
 
-.section-title {
-  font-size: 32rpx;
-  font-weight: 700;
-  margin-bottom: 12rpx;
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14rpx;
 }
 
-.list {
+.course-list,
+.assignment-list {
   display: flex;
   flex-direction: column;
-  gap: 14rpx;
+  gap: 12rpx;
 }
 
 .course-item,
 .assignment-item {
   border-radius: 18rpx;
+  border: 2rpx solid #e1e7f4;
   background: #f9fbff;
-  border: 2rpx solid #e3e9f5;
-  padding: 20rpx;
+  padding: 18rpx;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16rpx;
+  gap: 12rpx;
 }
 
-.left {
+.course-main,
+.assignment-main {
   flex: 1;
+  min-width: 0;
 }
 
-.name {
-  font-size: 32rpx;
+.course-name,
+.assignment-name {
+  font-size: 30rpx;
   font-weight: 700;
+  color: #1a2440;
 }
 
-.meta {
+.course-meta,
+.assignment-meta {
   margin-top: 6rpx;
-  color: #70809b;
-  font-size: 24rpx;
+  font-size: 23rpx;
+  color: rgba(26, 36, 64, 0.56);
 }
 
-.deadline {
+.chip-row {
+  margin-top: 10rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.assignment-deadline {
   margin-top: 8rpx;
-  font-size: 24rpx;
-  color: #8d5f36;
+  font-size: 23rpx;
+  color: #e77d45;
 }
 
-.btn {
-  height: 64rpx;
-  border: 0;
+.action-btn {
+  height: 62rpx;
+  line-height: 62rpx;
   border-radius: 14rpx;
-  color: #fff;
-  font-size: 24rpx;
-  font-weight: 700;
-  background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
-  box-shadow: 0 8rpx 16rpx rgba(82, 147, 238, 0.22);
-  padding: 0 18rpx;
+  padding: 0 16rpx;
+  font-size: 22rpx;
 }
 
-.btn.disabled {
-  background: #b7c4de;
-  color: #eef3ff;
-}
-
-.empty {
-  padding: 26rpx;
-  text-align: center;
-  color: #8390a7;
+.action-btn.disabled {
+  background: #b8c5df;
+  color: rgba(255, 255, 255, 0.82);
+  box-shadow: none;
 }
 </style>

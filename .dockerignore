@@ -1,0 +1,10 @@
+.git
+.github
+**/node_modules
+**/dist
+**/.cache
+**/coverage
+**/*.log
+tools/test-reports
+server/uploads
+miniapp/dist

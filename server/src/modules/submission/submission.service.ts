@@ -172,13 +172,18 @@ export class SubmissionService {
     };
   }
 
-  async getSubmissionVersion(submissionVersionId: string) {
+  async getSubmissionVersion(
+    submissionVersionId: string,
+    requester: { sub: string; role: UserRole; schoolId: string },
+  ) {
     const version = await this.versionRepo.findOne({
       where: { id: submissionVersionId },
     });
     if (!version) {
       throw new NotFoundException('提交不存在');
     }
+    await this.assertCanReadSubmission(version, requester);
+
     return {
       submissionVersionId: version.id,
       submissionId: version.submissionId,
@@ -615,6 +620,43 @@ export class SubmissionService {
         },
       })),
     };
+  }
+
+  private async assertCanReadSubmission(
+    version: SubmissionVersionEntity,
+    requester: { sub: string; role: UserRole; schoolId: string },
+  ) {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: version.assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    const course = await this.courseRepo.findOne({
+      where: { id: assignment.courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    if (course.schoolId !== requester.schoolId) {
+      throw new BadRequestException('无权查看该提交');
+    }
+    if (requester.role === UserRole.ADMIN) {
+      return;
+    }
+    if (requester.role === UserRole.TEACHER) {
+      if (course.teacherId !== requester.sub) {
+        throw new BadRequestException('无权查看该提交');
+      }
+      return;
+    }
+    if (requester.role === UserRole.STUDENT) {
+      if (version.studentId !== requester.sub) {
+        throw new BadRequestException('无权查看该提交');
+      }
+      return;
+    }
+    throw new BadRequestException('无权查看该提交');
   }
 
   async listMissingSubmissions(

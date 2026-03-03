@@ -1,33 +1,41 @@
 <template>
-  <view class="page">
-    <view class="card header">
-      <view>
-        <view class="title">成绩看板</view>
-        <view class="desc">{{ isCourseMode ? `课程：${courseName}` : '按课程查看成绩' }}</view>
+  <view class="page ui-shell">
+    <view class="ui-card ui-header-card">
+      <view class="ui-header-main">
+        <view class="ui-title">成绩看板</view>
+        <view class="ui-subtitle">{{ isCourseMode ? `课程：${courseName}` : '按课程查看成绩' }}</view>
       </view>
-      <button v-if="isCourseMode" class="ghost header-action" @click="goBack">返回</button>
+      <button v-if="isCourseMode" class="ui-btn-ghost back-btn" @click="goBack">返回</button>
+      <view v-else class="ui-chip blue">{{ courseCards.length }} 门</view>
     </view>
 
-    <view class="card section" v-if="!isCourseMode">
-      <view class="section-title">课程列表</view>
-      <view v-if="loading" class="empty">加载中...</view>
-      <view v-else-if="!courseCards.length" class="empty">暂无成绩</view>
-      <view v-else class="list">
+    <view class="ui-card section-card" v-if="!isCourseMode">
+      <view class="section-head">
+        <view class="ui-card-title">课程列表</view>
+      </view>
+
+      <view v-if="loading" class="ui-empty">加载中...</view>
+      <view v-else-if="!courseCards.length" class="ui-empty">暂无成绩</view>
+      <view v-else class="score-list">
         <view v-for="course in courseCards" :key="course.id" class="score-item">
           <view class="left">
             <view class="name">{{ course.name }}</view>
             <view class="meta">作业 {{ course.total }} 份 · 可见成绩 {{ course.viewable }} 份</view>
           </view>
-          <button class="btn" @click="openCourse(course)">查看成绩</button>
+          <button class="ui-btn-primary action-btn" @click="openCourse(course)">查看成绩</button>
         </view>
       </view>
     </view>
 
-    <view class="card section" v-else>
-      <view class="section-title">课程成绩</view>
-      <view v-if="loading" class="empty">加载中...</view>
-      <view v-else-if="!rows.length" class="empty">暂无成绩</view>
-      <view v-else class="list">
+    <view class="ui-card section-card" v-else>
+      <view class="section-head">
+        <view class="ui-card-title">课程成绩</view>
+        <view class="ui-chip orange">{{ rows.length }} 份</view>
+      </view>
+
+      <view v-if="loading" class="ui-empty">加载中...</view>
+      <view v-else-if="!rows.length" class="ui-empty">暂无成绩</view>
+      <view v-else class="score-list">
         <view v-for="row in rows" :key="row.assignmentId" class="score-item">
           <view class="left">
             <view class="name">{{ row.assignmentTitle }}</view>
@@ -36,7 +44,7 @@
           <view class="right">
             <view class="value">{{ row.totalScore == null ? '--' : `${row.totalScore}` }}</view>
             <button
-              class="btn"
+              class="ui-btn-primary action-btn"
               :class="{ disabled: row.totalScore == null }"
               :disabled="row.totalScore == null"
               @click="goDetail(row.assignmentId)"
@@ -150,90 +158,56 @@ function goBack() {
 </script>
 
 <style scoped>
-.page {
-  min-height: 100vh;
+.back-btn {
+  margin-left: auto;
+  height: 62rpx;
+  line-height: 62rpx;
+  font-size: 22rpx;
+  padding: 0 18rpx;
+}
+
+.section-card {
   padding: 24rpx;
-  padding-bottom: 170rpx;
-  display: flex;
-  flex-direction: column;
-  gap: 20rpx;
 }
 
-.card {
-  border-radius: 24rpx;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 12rpx 24rpx rgba(44, 57, 87, 0.1);
-}
-
-.header {
-  padding: 28rpx;
+.section-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14rpx;
 }
 
-.header-action {
-  margin-left: auto;
-}
-
-.title {
-  font-size: 42rpx;
-  font-weight: 700;
-}
-
-.desc {
-  margin-top: 6rpx;
-  color: #79849a;
-  font-size: 24rpx;
-}
-
-.ghost {
-  border-radius: 16rpx;
-  border: 2rpx solid #d3dbec;
-  background: #fff;
-  color: #47536d;
-  font-size: 26rpx;
-  height: 72rpx;
-  padding: 0 22rpx;
-}
-
-.section {
-  padding: 24rpx;
-}
-
-.section-title {
-  font-size: 32rpx;
-  font-weight: 700;
-  margin-bottom: 12rpx;
-}
-
-.list {
+.score-list {
   display: flex;
   flex-direction: column;
-  gap: 14rpx;
+  gap: 12rpx;
 }
 
 .score-item {
   border-radius: 18rpx;
-  background: #f8faff;
-  border: 2rpx solid #e4e9f4;
-  padding: 20rpx;
+  border: 2rpx solid #e1e7f4;
+  background: #f9fbff;
+  padding: 18rpx;
   display: flex;
   justify-content: space-between;
-  gap: 20rpx;
+  gap: 14rpx;
+  align-items: center;
 }
 
 .left {
   flex: 1;
+  min-width: 0;
 }
 
 .name {
   font-size: 30rpx;
   font-weight: 700;
+  color: #1a2440;
 }
 
 .meta {
   margin-top: 8rpx;
-  color: #7f8aa2;
+  color: rgba(26, 36, 64, 0.56);
   font-size: 24rpx;
 }
 
@@ -245,31 +219,22 @@ function goBack() {
 }
 
 .value {
-  font-size: 36rpx;
+  font-size: 38rpx;
   font-weight: 700;
-  color: #244a95;
+  color: #264b97;
 }
 
-.btn {
-  height: 64rpx;
+.action-btn {
+  height: 62rpx;
+  line-height: 62rpx;
   border-radius: 14rpx;
-  border: 0;
-  padding: 0 18rpx;
-  color: #fff;
-  font-size: 24rpx;
-  font-weight: 700;
-  background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
-  box-shadow: 0 8rpx 16rpx rgba(82, 147, 238, 0.22);
+  padding: 0 16rpx;
+  font-size: 22rpx;
 }
 
-.btn.disabled {
-  background: #b7c4de;
-  color: #eef3ff;
-}
-
-.empty {
-  padding: 26rpx;
-  text-align: center;
-  color: #8390a7;
+.action-btn.disabled {
+  background: #b8c5df;
+  color: rgba(255, 255, 255, 0.82);
+  box-shadow: none;
 }
 </style>

@@ -38,13 +38,11 @@ export class AssignmentService {
     private readonly courseRepo: Repository<CourseEntity>,
   ) {}
 
-  async createAssignment(dto: CreateAssignmentDto) {
-    const course = await this.courseRepo.findOne({
-      where: { id: dto.courseId },
-    });
-    if (!course) {
-      throw new NotFoundException('课程不存在');
-    }
+  async createAssignment(
+    dto: CreateAssignmentDto,
+    requester: { sub: string; schoolId: string; role: UserRole },
+  ) {
+    const course = await this.assertCourseWriteAccess(dto.courseId, requester);
 
     if (dto.status && dto.status !== AssignmentStatus.DRAFT) {
       throw new BadRequestException('新建作业仅支持 DRAFT 状态');
@@ -132,23 +130,34 @@ export class AssignmentService {
     });
   }
 
-  async getAssignment(assignmentId: string) {
+  async getAssignment(
+    assignmentId: string,
+    requester: { sub: string; schoolId: string; role: UserRole },
+  ) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
     });
     if (!assignment) {
       throw new NotFoundException('作业不存在');
     }
+    const course = await this.getCourseByIdOrThrow(assignment.courseId);
+    await this.assertAssignmentReadAccess(assignment, course, requester);
     return this.toAssignmentResponse(assignment);
   }
 
-  async updateAssignmentMeta(assignmentId: string, dto: UpdateAssignmentDto) {
+  async updateAssignmentMeta(
+    assignmentId: string,
+    dto: UpdateAssignmentDto,
+    requester: { sub: string; schoolId: string; role: UserRole },
+  ) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
     });
     if (!assignment) {
       throw new NotFoundException('作业不存在');
     }
+    const course = await this.getCourseByIdOrThrow(assignment.courseId);
+    this.assertCourseWriteAccessByRole(course, requester);
 
     if (dto.status === AssignmentStatus.OPEN && assignment.status === AssignmentStatus.DRAFT) {
       throw new BadRequestException('请使用 publish 接口发布作业');
@@ -182,11 +191,12 @@ export class AssignmentService {
         ? dto.totalScore.toFixed(2)
         : assignment.totalScore;
     assignment.status = dto.status ?? assignment.status;
-    if (assignment.status !== AssignmentStatus.ARCHIVED && assignment.deadline) {
+    if (assignment.status === AssignmentStatus.OPEN && assignment.deadline) {
       const deadlineTime = assignment.deadline.getTime();
       if (!Number.isNaN(deadlineTime)) {
-        assignment.status =
-          deadlineTime <= Date.now() ? AssignmentStatus.CLOSED : AssignmentStatus.OPEN;
+        assignment.status = deadlineTime <= Date.now()
+          ? AssignmentStatus.CLOSED
+          : AssignmentStatus.OPEN;
       }
     }
     assignment.updatedAt = new Date();
@@ -198,6 +208,7 @@ export class AssignmentService {
   async updateAssignmentGradingConfig(
     assignmentId: string,
     dto: UpdateAssignmentGradingConfigDto,
+    requester: { sub: string; schoolId: string; role: UserRole },
   ) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
@@ -205,6 +216,8 @@ export class AssignmentService {
     if (!assignment) {
       throw new NotFoundException('作业不存在');
     }
+    const course = await this.getCourseByIdOrThrow(assignment.courseId);
+    this.assertCourseWriteAccessByRole(course, requester);
     if (assignment.status === AssignmentStatus.ARCHIVED) {
       throw new BadRequestException('归档作业不可修改');
     }
@@ -254,11 +267,12 @@ export class AssignmentService {
       assignment.aiConfidenceThreshold = nextAiConfidenceThreshold.toFixed(3);
       assignment.updatedAt = new Date();
 
-      if (assignment.status !== AssignmentStatus.ARCHIVED && assignment.deadline) {
+      if (assignment.status === AssignmentStatus.OPEN && assignment.deadline) {
         const deadlineTime = assignment.deadline.getTime();
         if (!Number.isNaN(deadlineTime)) {
-          assignment.status =
-            deadlineTime <= Date.now() ? AssignmentStatus.CLOSED : AssignmentStatus.OPEN;
+          assignment.status = deadlineTime <= Date.now()
+            ? AssignmentStatus.CLOSED
+            : AssignmentStatus.OPEN;
         }
       }
 
@@ -302,6 +316,7 @@ export class AssignmentService {
   async replaceAssignmentQuestions(
     assignmentId: string,
     dto: UpdateAssignmentQuestionsDto,
+    requester: { sub: string; schoolId: string; role: UserRole },
   ) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
@@ -309,15 +324,10 @@ export class AssignmentService {
     if (!assignment) {
       throw new NotFoundException('作业不存在');
     }
+    const course = await this.getCourseByIdOrThrow(assignment.courseId);
+    this.assertCourseWriteAccessByRole(course, requester);
     if (assignment.status !== AssignmentStatus.DRAFT) {
       throw new BadRequestException('非 DRAFT 状态不可修改题目列表');
-    }
-
-    const course = await this.courseRepo.findOne({
-      where: { id: assignment.courseId },
-    });
-    if (!course) {
-      throw new NotFoundException('课程不存在');
     }
 
     await this.loadLeafQuestionsInSchool(
@@ -332,13 +342,19 @@ export class AssignmentService {
     return this.toAssignmentResponse(saved);
   }
 
-  async publishAssignment(assignmentId: string, dto?: PublishAssignmentDto) {
+  async publishAssignment(
+    assignmentId: string,
+    dto: PublishAssignmentDto | undefined,
+    requester: { sub: string; schoolId: string; role: UserRole },
+  ) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
     });
     if (!assignment) {
       throw new NotFoundException('作业不存在');
     }
+    const course = await this.getCourseByIdOrThrow(assignment.courseId);
+    this.assertCourseWriteAccessByRole(course, requester);
     if (assignment.status !== AssignmentStatus.DRAFT) {
       throw new BadRequestException('仅 DRAFT 作业可发布');
     }
@@ -377,19 +393,8 @@ export class AssignmentService {
       throw new NotFoundException('作业不存在');
     }
 
-    const course = await this.courseRepo.findOne({
-      where: { id: assignment.courseId },
-    });
-    if (!course) {
-      throw new NotFoundException('课程不存在');
-    }
-    if (requester.role !== UserRole.ADMIN) {
-      if (course.teacherId !== requester.sub || course.schoolId !== requester.schoolId) {
-        throw new BadRequestException('无权删除该作业');
-      }
-    } else if (course.schoolId !== requester.schoolId) {
-      throw new BadRequestException('无权删除该作业');
-    }
+    const course = await this.getCourseByIdOrThrow(assignment.courseId);
+    this.assertCourseWriteAccessByRole(course, requester);
 
     await this.dataSource.transaction(async (manager) => {
       const versionRows = await manager.query(
@@ -438,24 +443,12 @@ export class AssignmentService {
     }
     const snapshot = await this.getSnapshotById(assignment.currentSnapshotId);
 
-    if (payload?.role === UserRole.STUDENT) {
-      const enrolled = await this.dataSource.query(
-        `
-          SELECT 1
-          FROM course_students cs
-          INNER JOIN courses c ON c.id = cs.course_id
-          WHERE cs.course_id = $1
-            AND cs.student_id = $2
-            AND cs.status = 'ENROLLED'
-            AND c.school_id = $3
-          LIMIT 1
-        `,
-        [assignment.courseId, payload.sub, payload.schoolId],
-      );
-      if (!enrolled.length) {
-        throw new NotFoundException('作业不存在');
-      }
+    const course = await this.getCourseByIdOrThrow(assignment.courseId);
+    if (payload) {
+      await this.assertAssignmentReadAccess(assignment, course, payload);
+    }
 
+    if (payload?.role === UserRole.STUDENT) {
       if (!assignment.visibleAfterSubmit) {
         const submitted = await this.dataSource.query(
           `
@@ -525,6 +518,7 @@ export class AssignmentService {
         INNER JOIN course_students cs ON cs.course_id = a.course_id
         WHERE cs.student_id = $1
           AND cs.status = 'ENROLLED'
+          AND a.current_snapshot_id IS NOT NULL
           AND a.status = 'OPEN'
           AND (a.deadline IS NULL OR a.deadline > now())
           AND c.school_id = $2
@@ -586,6 +580,8 @@ export class AssignmentService {
         INNER JOIN course_students cs ON cs.course_id = a.course_id
         WHERE cs.student_id = $1
           AND cs.status = 'ENROLLED'
+          AND a.status <> 'DRAFT'
+          AND a.current_snapshot_id IS NOT NULL
           AND c.school_id = $2
         ORDER BY a.deadline NULLS LAST, a.created_at DESC
       `,
@@ -695,13 +691,42 @@ export class AssignmentService {
     };
   }
 
-  async getSnapshotById(snapshotId: string) {
+  async getSnapshotById(
+    snapshotId: string,
+    payload?: { sub: string; schoolId: string; role: UserRole },
+  ) {
     const snapshot = await this.snapshotRepo.findOne({
       where: { id: snapshotId },
     });
     if (!snapshot) {
       throw new NotFoundException('作业快照不存在');
     }
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: snapshot.assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    const course = await this.getCourseByIdOrThrow(assignment.courseId);
+    if (payload) {
+      await this.assertAssignmentReadAccess(assignment, course, payload);
+      if (payload.role === UserRole.STUDENT && !assignment.visibleAfterSubmit) {
+        const submitted = await this.dataSource.query(
+          `
+            SELECT 1
+            FROM submissions
+            WHERE assignment_id = $1
+              AND student_id = $2
+            LIMIT 1
+          `,
+          [assignment.id, payload.sub],
+        );
+        if (submitted.length) {
+          throw new NotFoundException('作业提交后不可查看');
+        }
+      }
+    }
+
     const snapshotPayload = snapshot.snapshot as { questions?: any[] };
     const questions = Array.isArray(snapshotPayload.questions)
       ? snapshotPayload.questions
@@ -727,9 +752,96 @@ export class AssignmentService {
     return {
       assignmentSnapshotId: snapshot.id,
       assignmentId: snapshot.assignmentId,
-      questions: snapshotPayload.questions ?? [],
+      questions:
+        payload?.role === UserRole.STUDENT && !assignment.allowViewAnswer
+          ? (snapshotPayload.questions ?? []).map((item: any) => ({
+              ...item,
+              standardAnswer: null,
+            }))
+          : snapshotPayload.questions ?? [],
+      visibleAfterSubmit: assignment.visibleAfterSubmit,
+      allowViewAnswer: assignment.allowViewAnswer,
+      allowViewScore: assignment.allowViewScore,
+      handwritingRecognition: assignment.handwritingRecognition,
       createdAt: snapshot.createdAt.toISOString(),
     };
+  }
+
+  private async getCourseByIdOrThrow(courseId: string) {
+    const course = await this.courseRepo.findOne({
+      where: { id: courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    return course;
+  }
+
+  private assertCourseWriteAccessByRole(
+    course: CourseEntity,
+    requester: { sub: string; schoolId: string; role: UserRole },
+  ) {
+    if (requester.role !== UserRole.ADMIN && requester.role !== UserRole.TEACHER) {
+      throw new BadRequestException('仅教师或管理员可操作作业');
+    }
+    if (course.schoolId !== requester.schoolId) {
+      throw new BadRequestException('无权操作该作业');
+    }
+    if (requester.role === UserRole.TEACHER && course.teacherId !== requester.sub) {
+      throw new BadRequestException('无权操作该作业');
+    }
+  }
+
+  private async assertCourseWriteAccess(
+    courseId: string,
+    requester: { sub: string; schoolId: string; role: UserRole },
+  ) {
+    const course = await this.getCourseByIdOrThrow(courseId);
+    this.assertCourseWriteAccessByRole(course, requester);
+    return course;
+  }
+
+  private async assertAssignmentReadAccess(
+    assignment: AssignmentEntity,
+    course: CourseEntity,
+    requester: { sub: string; schoolId: string; role: UserRole },
+  ) {
+    if (course.schoolId !== requester.schoolId) {
+      throw new NotFoundException('作业不存在');
+    }
+
+    if (requester.role === UserRole.ADMIN) {
+      return;
+    }
+
+    if (requester.role === UserRole.TEACHER) {
+      if (course.teacherId !== requester.sub) {
+        throw new NotFoundException('作业不存在');
+      }
+      return;
+    }
+
+    if (requester.role === UserRole.STUDENT) {
+      const enrolled = await this.dataSource.query(
+        `
+          SELECT 1
+          FROM course_students cs
+          INNER JOIN courses c ON c.id = cs.course_id
+          WHERE cs.course_id = $1
+            AND cs.student_id = $2
+            AND cs.status = 'ENROLLED'
+            AND c.school_id = $3
+          LIMIT 1
+        `,
+        [assignment.courseId, requester.sub, requester.schoolId],
+      );
+      if (!enrolled.length) {
+        throw new NotFoundException('作业不存在');
+      }
+      return;
+    }
+
+    throw new NotFoundException('作业不存在');
   }
 
   private resolveQuestionCode(question: CreateAssignmentQuestionDto): string | null {

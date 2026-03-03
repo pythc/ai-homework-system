@@ -17,6 +17,8 @@ import {
   AssignmentEntity,
 } from '../assignment/entities/assignment.entity';
 import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
+import { CourseEntity } from '../assignment/entities/course.entity';
+import { UserRole } from '../auth/entities/user.entity';
 
 @Injectable()
 export class AiGradingService {
@@ -34,11 +36,14 @@ export class AiGradingService {
     private readonly assignmentRepo: Repository<AssignmentEntity>,
     @InjectRepository(AssignmentSnapshotEntity)
     private readonly snapshotRepo: Repository<AssignmentSnapshotEntity>,
+    @InjectRepository(CourseEntity)
+    private readonly courseRepo: Repository<CourseEntity>,
   ) {}
 
   async createGradingJob(
     submissionVersionId: string,
     dto: TriggerAiGradingDto,
+    requester?: { sub: string; schoolId: string; role: UserRole },
   ) {
     const submissionVersion = await this.submissionVersionRepo.findOne({
       where: { id: submissionVersionId },
@@ -52,6 +57,9 @@ export class AiGradingService {
     });
     if (!assignment) {
       throw new NotFoundException('作业不存在');
+    }
+    if (requester) {
+      await this.assertTeacherAccess(assignment, requester);
     }
 
     let assignmentSnapshotId: string | null = null;
@@ -131,7 +139,15 @@ export class AiGradingService {
     }
   }
 
-  async getJobStatus(submissionVersionId: string) {
+  async getJobStatus(
+    submissionVersionId: string,
+    requester?: { sub: string; schoolId: string; role: UserRole },
+  ) {
+    const context = await this.loadSubmissionContext(submissionVersionId);
+    if (requester) {
+      await this.assertTeacherAccess(context.assignment, requester);
+    }
+
     const job = await this.jobRepo.findOne({
       where: { submissionVersionId },
       order: { createdAt: 'DESC' },
@@ -150,7 +166,15 @@ export class AiGradingService {
     };
   }
 
-  async getResult(submissionVersionId: string) {
+  async getResult(
+    submissionVersionId: string,
+    requester?: { sub: string; schoolId: string; role: UserRole },
+  ) {
+    const context = await this.loadSubmissionContext(submissionVersionId);
+    if (requester) {
+      await this.assertTeacherAccess(context.assignment, requester);
+    }
+
     const grading = await this.gradingRepo.findOne({
       where: { submissionVersionId },
       order: { createdAt: 'DESC' },
@@ -227,11 +251,19 @@ export class AiGradingService {
     };
   }
 
-  async requeueJob(jobId: string) {
+  async requeueJob(
+    jobId: string,
+    requester?: { sub: string; schoolId: string; role: UserRole },
+  ) {
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) {
       throw new NotFoundException('AI 任务不存在');
     }
+    const context = await this.loadSubmissionContext(job.submissionVersionId);
+    if (requester) {
+      await this.assertTeacherAccess(context.assignment, requester);
+    }
+
     if (job.status === AiJobStatus.SUCCEEDED) {
       throw new ConflictException('任务已成功完成，无需重试');
     }
@@ -315,5 +347,42 @@ export class AiGradingService {
     if (typeof value !== 'string') return undefined;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private async loadSubmissionContext(submissionVersionId: string) {
+    const submissionVersion = await this.submissionVersionRepo.findOne({
+      where: { id: submissionVersionId },
+    });
+    if (!submissionVersion) {
+      throw new NotFoundException('提交不存在');
+    }
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: submissionVersion.assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    return { submissionVersion, assignment };
+  }
+
+  private async assertTeacherAccess(
+    assignment: AssignmentEntity,
+    requester: { sub: string; schoolId: string; role: UserRole },
+  ) {
+    if (requester.role !== UserRole.ADMIN && requester.role !== UserRole.TEACHER) {
+      throw new BadRequestException('无权访问 AI 批改');
+    }
+    const course = await this.courseRepo.findOne({
+      where: { id: assignment.courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    if (course.schoolId !== requester.schoolId) {
+      throw new BadRequestException('无权访问 AI 批改');
+    }
+    if (requester.role === UserRole.TEACHER && course.teacherId !== requester.sub) {
+      throw new BadRequestException('无权访问 AI 批改');
+    }
   }
 }

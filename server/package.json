@@ -11,7 +11,7 @@
     "start:dev": "nest start --watch",
     "migration:run": "node --require dotenv/config --require ts-node/register/transpile-only ./node_modules/typeorm/cli.js -d src/common/database/data-source.ts migration:run",
     "migration:revert": "node --require dotenv/config --require ts-node/register/transpile-only ./node_modules/typeorm/cli.js -d src/common/database/data-source.ts migration:revert",
-    "test:api": "node --require ts-node/register/transpile-only scripts/api-smoke.ts"
+    "test:api": "node --require dotenv/config --require ts-node/register/transpile-only scripts/api-smoke.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

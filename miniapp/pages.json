@@ -9,7 +9,7 @@
     {
       "path": "pages/student/courses",
       "style": {
-        "navigationBarTitleText": "我的课程"
+        "navigationBarTitleText": "个人主页"
       }
     },
     {

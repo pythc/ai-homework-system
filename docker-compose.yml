@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:15-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123456}
@@ -15,13 +16,20 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   server:
     build:
       context: ./server
+    restart: unless-stopped
     env_file:
       - ./.env
     environment:
@@ -36,25 +44,34 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-      assistant_service:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./server/uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   assistant_service:
     build:
       context: ./assistant_service
+    restart: unless-stopped
     env_file:
       - ./.env
     environment:
       ASSISTANT_PORT: 4100
       REDIS_URL: redis://redis:6379
-      ASSISTANT_ASSET_BASE: https://110-lab.cn
+      ASSISTANT_ASSET_BASE: http://server:3000
       NODE_ENV: production
     depends_on:
       redis:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/metrics').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   web:
     build:
@@ -64,14 +81,17 @@ services:
         VITE_API_BASE_URL: /api/v1
         VITE_SCHOOL_NAME: ${VITE_SCHOOL_NAME:-}
         VITE_SCHOOLS: ${VITE_SCHOOLS:-}
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      SITE_HOSTS: ${SITE_HOSTS:-:80}
     depends_on:
       server:
-        condition: service_started
+        condition: service_healthy
       assistant_service:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - caddy_data:/data
       - caddy_config:/config

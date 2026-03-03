@@ -454,23 +454,26 @@ const readFileAsDataUrl = (file) =>
 const buildImagesPayload = async () => {
   if (!attachments.value.length) return []
   const files = attachments.value.map((item) => item.file)
+  const dataUrls = await Promise.all(files.map((file) => readFileAsDataUrl(file)))
   let uploaded = []
   try {
     const response = await uploadAssistantImages(files)
-    uploaded = response.files ?? []
-  } catch (err) {
+    uploaded = Array.isArray(response?.files) ? response.files : []
+  } catch {
     uploaded = []
   }
-  const urls = files.map((_, idx) => uploaded[idx]?.url)
-  const dataUrls = await Promise.all(
-    files.map((file, idx) => (urls[idx] ? '' : readFileAsDataUrl(file))),
-  )
+
   return files.map((file, idx) => {
-    const url = urls[idx]
-    if (url) {
-      return { name: file.name, url }
+    const payload = {
+      name: file.name,
+      dataUrl: dataUrls[idx],
     }
-    return { name: file.name, dataUrl: dataUrls[idx] }
+    const url =
+      uploaded[idx]?.url ?? uploaded.find((item) => item?.name === file.name)?.url ?? ''
+    if (url) {
+      payload.url = url
+    }
+    return payload
   })
 }
 

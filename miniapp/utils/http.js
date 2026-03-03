@@ -1,12 +1,70 @@
 import { clearAuth, getAccessToken, getRefreshToken, setAuth, getUser } from './storage'
 
-const DEFAULT_API_BASE_URL = 'http://localhost:3000/api/v1'
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
+const API_BASE_STORAGE_KEY = 'miniapp.runtime.apiBaseUrl'
+const DEFAULT_API_BASE_URL_DEVTOOLS = 'http://localhost:3000/api/v1'
+const DEFAULT_API_BASE_URL_MOBILE = 'https://110-lab.cn/api/v1'
+const ENV_API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').trim()
+const ENV_API_BASE_URL_MOBILE = String(import.meta.env.VITE_API_BASE_URL_MOBILE || '').trim()
+
+function normalizeApiBaseUrl(value = '') {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return ''
+  if (!/^https?:\/\//i.test(trimmed)) return ''
+  return trimmed.replace(/\/+$/, '')
+}
+
+function isLocalhostApiBase(url = '') {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url)
+}
+
+function getRuntimePlatform() {
+  try {
+    const info = uni.getSystemInfoSync?.() || {}
+    return String(info.platform || '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+function resolveApiBaseUrl() {
+  const runtimeValue = normalizeApiBaseUrl(uni.getStorageSync(API_BASE_STORAGE_KEY))
+  if (runtimeValue) return runtimeValue
+
+  const platform = getRuntimePlatform()
+  const envBase = normalizeApiBaseUrl(ENV_API_BASE_URL)
+  if (envBase) {
+    if (platform && platform !== 'devtools' && isLocalhostApiBase(envBase)) {
+      return normalizeApiBaseUrl(ENV_API_BASE_URL_MOBILE) || DEFAULT_API_BASE_URL_MOBILE
+    }
+    return envBase
+  }
+
+  if (platform && platform !== 'devtools') {
+    return normalizeApiBaseUrl(ENV_API_BASE_URL_MOBILE) || DEFAULT_API_BASE_URL_MOBILE
+  }
+
+  return DEFAULT_API_BASE_URL_DEVTOOLS
+}
+
+export const API_BASE_URL = resolveApiBaseUrl()
+export function getApiBaseUrl() {
+  return resolveApiBaseUrl()
+}
+
+export function setRuntimeApiBaseUrl(url) {
+  const normalized = normalizeApiBaseUrl(url)
+  if (!normalized) {
+    uni.removeStorageSync(API_BASE_STORAGE_KEY)
+    return ''
+  }
+  uni.setStorageSync(API_BASE_STORAGE_KEY, normalized)
+  return normalized
+}
 
 function buildUrl(path) {
   if (/^https?:\/\//.test(path)) return path
   const normalized = path.startsWith('/') ? path : `/${path}`
-  return `${API_BASE_URL}${normalized}`
+  return `${getApiBaseUrl()}${normalized}`
 }
 
 export function toAbsoluteUrl(path = '') {
@@ -14,12 +72,12 @@ export function toAbsoluteUrl(path = '') {
   if (!value) return ''
   if (/^https?:\/\//.test(value)) return value
   const normalized = value.startsWith('/') ? value : `/${value}`
-  try {
-    const base = new URL(API_BASE_URL)
-    return `${base.origin}${normalized}`
-  } catch {
-    return normalized
+  const base = String(getApiBaseUrl() || '').trim()
+  const match = /^(https?:\/\/[^/]+)/i.exec(base)
+  if (match?.[1]) {
+    return `${match[1]}${normalized}`
   }
+  return normalized
 }
 
 function requestRaw(path, options = {}) {
@@ -35,7 +93,23 @@ function requestRaw(path, options = {}) {
       data,
       header: headers,
       success: (res) => resolve(res),
-      fail: (err) => reject(err),
+      fail: (err) => {
+        const errMsg = String(err?.errMsg || '')
+        const platform = getRuntimePlatform()
+        const activeBase = getApiBaseUrl()
+        const isNameNotResolved = /ERR_NAME_NOT_RESOLVED/i.test(errMsg)
+        const localhostHint =
+          platform &&
+          platform !== 'devtools' &&
+          isLocalhostApiBase(activeBase)
+            ? '当前 API 地址是 localhost，真机无法访问。请改为可访问的局域网 IP 或 HTTPS 域名。'
+            : ''
+        const dnsHint = isNameNotResolved
+          ? `当前 API 域名无法解析：${activeBase}。请检查 DNS，或配置 VITE_API_BASE_URL_MOBILE 为可访问地址。`
+          : ''
+        const message = [errMsg || '网络请求失败', localhostHint, dnsHint].filter(Boolean).join(' ')
+        reject(new Error(message))
+      },
     })
   })
 }

@@ -1,10 +1,10 @@
-import { API_BASE_URL, request, toAbsoluteUrl } from '../utils/http'
+import { getApiBaseUrl, request, toAbsoluteUrl } from '../utils/http'
 import { getAccessToken } from '../utils/storage'
 
 function buildUrl(path) {
   if (/^https?:\/\//.test(path)) return path
   const normalized = path.startsWith('/') ? path : `/${path}`
-  return `${API_BASE_URL}${normalized}`
+  return `${getApiBaseUrl()}${normalized}`
 }
 
 export async function sendAssistantMessage(question, options = {}) {

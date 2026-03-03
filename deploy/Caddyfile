@@ -1,4 +1,4 @@
-110-lab.cn, www.110-lab.cn {
+{$SITE_HOSTS} {
   encode gzip
 
   handle /api/* {
@@ -13,6 +13,9 @@
     reverse_proxy server:3000
   }
 
-  root * /srv
-  file_server
+  handle {
+    root * /srv
+    try_files {path} /index.html
+    file_server
+  }
 }

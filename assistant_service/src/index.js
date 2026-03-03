@@ -1,5 +1,6 @@
 ﻿import 'dotenv/config';
 import express from 'express';
+import client from 'prom-client';
 
 const {
   ASSISTANT_PORT = 4100,
@@ -9,6 +10,7 @@ const {
   ARK_API_KEY = '',
   ASSISTANT_CACHE_TTL_MS = '1800000',
   ASSISTANT_MODEL_TIMEOUT_MS = '30000',
+  ASSISTANT_IMAGE_FETCH_TIMEOUT_MS = '10000',
 } = process.env;
 
 if (!ARK_API_KEY) {
@@ -18,12 +20,33 @@ if (!ARK_API_KEY) {
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
+const metricsRegistry = new client.Registry();
+client.collectDefaultMetrics({ register: metricsRegistry });
+const httpRequestsTotal = new client.Counter({
+  name: 'assistant_http_requests_total',
+  help: 'Total HTTP requests served by assistant_service',
+  labelNames: ['method', 'route', 'status_code'],
+  registers: [metricsRegistry],
+});
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    httpRequestsTotal.inc({
+      method: req.method,
+      route: req.route?.path || req.path || 'unknown',
+      status_code: String(res.statusCode),
+    });
+  });
+  next();
+});
+
 const normalizeBaseUrl = (url) => (url ? url.replace(/\/+$/, '') : '');
 const baseUrl = normalizeBaseUrl(ASSISTANT_BASE_URL);
 const responsesUrl = `${baseUrl}/responses`;
 
 const cacheTtlMs = Number(ASSISTANT_CACHE_TTL_MS) || 30 * 60 * 1000;
 const modelTimeoutMs = Number(ASSISTANT_MODEL_TIMEOUT_MS) || 30000;
+const imageFetchTimeoutMs = Number(ASSISTANT_IMAGE_FETCH_TIMEOUT_MS) || 10000;
 const prefixCache = new Map();
 let cacheAvailable = true;
 
@@ -85,7 +108,7 @@ const systemPrompt = `你是“AI作业分析助手”，服务于作业管理�
 - 你是重庆邮电大学数学与统计学院110实验室的AI助手。由陈六新副院长和陈玮老师牵头、学院大力支持下，数统学院110实验室/社团成立于2025年3月8日，是学院内聚焦学科竞赛、编程指导的学生组织，现有成员共22人。实验室自成立以来始终聚焦人工智能、图像识别、前后端开发等领域，以“探索智能前沿，赋能创新实践”为宗旨，致力于搭建一个集学术交流、技术实践、项目孵化于一体的综合性平台。社团汇聚了学校文峰班、计算机科学与技术、智能科学与技术+数学与应用数学双学位等多个专业的优秀学生，其中不乏在人工智能算法、机器学习、深度学习等方向表现突出的专业人才。
 - 实验室成员获得计算机领域竞赛奖项二十余项，并在全国大学生计算机设计大赛荣获全国二等奖
 - 实验室重点推进两大核心建设目标：一是打造高质量算法人才培养基地，聚焦算法能力体系化培育；二是构建具备完整 IT 公司架构的实践平台，实现 “就业指导 + 项目产出” 双向赋能，既为成员提供贴合行业需求的职业指引，也通过真实项目实践提升技术落地能力。
-`;
+`
 
 const buildUserContent = (question, stats, scope, images) => {
   const imageHint = Array.isArray(images) && images.length
@@ -105,9 +128,40 @@ const buildUserContent = (question, stats, scope, images) => {
   )}`;
 };
 
-const normalizeImages = (images) => {
+const toAbsoluteImageUrl = (url) => {
+  if (!url || typeof url !== 'string') return '';
+  if (url.startsWith('http')) return url;
+  if (url.startsWith('/uploads/')) {
+    return `${ASSISTANT_ASSET_BASE.replace(/\/+$/, '')}${url}`;
+  }
+  return '';
+};
+
+const guessImageMimeType = (url, contentType) => {
+  const type = String(contentType || '').toLowerCase();
+  if (type.startsWith('image/')) {
+    return type.split(';')[0];
+  }
+  const lower = String(url || '').toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.bmp')) return 'image/bmp';
+  if (lower.endsWith('.svg')) return 'image/svg+xml';
+  return 'image/jpeg';
+};
+
+const fetchImageAsDataUrl = async (url) => {
+  const response = await fetchWithTimeout(url, { method: 'GET' }, imageFetchTimeoutMs);
+  if (!response.ok) return '';
+  const arrayBuffer = await response.arrayBuffer();
+  const mime = guessImageMimeType(url, response.headers.get('content-type'));
+  return `data:${mime};base64,${Buffer.from(arrayBuffer).toString('base64')}`;
+};
+
+const normalizeImages = async (images) => {
   if (!Array.isArray(images)) return [];
-  return images
+  const normalized = images
     .map((item) => ({
       name: item?.name,
       dataUrl: item?.dataUrl,
@@ -124,22 +178,34 @@ const normalizeImages = (images) => {
         return true;
       }
       return false;
-    })
-    .map((item) => {
-      if (!item?.url) return item;
-      if (item.url.startsWith('http')) return item;
-      if (item.url.startsWith('/uploads/')) {
-        return {
-          ...item,
-          url: `${ASSISTANT_ASSET_BASE.replace(/\/+$/, '')}${item.url}`,
-        };
-      }
-      return item;
     });
+
+  const result = [];
+  for (const item of normalized) {
+    if (typeof item?.dataUrl === 'string' && item.dataUrl.startsWith('data:image')) {
+      result.push(item);
+      continue;
+    }
+    const absoluteUrl = toAbsoluteImageUrl(item?.url);
+    if (!absoluteUrl) continue;
+    let fetchedDataUrl = '';
+    try {
+      // Convert URL-based images to inline payload to avoid model-side inability to reach localhost/private assets.
+      fetchedDataUrl = await fetchImageAsDataUrl(absoluteUrl);
+    } catch {
+      fetchedDataUrl = '';
+    }
+    if (fetchedDataUrl) {
+      result.push({ ...item, url: absoluteUrl, dataUrl: fetchedDataUrl });
+    } else {
+      result.push({ ...item, url: absoluteUrl });
+    }
+  }
+  return result;
 };
 
-const buildContentParts = (question, stats, scope, images) => {
-  const normalizedImages = normalizeImages(images);
+const buildContentParts = async (question, stats, scope, images) => {
+  const normalizedImages = await normalizeImages(images);
   const parts = [
     {
       type: 'input_text',
@@ -147,9 +213,11 @@ const buildContentParts = (question, stats, scope, images) => {
     },
   ];
   normalizedImages.forEach((item) => {
+    const imageSource = item?.dataUrl || item?.url || '';
+    if (!imageSource) return;
     parts.push({
       type: 'input_image',
-      image_url: item.dataUrl || item.url,
+      image_url: imageSource,
     });
   });
   return parts;
@@ -390,11 +458,12 @@ app.post('/assistant/answer', async (req, res) => {
     const thinkingType = normalizeThinking(thinking);
     const sessionKey = getSessionKey(sessionId, scope, thinkingType);
     const prefixResponseId = await ensurePrefixResponseId(sessionKey, thinkingType);
+    const content = await buildContentParts(question, stats, scope, images);
     const payload = {
       model: ASSISTANT_MODEL,
-      input: [{ role: 'user', content: buildContentParts(question, stats, scope, images) }],
+      input: [{ role: 'user', content }],
       caching: cacheAvailable ? { type: 'enabled' } : undefined,
-      max_output_tokens: 1024,
+      max_output_tokens: 99999,
     };
     if (thinkingType) {
       payload.thinking = { type: thinkingType };
@@ -452,11 +521,12 @@ app.post('/assistant/answer/stream', async (req, res) => {
     const thinkingType = normalizeThinking(thinking);
     const sessionKey = getSessionKey(sessionId, scope, thinkingType);
     const prefixResponseId = await ensurePrefixResponseId(sessionKey, thinkingType);
+    const content = await buildContentParts(question, stats, scope, images);
     const payload = {
       model: ASSISTANT_MODEL,
-      input: [{ role: 'user', content: buildContentParts(question, stats, scope, images) }],
+      input: [{ role: 'user', content }],
       caching: cacheAvailable ? { type: 'enabled' } : undefined,
-      max_output_tokens: 1024,
+      max_output_tokens: 99999,
       stream: true,
     };
     if (thinkingType) {
@@ -495,6 +565,11 @@ app.post('/assistant/answer/stream', async (req, res) => {
     res.write(`event: error\ndata: ${JSON.stringify({ message: 'assistant failed' })}\n\n`);
     res.end();
   }
+});
+
+app.get('/metrics', async (_req, res) => {
+  res.set('Content-Type', metricsRegistry.contentType);
+  res.send(await metricsRegistry.metrics());
 });
 
 app.listen(ASSISTANT_PORT, () => {

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Post,
   Body,
@@ -7,9 +8,16 @@ import {
   HttpStatus,
   Get,
   Query,
+  Req,
+  ParseUUIDPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { AiGradingService } from './ai-grading.service';
 import { TriggerAiGradingDto } from './dto/trigger-ai-grading.dto';
+import { JwtAuthGuard } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '../auth/entities/user.entity';
 
 // 负责人: 周灿宇
 // 保持 URL 路径一致，从 submission 维度访问 AI 能力
@@ -22,6 +30,8 @@ export class AiGradingController {
    * GET /submissions/ai-grading/queue:overview
    */
   @Get('ai-grading/queue:overview')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   async getQueueOverview() {
     return this.aiGradingService.getQueueOverview();
   }
@@ -32,11 +42,19 @@ export class AiGradingController {
    */
   @Post(':submissionVersionId/ai-grading:run')
   @HttpCode(HttpStatus.ACCEPTED)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async triggerAiGrading(
     @Param('submissionVersionId') submissionVersionId: string,
-    @Body() triggerDto: TriggerAiGradingDto
+    @Body() triggerDto: TriggerAiGradingDto,
+    @Req() req: any,
   ) {
-    return this.aiGradingService.createGradingJob(submissionVersionId, triggerDto);
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.aiGradingService.createGradingJob(
+      submissionVersionId,
+      triggerDto,
+      payload,
+    );
   }
 
   /**
@@ -44,8 +62,14 @@ export class AiGradingController {
    * GET /submissions/:submissionVersionId/ai-grading/job
    */
   @Get(':submissionVersionId/ai-grading/job')
-  async getAiJobStatus(@Param('submissionVersionId') submissionVersionId: string) {
-    return this.aiGradingService.getJobStatus(submissionVersionId);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async getAiJobStatus(
+    @Param('submissionVersionId') submissionVersionId: string,
+    @Req() req: any,
+  ) {
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.aiGradingService.getJobStatus(submissionVersionId, payload);
   }
 
   /**
@@ -53,18 +77,51 @@ export class AiGradingController {
    * GET /submissions/:submissionVersionId/ai-grading
    */
   @Get(':submissionVersionId/ai-grading')
-  async getAiGradingResult(@Param('submissionVersionId') submissionVersionId: string) {
-    return this.aiGradingService.getResult(submissionVersionId);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async getAiGradingResult(
+    @Param('submissionVersionId') submissionVersionId: string,
+    @Req() req: any,
+  ) {
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.aiGradingService.getResult(submissionVersionId, payload);
   }
 
   /**
    * 4. 手动重入队
    * POST /submissions/ai-grading/jobs/:jobId:requeue
    */
-  @Post('ai-grading/jobs/:jobId:requeue')
+  @Post('ai-grading/jobs/:jobId/requeue')
   @HttpCode(HttpStatus.ACCEPTED)
-  async requeueJob(@Param('jobId') jobId: string) {
-    return this.aiGradingService.requeueJob(jobId);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async requeueJob(
+    @Param('jobId', new ParseUUIDPipe()) jobId: string,
+    @Req() req: any,
+  ) {
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.aiGradingService.requeueJob(jobId, payload);
+  }
+
+  /**
+   * 4. 手动重入队（兼容旧路径）
+   * POST /submissions/ai-grading/jobs/:jobId:requeue
+   */
+  @Post('ai-grading/jobs/:legacyJobId')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async requeueJobLegacy(
+    @Param('legacyJobId') legacyJobId: string,
+    @Req() req: any,
+  ) {
+    const match = /^([0-9a-fA-F-]{36}):requeue$/.exec(legacyJobId);
+    if (!match?.[1]) {
+      throw new BadRequestException('legacy requeue 路径格式错误');
+    }
+    const jobId = match[1];
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.aiGradingService.requeueJob(jobId, payload);
   }
 
   /**
@@ -73,6 +130,8 @@ export class AiGradingController {
    */
   @Post('ai-grading/jobs:recover-stale')
   @HttpCode(HttpStatus.ACCEPTED)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   async recoverStaleJobs(@Query('staleSeconds') staleSeconds?: string) {
     const parsed =
       staleSeconds !== undefined && staleSeconds !== null

@@ -26,8 +26,14 @@ export class AssignmentController {
   constructor(private readonly assignmentService: AssignmentService) {}
 
   @Post()
-  async createAssignment(@Body() body: CreateAssignmentDto) {
-    return this.assignmentService.createAssignment(body);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  async createAssignment(
+    @Body() body: CreateAssignmentDto,
+    @Req() req: any,
+  ) {
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.assignmentService.createAssignment(body, payload);
   }
 
   @Get('open')
@@ -63,40 +69,70 @@ export class AssignmentController {
   }
 
   @Get(':assignmentId')
-  async getAssignment(@Param('assignmentId') assignmentId: string) {
-    return this.assignmentService.getAssignment(assignmentId);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN, UserRole.STUDENT)
+  async getAssignment(
+    @Param('assignmentId') assignmentId: string,
+    @Req() req: any,
+  ) {
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.assignmentService.getAssignment(assignmentId, payload);
   }
 
   @Patch(':assignmentId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async updateAssignment(
     @Param('assignmentId') assignmentId: string,
     @Body() body: UpdateAssignmentDto,
+    @Req() req: any,
   ) {
-    return this.assignmentService.updateAssignmentMeta(assignmentId, body);
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.assignmentService.updateAssignmentMeta(assignmentId, body, payload);
   }
 
   @Put(':assignmentId/questions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async replaceAssignmentQuestions(
     @Param('assignmentId') assignmentId: string,
     @Body() body: UpdateAssignmentQuestionsDto,
+    @Req() req: any,
   ) {
-    return this.assignmentService.replaceAssignmentQuestions(assignmentId, body);
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.assignmentService.replaceAssignmentQuestions(
+      assignmentId,
+      body,
+      payload,
+    );
   }
 
   @Post(':assignmentId/publish')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async publishAssignment(
     @Param('assignmentId') assignmentId: string,
     @Body() body: PublishAssignmentDto,
+    @Req() req: any,
   ) {
-    return this.assignmentService.publishAssignment(assignmentId, body);
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.assignmentService.publishAssignment(assignmentId, body, payload);
   }
 
   @Put(':assignmentId/grading-config')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async updateGradingConfig(
     @Param('assignmentId') assignmentId: string,
     @Body() body: UpdateAssignmentGradingConfigDto,
+    @Req() req: any,
   ) {
-    return this.assignmentService.updateAssignmentGradingConfig(assignmentId, body);
+    const payload = req.user as { sub: string; schoolId: string; role: UserRole };
+    return this.assignmentService.updateAssignmentGradingConfig(
+      assignmentId,
+      body,
+      payload,
+    );
   }
 
   @Delete(':assignmentId')
@@ -111,7 +147,8 @@ export class AssignmentController {
   }
 
   @Get(':assignmentId/snapshot')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN, UserRole.STUDENT)
   async getCurrentSnapshot(
     @Param('assignmentId') assignmentId: string,
     @Req() req: any,

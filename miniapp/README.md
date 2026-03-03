@@ -23,8 +23,11 @@ npm run build:mp-weixin
 Set API base URL via env:
 ```bash
 VITE_API_BASE_URL=https://your-domain/api/v1
+VITE_API_BASE_URL_MOBILE=https://your-mobile-domain/api/v1
 ```
-Default fallback: `http://localhost:3000/api/v1`.
+Notes:
+1. DevTools default fallback: `http://localhost:3000/api/v1`.
+2. Real device will not be able to access `localhost`; configure `VITE_API_BASE_URL_MOBILE` to a reachable HTTPS domain or LAN IP.
 ## Current Scope
 1. Student login
 2. Course list
