@@ -25,5 +25,12 @@ __pycache__/
 # Uploads
 server/uploads/
 
+# Test artifacts
+tools/test-reports/
+client/dist.unwritable.*/
+
+# WeChat local private config
+miniapp/project.private.config.json
+
 # Docs
 docs/
