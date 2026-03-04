@@ -1,26 +1,12 @@
 <template>
-  <view class="page ui-shell">
-    <view class="ui-card ui-header-card fx-fade-in">
-      <view class="ui-header-main">
-        <view class="ui-title">110实验室 AI 助手</view>
-        <view class="ui-subtitle">同学您好，随时提问课程、作业与学习方法</view>
-      </view>
-      <view class="ui-profile header-profile">
-        <view class="ui-avatar">{{ profileInitial }}</view>
-        <view class="ui-profile-text">
-          <view class="ui-profile-name">{{ profileName }}</view>
-          <view class="ui-profile-account">{{ profileAccount }}</view>
-        </view>
-      </view>
-    </view>
-
+  <view class="page ui-shell assistant-page">
     <view class="ui-card chat-card fx-fade-up fx-delay-1">
       <scroll-view class="messages" scroll-y :scroll-top="scrollTop" :scroll-with-animation="true">
         <view v-if="!messages.length" class="empty-hero">你好，让我们从这里启程</view>
 
         <view v-for="(item, idx) in messages" :key="item.id" class="msg-row fx-fade-up" :class="item.role">
           <view class="msg-bubble" :class="{ pending: item.pending }">
-            <text class="msg-text" selectable>{{ item.pending ? '...' : item.content }}</text>
+            <text class="msg-text" user-select>{{ item.pending ? '...' : item.content }}</text>
           </view>
 
           <view v-if="item.role === 'assistant' && item.content && !item.pending" class="msg-actions">
@@ -52,8 +38,14 @@
           <view class="attachment-delete" @click="removeAttachment(idx)">×</view>
         </view>
       </view>
+      <view class="composer fx-fade-up">
+        <button class="circle-btn plus-btn" @click="pickImages">
+          <view class="plus-icon">
+            <view class="plus-icon-h"></view>
+            <view class="plus-icon-v"></view>
+          </view>
+        </button>
 
-      <view class="composer">
         <textarea
           v-model="input"
           class="composer-input"
@@ -61,21 +53,20 @@
           placeholder-style="color: rgba(26, 36, 64, 0.45);"
           :disabled="sending"
           maxlength="4000"
+          confirm-type="send"
           auto-height
+          @confirm="sendMessage"
         />
-        <view class="composer-actions">
-          <button class="circle-btn plus-btn" @click="pickImages">+</button>
-          <button
-            class="circle-btn send-btn"
-            :class="{ disabled: sending || (!input.trim() && !attachments.length) }"
-            :disabled="sending || (!input.trim() && !attachments.length)"
-            @click="sendMessage"
-          >
-            ↗
-          </button>
-        </view>
-      </view>
 
+        <button
+          class="circle-btn send-btn"
+          :class="{ disabled: sending || (!input.trim() && !attachments.length) }"
+          :disabled="sending || (!input.trim() && !attachments.length)"
+          @click="sendMessage"
+        >
+          <view class="send-icon"></view>
+        </button>
+      </view>
       <view v-if="error" class="error">{{ error }}</view>
     </view>
 
@@ -84,7 +75,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { sendAssistantMessage, uploadAssistantImages } from '../../api/assistant'
 import { getUser, requireStudent } from '../../utils/storage'
 import StudentBottomNav from '../../components/StudentBottomNav.vue'
@@ -97,7 +88,6 @@ const sessionId = ref('')
 const attachments = ref([])
 const messageSeed = ref(1)
 const messages = ref([])
-const currentUser = ref({})
 
 const quickPrompts = [
   '你好，介绍一下自己',
@@ -106,16 +96,6 @@ const quickPrompts = [
   '这题应该怎么解？',
   '如果系统体验不好我该怎么反馈',
 ]
-
-const profileName = computed(() =>
-  currentUser.value?.realName || currentUser.value?.name || currentUser.value?.username || '同学',
-)
-
-const profileAccount = computed(() =>
-  currentUser.value?.studentNumber || currentUser.value?.account || currentUser.value?.username || '学生账号',
-)
-
-const profileInitial = computed(() => String(profileName.value || '同').trim().slice(0, 1))
 
 function resolveStorageKey(name) {
   const user = getUser()
@@ -358,7 +338,6 @@ function copyMessage(content) {
 
 onMounted(() => {
   if (!requireStudent()) return
-  currentUser.value = getUser() || {}
   loadSession()
   loadMessages()
   scrollToBottom()
@@ -366,13 +345,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.header-profile {
-  width: 320rpx;
+.assistant-page {
+  padding-top: 12rpx;
+  padding-bottom: calc(192rpx + env(safe-area-inset-bottom));
 }
 
 .chat-card {
   flex: 1;
-  min-height: calc(100vh - 340rpx);
+  min-height: calc(100vh - 244rpx);
   padding: 18rpx;
   display: flex;
   flex-direction: column;
@@ -426,8 +406,10 @@ onMounted(() => {
 }
 
 .msg-row.user .msg-bubble {
-  background: linear-gradient(135deg, rgba(69, 145, 247, 0.94), rgba(101, 205, 218, 0.94));
-  box-shadow: 0 8rpx 16rpx rgba(80, 146, 238, 0.24);
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
 }
 
 .msg-text {
@@ -439,8 +421,8 @@ onMounted(() => {
 }
 
 .msg-row.user .msg-text {
-  color: #fff;
-  font-weight: 600;
+  color: #2f67c8;
+  font-weight: 700;
 }
 
 .msg-actions {
@@ -551,6 +533,7 @@ onMounted(() => {
 }
 
 .composer {
+  margin-top: auto;
   border-radius: 24rpx;
   border: 2rpx solid #d4deef;
   background: #f2f6fd;
@@ -593,25 +576,57 @@ onMounted(() => {
 }
 
 .plus-btn {
-  border: 4rpx solid #19243f;
-  background: transparent;
-  color: #19243f;
-  font-size: 44rpx;
-  font-weight: 500;
+  border: 3rpx solid #243b6a;
+  background: #fff;
+  color: #243b6a;
 }
 
 .send-btn {
-  border: 3rpx solid #c6d0e4;
+  border: 3rpx solid #cfdbf0;
   background: #edf2fb;
-  color: #98a4bd;
-  font-size: 34rpx;
-  font-weight: 700;
+  color: #7e91b5;
 }
 
 .send-btn:not(.disabled) {
   border: 0;
   background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
   color: #fff;
+}
+
+.plus-icon {
+  position: relative;
+  width: 28rpx;
+  height: 28rpx;
+}
+
+.plus-icon-h,
+.plus-icon-v {
+  position: absolute;
+  background: currentColor;
+  border-radius: 2rpx;
+}
+
+.plus-icon-h {
+  left: 0;
+  right: 0;
+  top: 12rpx;
+  height: 4rpx;
+}
+
+.plus-icon-v {
+  top: 0;
+  bottom: 0;
+  left: 12rpx;
+  width: 4rpx;
+}
+
+.send-icon {
+  width: 0;
+  height: 0;
+  border-top: 11rpx solid transparent;
+  border-bottom: 11rpx solid transparent;
+  border-left: 19rpx solid currentColor;
+  margin-left: 4rpx;
 }
 
 .circle-btn:active {

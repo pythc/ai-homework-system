@@ -190,9 +190,6 @@
       </section>
     </div>
 
-    <RouterLink to="/student/assistant" class="floating-ai" aria-label="AI assistant">
-      <span>AI</span>
-    </RouterLink>
   </StudentLayout>
 
   <div v-if="showPasswordModal" class="password-modal">

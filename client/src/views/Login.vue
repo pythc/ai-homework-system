@@ -318,6 +318,7 @@ const goToResetPassword = () => {
   color: #ffffff;
   text-align: left;
   position: relative;
+  margin-left: 72px;
   z-index: 1;
   animation: welcomeEnter 0.9s ease-out both;
 }
@@ -429,6 +430,7 @@ const goToResetPassword = () => {
     inset 0 -12px 24px rgba(255, 255, 255, 0.12);
 
   position: relative;
+  left: -42px;
   overflow: visible;
   animation: cardEnter 0.85s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
 }
@@ -758,6 +760,16 @@ const goToResetPassword = () => {
   }
 }
 
+@keyframes decoFloat {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-6px) scale(1.02);
+  }
+}
+
 @keyframes selectPop {
   0% {
     transform: translateY(0) scale(0.99);
@@ -817,5 +829,15 @@ const goToResetPassword = () => {
   text-align: center;
   color: #ffffff;
   font-size: 12px;
+}
+
+@media (max-width: 1280px) {
+  .login-card {
+    left: -24px;
+  }
+
+  .welcome {
+    margin-left: 36px;
+  }
 }
 </style>

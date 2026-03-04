@@ -2,21 +2,33 @@
   <view class="dock-wrap">
     <view class="dock-shell ui-card fx-fade-up">
       <view class="dock-item" :class="{ active: active === 'assignments' }" @click="goAssignments">
-        <view class="dock-icon">作</view>
+        <image
+          class="dock-icon-image"
+          :src="active === 'assignments' ? '/static/icons/book-active.png' : '/static/icons/book-default.png'"
+          mode="aspectFit"
+        />
         <text class="dock-label">作业</text>
       </view>
 
       <view class="dock-spacer" />
 
       <view class="dock-item" :class="{ active: active === 'mine' }" @click="goMine">
-        <view class="dock-icon">我</view>
+        <image
+          class="dock-icon-image"
+          :src="
+            active === 'mine'
+              ? '/static/icons/address-book-active.png'
+              : '/static/icons/address-book-default.png'
+          "
+          mode="aspectFit"
+        />
         <text class="dock-label">我的</text>
       </view>
     </view>
 
     <view class="dock-ai" @click="goAssistant">
       <view class="dock-ai-core" :class="{ active: active === 'ai' }">
-        <text class="dock-ai-text">AI</text>
+        <image class="dock-ai-image" src="/static/images/ai-tab.png" mode="aspectFill" />
       </view>
     </view>
   </view>
@@ -52,30 +64,34 @@ function goAssistant() {
   right: 0;
   bottom: 0;
   z-index: 100;
-  height: calc(136rpx + env(safe-area-inset-bottom));
+  height: calc(112rpx + env(safe-area-inset-bottom));
   pointer-events: none;
 }
 
 .dock-shell {
   pointer-events: auto;
   position: absolute;
-  left: 24rpx;
-  right: 24rpx;
-  bottom: calc(12rpx + env(safe-area-inset-bottom));
-  height: 102rpx;
-  border-radius: 26rpx;
-  padding: 0 36rpx;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(100rpx + env(safe-area-inset-bottom));
+  border-radius: 0;
+  padding: 4rpx 0 env(safe-area-inset-bottom);
+  border: 0;
+  box-shadow: 0 -4rpx 12rpx rgba(26, 36, 64, 0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .dock-item {
-  width: 180rpx;
+  flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10rpx;
+  gap: 1rpx;
+  padding-top: 2rpx;
   color: #69758f;
 }
 
@@ -83,26 +99,20 @@ function goAssistant() {
   color: #2a58b7;
 }
 
-.dock-icon {
-  width: 34rpx;
-  height: 34rpx;
-  border-radius: 10rpx;
-  border: 2rpx solid currentColor;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18rpx;
-  font-weight: 700;
-  line-height: 1;
+.dock-icon-image {
+  width: 50rpx;
+  height: 50rpx;
 }
 
 .dock-label {
-  font-size: 26rpx;
+  font-size: 19rpx;
   font-weight: 600;
+  line-height: 1;
 }
 
 .dock-spacer {
-  width: 120rpx;
+  width: 128rpx;
+  flex: 0 0 128rpx;
 }
 
 .dock-ai {
@@ -110,12 +120,9 @@ function goAssistant() {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(40rpx + env(safe-area-inset-bottom));
-  width: 124rpx;
-  height: 124rpx;
-  border-radius: 62rpx;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 10rpx 24rpx rgba(37, 53, 89, 0.2);
+  bottom: calc(30rpx + env(safe-area-inset-bottom));
+  width: 88rpx;
+  height: 88rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -125,11 +132,9 @@ function goAssistant() {
 }
 
 .dock-ai-core {
-  width: 104rpx;
-  height: 104rpx;
-  border-radius: 52rpx;
-  background: linear-gradient(135deg, #ffb48a 0%, #ff6f67 52%, #ff8d7d 100%);
-  box-shadow: inset 0 4rpx 16rpx rgba(255, 255, 255, 0.45);
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 44rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -139,11 +144,10 @@ function goAssistant() {
   transform: scale(1.04);
 }
 
-.dock-ai-text {
-  color: #fff;
-  font-size: 30rpx;
-  font-weight: 800;
-  letter-spacing: 1rpx;
+.dock-ai-image {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
 }
 
 @keyframes dockFloat {

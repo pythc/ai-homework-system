@@ -14,12 +14,14 @@
       </transition>
       <!-- 路由出口：这里显示登录页 / 首页 / 管理页等 -->
       <router-view />
+      <FloatingAssistantVideo />
     </div>
   </div>
 </template>
 
 <script setup>
 import { useAppToast } from './composables/useAppToast'
+import FloatingAssistantVideo from './components/FloatingAssistantVideo.vue'
 
 const { toastState } = useAppToast()
 </script>

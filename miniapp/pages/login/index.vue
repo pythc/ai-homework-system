@@ -3,13 +3,12 @@
     <view class="auth-bg auth-bg-left" />
     <view class="auth-bg auth-bg-right" />
 
-    <view class="ui-card brand-card fx-fade-in" @longpress="onToggleApiConfig">
-      <view class="brand-badge">S</view>
-      <view class="brand-text">
-        <view class="brand-title">STUDENT</view>
-        <view class="brand-sub">作业管理中心</view>
-      </view>
-    </view>
+    <image
+      class="auth-ai-logo fx-fade-in"
+      src="/static/images/ai-tab.png"
+      mode="aspectFit"
+      @longpress="onToggleApiConfig"
+    />
 
     <view class="ui-card auth-card fx-scale-in fx-delay-1">
       <view class="ui-title">登录</view>
@@ -201,58 +200,24 @@ async function onLogin() {
 <style scoped>
 .auth-page {
   justify-content: center;
-  gap: 24rpx;
+  gap: 0;
   overflow: hidden;
 }
 
-.brand-card {
-  padding: 26rpx 28rpx;
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.55));
-  box-shadow:
-    0 16rpx 34rpx rgba(35, 53, 89, 0.16),
-    inset 0 2rpx 0 rgba(255, 255, 255, 0.8);
-}
-
-.brand-card:active {
-  transform: scale(0.992);
-  opacity: 0.95;
-}
-
-.brand-badge {
-  width: 70rpx;
-  height: 70rpx;
-  border-radius: 20rpx;
-  background: linear-gradient(135deg, #ffb585 0%, #f5a365 100%);
-  color: #fff;
-  font-size: 34rpx;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10rpx 20rpx rgba(241, 167, 101, 0.34);
-  animation: badgeFloat 3.8s ease-in-out infinite;
-}
-
-.brand-title {
-  font-size: 44rpx;
-  font-weight: 700;
-  letter-spacing: 2rpx;
-  color: #1c2b4a;
-  text-shadow: 0 8rpx 20rpx rgba(38, 90, 180, 0.18);
-  animation: titleFloat 4.8s ease-in-out infinite;
-}
-
-.brand-sub {
-  margin-top: 4rpx;
-  font-size: 24rpx;
-  color: rgba(26, 36, 64, 0.54);
+.auth-ai-logo {
+  width: 290rpx;
+  height: 290rpx;
+  align-self: center;
+  margin-bottom: 34rpx;
+  filter: drop-shadow(0 10rpx 20rpx rgba(40, 86, 170, 0.26));
+  animation: logoFloat 3.8s ease-in-out infinite;
 }
 
 .auth-card {
-  padding: 32rpx 28rpx;
+  width: 92%;
+  max-width: 680rpx;
+  align-self: center;
+  padding: 26rpx 22rpx;
   background: linear-gradient(140deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.66));
   border: 2rpx solid rgba(255, 255, 255, 0.72);
   box-shadow:
@@ -261,7 +226,7 @@ async function onLogin() {
 }
 
 .field-group {
-  margin-top: 16rpx;
+  margin-top: 14rpx;
   animation: fieldEnter 0.52s ease both;
 }
 
@@ -300,11 +265,11 @@ async function onLogin() {
 }
 
 .submit-btn {
-  margin-top: 28rpx;
+  margin-top: 24rpx;
   width: 100%;
-  height: 84rpx;
-  line-height: 84rpx;
-  font-size: 30rpx;
+  height: 78rpx;
+  line-height: 78rpx;
+  font-size: 28rpx;
 }
 
 .api-hint {
@@ -366,25 +331,13 @@ async function onLogin() {
   }
 }
 
-@keyframes badgeFloat {
+@keyframes logoFloat {
   0%,
   100% {
     transform: translateY(0);
   }
   50% {
     transform: translateY(-5rpx);
-  }
-}
-
-@keyframes titleFloat {
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.97;
-  }
-  50% {
-    transform: translateY(-4rpx);
-    opacity: 1;
   }
 }
 
