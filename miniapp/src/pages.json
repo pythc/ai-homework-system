@@ -21,7 +21,8 @@
     {
       "path": "pages/student/assistant",
       "style": {
-        "navigationBarTitleText": "AI 助手"
+        "navigationBarTitleText": "AI 助手",
+        "disableScroll": true
       }
     },
     {
@@ -40,6 +41,25 @@
       "path": "pages/student/score-detail",
       "style": {
         "navigationBarTitleText": "成绩详情"
+      }
+    },
+    {
+      "path": "pages/teacher/home",
+      "style": {
+        "navigationBarTitleText": "教师主页"
+      }
+    },
+    {
+      "path": "pages/teacher/courses",
+      "style": {
+        "navigationBarTitleText": "课程管理"
+      }
+    },
+    {
+      "path": "pages/teacher/assistant",
+      "style": {
+        "navigationBarTitleText": "AI 助手",
+        "disableScroll": true
       }
     }
   ],

@@ -50,3 +50,17 @@ export function requireStudent() {
   }
   return true
 }
+
+export function requireTeacher() {
+  const token = getAccessToken()
+  const user = getUser()
+  if (!token || !user) {
+    replacePage('/pages/login/index')
+    return false
+  }
+  if (user.role !== 'TEACHER') {
+    uni.showToast({ title: '当前仅支持教师端', icon: 'none' })
+    return false
+  }
+  return true
+}

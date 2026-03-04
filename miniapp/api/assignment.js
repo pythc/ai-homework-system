@@ -5,6 +5,11 @@ export async function listAllAssignments() {
   return data?.items || []
 }
 
+export async function listTeacherAssignments() {
+  const data = await request('/assignments/teacher-list', { method: 'GET' })
+  return data?.items || []
+}
+
 export async function listOpenAssignments() {
   const data = await request('/assignments/open', { method: 'GET' })
   return data?.items || []

@@ -3,16 +3,13 @@
     <view class="auth-bg auth-bg-left" />
     <view class="auth-bg auth-bg-right" />
 
-    <image
-      class="auth-ai-logo fx-fade-in"
-      src="/static/images/ai-tab.png"
-      mode="aspectFit"
-      @longpress="onToggleApiConfig"
-    />
-
     <view class="ui-card auth-card fx-scale-in fx-delay-1">
-      <view class="ui-title">登录</view>
-      <view class="ui-subtitle">使用现有账号登录系统</view>
+      <view class="brand-row" @longpress="onToggleApiConfig">
+        <image class="brand-logo" src="/static/images/ai-tab.png" mode="aspectFill" />
+        <view class="brand-text">智评学堂</view>
+      </view>
+
+      <view class="auth-title">Welcome back</view>
 
       <view class="field-group">
         <view class="field-label">学校</view>
@@ -91,8 +88,13 @@ const form = reactive({
 onMounted(() => {
   const token = getAccessToken()
   const user = getUser()
-  if (token && user?.role === 'STUDENT') {
+  if (!token || !user?.role) return
+  if (user.role === 'STUDENT') {
     replacePage('/pages/student/courses')
+    return
+  }
+  if (user.role === 'TEACHER') {
+    replacePage('/pages/teacher/home')
   }
 })
 
@@ -181,13 +183,15 @@ async function onLogin() {
       throw lastError || new Error('账号或密码错误')
     }
 
-    if (user.role !== 'STUDENT') {
-      uni.showToast({ title: '当前版本仅开放学生功能', icon: 'none' })
-      loading.value = false
+    if (user.role === 'STUDENT') {
+      replacePage('/pages/student/courses')
       return
     }
-
-    replacePage('/pages/student/courses')
+    if (user.role === 'TEACHER') {
+      replacePage('/pages/teacher/home')
+      return
+    }
+    uni.showToast({ title: '当前版本仅开放学生与教师功能', icon: 'none' })
   } catch (err) {
     uni.showToast({ title: err.message || '登录失败', icon: 'none' })
   } finally {
@@ -200,33 +204,55 @@ async function onLogin() {
 <style scoped>
 .auth-page {
   justify-content: center;
-  gap: 0;
+  gap: 16rpx;
+  padding: 24rpx;
   overflow: hidden;
 }
 
-.auth-ai-logo {
-  width: 290rpx;
-  height: 290rpx;
+.auth-card {
+  width: 100%;
+  max-width: 720rpx;
   align-self: center;
-  margin-bottom: 34rpx;
-  filter: drop-shadow(0 10rpx 20rpx rgba(40, 86, 170, 0.26));
-  animation: logoFloat 3.8s ease-in-out infinite;
+  padding: 34rpx 28rpx;
+  background: linear-gradient(165deg, #f7fbff 0%, #eef6ff 58%, #f8fcff 100%);
+  border: 2rpx solid rgba(255, 255, 255, 0.96);
+  border-radius: 28rpx;
+  box-shadow:
+    inset 0 0 0 2rpx rgba(255, 255, 255, 0.9),
+    0 22rpx 44rpx rgba(95, 141, 218, 0.16);
 }
 
-.auth-card {
-  width: 92%;
-  max-width: 680rpx;
-  align-self: center;
-  padding: 26rpx 22rpx;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.66));
-  border: 2rpx solid rgba(255, 255, 255, 0.72);
-  box-shadow:
-    0 20rpx 40rpx rgba(32, 78, 156, 0.14),
-    inset 0 2rpx 0 rgba(255, 255, 255, 0.85);
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.brand-logo {
+  width: 68rpx;
+  height: 68rpx;
+  border-radius: 50%;
+}
+
+.brand-text {
+  color: #3f6ba9;
+  font-size: 38rpx;
+  font-weight: 800;
+  letter-spacing: 2rpx;
+}
+
+.auth-title {
+  margin-bottom: 22rpx;
+  color: #081a3f;
+  font-size: 56rpx;
+  font-weight: 750;
+  letter-spacing: -0.5rpx;
+  animation: titleFloat 4.8s ease-in-out infinite;
 }
 
 .field-group {
-  margin-top: 14rpx;
+  margin-top: 16rpx;
   animation: fieldEnter 0.52s ease both;
 }
 
@@ -243,15 +269,33 @@ async function onLogin() {
 }
 
 .field-label {
-  margin-bottom: 8rpx;
+  margin-bottom: 10rpx;
   font-size: 24rpx;
-  color: rgba(26, 36, 64, 0.64);
+  color: #1d2b52;
+  font-weight: 650;
+}
+
+.ui-input {
+  height: 82rpx;
+  border-radius: 18rpx;
+  border: 2rpx solid #cdd4e3;
+  background: #fff;
+  color: #122042;
+  font-size: 28rpx;
+  padding: 0 22rpx;
+  box-sizing: border-box;
+}
+
+.ui-input::placeholder {
+  color: #91a0bf;
 }
 
 .picker-value {
+  height: 82rpx;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-radius: 18rpx;
   transition: transform 0.2s ease;
 }
 
@@ -260,29 +304,38 @@ async function onLogin() {
 }
 
 .picker-arrow {
-  color: rgba(26, 36, 64, 0.48);
+  color: #5d76b1;
   font-size: 28rpx;
 }
 
 .submit-btn {
   margin-top: 24rpx;
   width: 100%;
-  height: 78rpx;
-  line-height: 78rpx;
-  font-size: 28rpx;
+  height: 84rpx;
+  line-height: 84rpx;
+  border-radius: 18rpx;
+  font-size: 30rpx;
+  font-weight: 650;
+  color: #fff;
+  background: linear-gradient(110deg, #0b1636 0%, #10244e 52%, #0f1e3f 100%);
+  box-shadow: 0 10rpx 20rpx rgba(11, 22, 54, 0.24);
+}
+
+.submit-btn[disabled] {
+  opacity: 0.64;
 }
 
 .api-hint {
-  margin-top: 18rpx;
+  margin-top: 20rpx;
   font-size: 20rpx;
-  color: rgba(26, 36, 64, 0.52);
+  color: #6b7898;
   word-break: break-all;
 }
 
 .api-config {
-  margin-top: 14rpx;
-  padding-top: 14rpx;
-  border-top: 2rpx dashed rgba(151, 166, 197, 0.34);
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 2rpx dashed rgba(120, 145, 196, 0.38);
 }
 
 .api-actions {
@@ -307,7 +360,7 @@ async function onLogin() {
   height: 360rpx;
   left: -120rpx;
   top: 6%;
-  background: radial-gradient(circle, rgba(255, 192, 174, 0.42), rgba(255, 192, 174, 0));
+  background: radial-gradient(circle, rgba(214, 231, 255, 0.68), rgba(214, 231, 255, 0));
   animation: blobDrift 8.6s ease-in-out infinite;
 }
 
@@ -316,7 +369,7 @@ async function onLogin() {
   height: 420rpx;
   right: -150rpx;
   bottom: 10%;
-  background: radial-gradient(circle, rgba(162, 207, 255, 0.4), rgba(162, 207, 255, 0));
+  background: radial-gradient(circle, rgba(162, 207, 255, 0.52), rgba(162, 207, 255, 0));
   animation: blobDrift 10.8s ease-in-out infinite reverse;
 }
 
@@ -338,6 +391,16 @@ async function onLogin() {
   }
   50% {
     transform: translateY(-5rpx);
+  }
+}
+
+@keyframes titleFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4rpx);
   }
 }
 
