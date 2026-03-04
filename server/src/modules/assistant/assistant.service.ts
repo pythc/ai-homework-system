@@ -6,6 +6,11 @@ import { AssistantStatsDto } from './dto/assistant-stats.dto';
 import { UserRole } from '../auth/entities/user.entity';
 import { AssistantClient } from './assistant.client';
 import { AssistantTokenUsageEntity } from './entities/assistant-token-usage.entity';
+import {
+  BillingQuotaExceededError,
+  BillingService,
+} from '../billing/billing.service';
+import { BillingUsageMetric } from '../billing/entities/billing-usage.entity';
 import type { Response } from 'express';
 import { TextDecoder } from 'util';
 
@@ -15,6 +20,11 @@ interface AssistantUserPayload {
   schoolId?: string;
 }
 
+const ASSISTANT_QUOTA_EXCEEDED_MESSAGE =
+  '非常抱歉，小小作坊资金有限，长对话暂不支持，请开启新对话继续学习吧~';
+const ASSISTANT_PLAN_QUOTA_EXCEEDED_MESSAGE =
+  '当前套餐 AI 助手额度已用尽，请联系管理员升级订阅。';
+
 @Injectable()
 export class AssistantService {
   constructor(
@@ -22,18 +32,53 @@ export class AssistantService {
     @InjectRepository(AssistantTokenUsageEntity)
     private readonly usageRepo: Repository<AssistantTokenUsageEntity>,
     private readonly assistantClient: AssistantClient,
+    private readonly billingService: BillingService,
   ) {}
 
-  async chat(dto: AssistantChatDto, user: AssistantUserPayload) {
+  async chat(
+    dto: AssistantChatDto,
+    user: AssistantUserPayload,
+    userAuthorization?: string,
+  ) {
     const stats = await this.getStats(dto, user, dto.question);
+    const schoolId = this.resolveSchoolId(user);
     const quota = await this.getUsageSummary(user);
-    if (!quota.allowed) {
+    const estimatedPromptTokens = this.estimateTokens(dto.question);
+    if (!this.canProceedWithQuota(quota, estimatedPromptTokens)) {
       return {
-        answer:
-          '非常抱歉，小小作坊资金有限，长对话暂不支持，请开启新对话继续学习吧~',
+        answer: ASSISTANT_QUOTA_EXCEEDED_MESSAGE,
         scope: stats.scope,
         stats: stats.stats,
       };
+    }
+
+    let billingUsage:
+      | {
+          period: string;
+          metric: BillingUsageMetric;
+          schoolId: string;
+        }
+      | null = null;
+    try {
+      const usage = await this.billingService.consumeUsage(
+        schoolId,
+        BillingUsageMetric.ASSISTANT_CHAT_TURNS,
+        1,
+      );
+      billingUsage = {
+        period: usage.period,
+        metric: usage.metric,
+        schoolId: usage.schoolId,
+      };
+    } catch (error) {
+      if (error instanceof BillingQuotaExceededError) {
+        return {
+          answer: ASSISTANT_PLAN_QUOTA_EXCEEDED_MESSAGE,
+          scope: stats.scope,
+          stats: stats.stats,
+        };
+      }
+      throw error;
     }
 
     try {
@@ -44,10 +89,19 @@ export class AssistantService {
         dto.sessionId,
         dto.thinking,
         dto.images,
+        userAuthorization,
       );
       await this.recordUsage(user, response?.usage, this.estimateTokens(dto.question));
       return response;
     } catch (error) {
+      if (billingUsage) {
+        await this.billingService.releaseUsage(
+          billingUsage.schoolId,
+          billingUsage.metric,
+          1,
+          billingUsage.period,
+        );
+      }
       return {
         answer: this.buildAssistantFallbackMessage(error),
         scope: stats.scope,
@@ -56,11 +110,18 @@ export class AssistantService {
     }
   }
 
-  async chatStream(dto: AssistantChatDto, user: AssistantUserPayload, res: Response) {
+  async chatStream(
+    dto: AssistantChatDto,
+    user: AssistantUserPayload,
+    res: Response,
+    userAuthorization?: string,
+  ) {
     const stats = await this.getStats(dto, user, dto.question);
+    const schoolId = this.resolveSchoolId(user);
     const quota = await this.getUsageSummary(user);
+    const estimatedPromptTokens = this.estimateTokens(dto.question);
 
-    if (!quota.allowed) {
+    if (!this.canProceedWithQuota(quota, estimatedPromptTokens)) {
       res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
@@ -70,14 +131,53 @@ export class AssistantService {
       res.write(`event: ready\ndata: {}\n\n`);
       res.write(
         `event: done\ndata: ${JSON.stringify({
-          answer:
-            '非常抱歉，小小作坊资金有限，长对话暂不支持，请开启新对话继续学习吧~',
+          answer: ASSISTANT_QUOTA_EXCEEDED_MESSAGE,
           scope: stats.scope,
           stats: stats.stats,
         })}\n\n`,
       );
       res.end();
       return;
+    }
+
+    let billingUsage:
+      | {
+          period: string;
+          metric: BillingUsageMetric;
+          schoolId: string;
+        }
+      | null = null;
+    try {
+      const usage = await this.billingService.consumeUsage(
+        schoolId,
+        BillingUsageMetric.ASSISTANT_CHAT_TURNS,
+        1,
+      );
+      billingUsage = {
+        period: usage.period,
+        metric: usage.metric,
+        schoolId: usage.schoolId,
+      };
+    } catch (error) {
+      if (error instanceof BillingQuotaExceededError) {
+        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        if (typeof (res as any).flushHeaders === 'function') {
+          (res as any).flushHeaders();
+        }
+        res.write(`event: ready\ndata: {}\n\n`);
+        res.write(
+          `event: done\ndata: ${JSON.stringify({
+            answer: ASSISTANT_PLAN_QUOTA_EXCEEDED_MESSAGE,
+            scope: stats.scope,
+            stats: stats.stats,
+          })}\n\n`,
+        );
+        res.end();
+        return;
+      }
+      throw error;
     }
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -96,8 +196,17 @@ export class AssistantService {
         dto.sessionId,
         dto.thinking,
         dto.images,
+        userAuthorization,
       );
     } catch (error) {
+      if (billingUsage) {
+        await this.billingService.releaseUsage(
+          billingUsage.schoolId,
+          billingUsage.metric,
+          1,
+          billingUsage.period,
+        );
+      }
       res.write(
         `event: done\ndata: ${JSON.stringify({
           answer: this.buildAssistantFallbackMessage(error),
@@ -110,6 +219,14 @@ export class AssistantService {
     }
 
     if (!stream) {
+      if (billingUsage) {
+        await this.billingService.releaseUsage(
+          billingUsage.schoolId,
+          billingUsage.metric,
+          1,
+          billingUsage.period,
+        );
+      }
       res.write(
         `event: done\ndata: ${JSON.stringify({
           answer: this.buildAssistantFallbackMessage(),
@@ -166,6 +283,14 @@ export class AssistantService {
         await this.recordUsage(user, null, this.estimateTokens(dto.question));
       }
     } catch (err) {
+      if (billingUsage) {
+        await this.billingService.releaseUsage(
+          billingUsage.schoolId,
+          billingUsage.metric,
+          1,
+          billingUsage.period,
+        );
+      }
       res.write(
         `event: done\ndata: ${JSON.stringify({
           answer: this.buildAssistantFallbackMessage(err),
@@ -212,13 +337,37 @@ export class AssistantService {
     const limitTokens =
       user.role === UserRole.STUDENT ? 2000 : user.role === UserRole.TEACHER ? 10000 : 0;
     const allowed = limitTokens === 0 ? false : record.usedTokens < limitTokens;
+    const schoolId = String(user.schoolId ?? '').trim();
+    const billing = schoolId
+      ? await this.billingService
+          .getSchoolOverview(schoolId)
+          .then((overview) => ({
+            planCode: overview.subscription.planCode,
+            period: overview.period,
+            assistant: {
+              used: overview.usage.assistantChatTurns,
+              quota: overview.quotas.assistantChatMonthlyQuota,
+              remaining: overview.remaining.assistantChatTurns,
+            },
+          }))
+          .catch(() => null)
+      : null;
 
     return {
       allowed,
       usedTokens: record.usedTokens,
       limitTokens,
       weekStart,
+      billing,
     };
+  }
+
+  private resolveSchoolId(user: AssistantUserPayload) {
+    const schoolId = String(user.schoolId ?? '').trim();
+    if (!schoolId) {
+      throw new BadRequestException('缺少 schoolId');
+    }
+    return schoolId;
   }
 
   private getWeekStartKey(date = new Date()) {
@@ -246,6 +395,19 @@ export class AssistantService {
     );
     const sum = input + output;
     return Number.isFinite(sum) ? sum : 0;
+  }
+
+  private canProceedWithQuota(
+    quota: { allowed: boolean; usedTokens: number; limitTokens: number },
+    estimatedPromptTokens: number,
+  ) {
+    if (!quota.allowed) return false;
+    const limit = Number(quota.limitTokens);
+    const used = Number(quota.usedTokens);
+    if (!Number.isFinite(limit) || limit <= 0) return false;
+    if (!Number.isFinite(used) || used < 0) return false;
+    const reserve = Math.max(1, Math.ceil(estimatedPromptTokens || 0));
+    return used + reserve <= limit;
   }
 
   private shouldIncludeByAssignment(question: string, dto: AssistantStatsDto) {
@@ -287,23 +449,21 @@ export class AssistantService {
     if (user.role === UserRole.ADMIN) return;
     const tokens = this.extractTotalTokens(usage) || fallbackTokens;
     if (!tokens) return;
+    const normalizedTokens = Math.max(1, Math.ceil(tokens));
 
     const weekStart = this.getWeekStartKey();
     try {
-      let record = await this.usageRepo.findOne({
-        where: { userId: user.sub, weekStart },
-      });
-      if (!record) {
-        record = this.usageRepo.create({
-          userId: user.sub,
-          role: user.role,
-          weekStart,
-          usedTokens: 0,
-        });
-      }
-      record.usedTokens += tokens;
-      record.updatedAt = new Date();
-      await this.usageRepo.save(record);
+      await this.dataSource.query(
+        `INSERT INTO public.assistant_token_usage
+           (user_id, role, week_start, used_tokens, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, now(), now())
+         ON CONFLICT (user_id, week_start)
+         DO UPDATE SET
+           used_tokens = public.assistant_token_usage.used_tokens + EXCLUDED.used_tokens,
+           role = EXCLUDED.role,
+           updated_at = now()`,
+        [user.sub, user.role, weekStart, normalizedTokens],
+      );
     } catch (err) {
       if (err instanceof QueryFailedError) {
         return;

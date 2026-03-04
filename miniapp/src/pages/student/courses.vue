@@ -1,20 +1,14 @@
 <template>
   <view class="page ui-shell">
-    <view class="ui-card ui-header-card fx-fade-in">
-      <view class="ui-header-main">
-        <view class="ui-title">个人主页</view>
-        <view class="ui-subtitle">学习进度与任务安排一屏总览</view>
-      </view>
-      <view class="ui-header-side">
-        <view class="ui-profile">
-          <view class="ui-avatar">{{ profileInitial }}</view>
-          <view class="ui-profile-text">
-            <view class="ui-profile-name">{{ profileName }}</view>
-            <view class="ui-profile-account">{{ profileAccount }}</view>
-          </view>
+    <view class="ui-card ui-header-card header-compact fx-fade-in">
+      <view class="ui-profile profile-left">
+        <view class="ui-avatar">{{ profileInitial }}</view>
+        <view class="ui-profile-text">
+          <view class="ui-profile-name">{{ profileName }}</view>
+          <view class="ui-profile-account">{{ profileAccount }}</view>
         </view>
-        <button class="ui-btn-ghost logout-btn" @click="logout">退出</button>
       </view>
+      <button class="ui-btn-ghost logout-btn" @click="logout">退出登录</button>
     </view>
 
     <view class="kpi-grid">
@@ -306,11 +300,23 @@ function logout() {
 </script>
 
 <style scoped>
+.header-compact {
+  justify-content: space-between;
+}
+
+.profile-left {
+  flex: 0 1 360rpx;
+  max-width: 360rpx;
+}
+
 .logout-btn {
   height: 62rpx;
   line-height: 62rpx;
-  padding: 0 18rpx;
+  min-width: 138rpx;
+  padding: 0 20rpx;
   font-size: 22rpx;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .kpi-grid {

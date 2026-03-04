@@ -1,6 +1,8 @@
 ﻿import 'dotenv/config';
 import express from 'express';
 import client from 'prom-client';
+import { registerAssistantMcpRoutes } from './mcp/server.js';
+import { collectContextViaMcp } from './mcp/context.js';
 
 const {
   ASSISTANT_PORT = 4100,
@@ -11,6 +13,11 @@ const {
   ASSISTANT_CACHE_TTL_MS = '1800000',
   ASSISTANT_MODEL_TIMEOUT_MS = '30000',
   ASSISTANT_IMAGE_FETCH_TIMEOUT_MS = '10000',
+  ASSISTANT_MAX_OUTPUT_TOKENS = '4096',
+  ASSISTANT_USE_MCP = 'true',
+  ASSISTANT_MCP_URL = '',
+  ASSISTANT_MCP_API_BASE = 'http://localhost:3000/api/v1',
+  ASSISTANT_MCP_API_TIMEOUT_MS = '12000',
   ASSISTANT_ENFORCE_ARK_API_KEY = '',
   NODE_ENV = 'development',
 } = process.env;
@@ -90,6 +97,12 @@ const responsesUrl = `${baseUrl}/responses`;
 const cacheTtlMs = Number(ASSISTANT_CACHE_TTL_MS) || 30 * 60 * 1000;
 const modelTimeoutMs = Number(ASSISTANT_MODEL_TIMEOUT_MS) || 30000;
 const imageFetchTimeoutMs = Number(ASSISTANT_IMAGE_FETCH_TIMEOUT_MS) || 10000;
+const maxOutputTokens = Number(ASSISTANT_MAX_OUTPUT_TOKENS) || 4096;
+const useMcp = parseEnvBoolean(ASSISTANT_USE_MCP, true);
+const mcpApiTimeoutMs = Number(ASSISTANT_MCP_API_TIMEOUT_MS) || 12000;
+const mcpUrl =
+  String(ASSISTANT_MCP_URL || '').trim() ||
+  `http://127.0.0.1:${ASSISTANT_PORT}/mcp`;
 const prefixCache = new Map();
 let cacheAvailable = true;
 
@@ -114,6 +127,13 @@ const fetchWithTimeout = async (url, init, timeoutMs = modelTimeoutMs) => {
   }
 };
 
+registerAssistantMcpRoutes({
+  app,
+  apiBaseUrl: ASSISTANT_MCP_API_BASE,
+  requestWithTimeout: fetchWithTimeout,
+  apiTimeoutMs: mcpApiTimeoutMs,
+});
+
 const isTimeoutError = (error) => {
   if (!error) return false;
   const code = error?.code;
@@ -126,10 +146,8 @@ const fallbackAnswer = '请求超时，模型暂时繁忙，请稍后重试。';
 
 const systemPrompt = `你是“AI作业分析助手”，服务于作业管理系统。
 可用数据字段：
-- 用户信息：scope.user
-- 统计数据：stats（可能包含 count / avg / min / max / byAssignment）
-- 元信息：stats.meta（可能包含 courses / assignments / students / counts）
-- 访问范围：scope（role / courseId / assignmentId）
+- 上下文：context（来自 MCP tools，可能包含 profile / usage / courses / assignments / students / scoreSummary）
+- 回退字段：scopeHint / scoreHint（当 MCP 不可用时提供的范围与统计）
 
 权限与范围规则：
 - 学生：只能查看自己的课程/作业元信息与成绩统计；不提供其他学生名单
@@ -153,22 +171,110 @@ const systemPrompt = `你是“AI作业分析助手”，服务于作业管理�
 - 实验室重点推进两大核心建设目标：一是打造高质量算法人才培养基地，聚焦算法能力体系化培育；二是构建具备完整 IT 公司架构的实践平台，实现 “就业指导 + 项目产出” 双向赋能，既为成员提供贴合行业需求的职业指引，也通过真实项目实践提升技术落地能力。
 `
 
-const buildUserContent = (question, stats, scope, images) => {
+const clampArray = (value, limit) => {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, limit);
+};
+
+const normalizeLegacyStats = (stats) => ({
+  count: Number.isFinite(Number(stats?.count)) ? Number(stats.count) : null,
+  avg: Number.isFinite(Number(stats?.avg)) ? Number(stats.avg) : null,
+  min: Number.isFinite(Number(stats?.min)) ? Number(stats.min) : null,
+  max: Number.isFinite(Number(stats?.max)) ? Number(stats.max) : null,
+  byAssignment: clampArray(stats?.byAssignment, 20),
+});
+
+const buildAssistantContextPayload = async ({
+  question,
+  scope,
+  stats,
+  userAuthorization,
+}) => {
+  const fallback = {
+    source: 'legacy',
+    context: null,
+    scopeHint: scope ?? {},
+    scoreHint: normalizeLegacyStats(stats),
+  };
+
+  if (!useMcp || !mcpUrl || !userAuthorization) {
+    return fallback;
+  }
+
+  try {
+    const context = await collectContextViaMcp({
+      mcpUrl,
+      authHeader: userAuthorization,
+      question,
+      role: scope?.role,
+      courseId: scope?.courseId,
+      assignmentId: scope?.assignmentId,
+    });
+    if (!context) {
+      return fallback;
+    }
+    return {
+      source: 'mcp',
+      context,
+      scopeHint: scope ?? {},
+      scoreHint: normalizeLegacyStats(stats),
+    };
+  } catch (error) {
+    console.warn(
+      '[assistant][mcp] fallback to legacy context:',
+      error instanceof Error ? error.message : String(error),
+    );
+    return fallback;
+  }
+};
+
+const buildUserContent = (question, contextPayload, images) => {
   const imageHint = Array.isArray(images) && images.length
     ? `\n\n图片数量：${images.length}\n图片文件名：${images
         .map((item) => item?.name)
         .filter(Boolean)
         .join('、')}`
     : '';
-  return `问题：${question}${imageHint}\n\n用户信息：${JSON.stringify(
-    scope?.user ?? {},
-    null,
-    2,
-  )}\n\n统计数据：${JSON.stringify(stats, null, 2)}\n\n范围：${JSON.stringify(
-    scope ?? {},
-    null,
-    2,
-  )}`;
+
+  const compactContext = contextPayload?.context
+    ? {
+        ...contextPayload.context,
+        courses: contextPayload.context?.courses
+          ? {
+              ...contextPayload.context.courses,
+              items: clampArray(contextPayload.context.courses.items, 20),
+            }
+          : null,
+        assignments: contextPayload.context?.assignments
+          ? {
+              ...contextPayload.context.assignments,
+              items: clampArray(contextPayload.context.assignments.items, 30),
+            }
+          : null,
+        students: contextPayload.context?.students
+          ? {
+              ...contextPayload.context.students,
+              items: clampArray(contextPayload.context.students.items, 50),
+            }
+          : null,
+        scoreSummary: contextPayload.context?.scoreSummary
+          ? {
+              ...contextPayload.context.scoreSummary,
+              byAssignment: clampArray(
+                contextPayload.context.scoreSummary.byAssignment,
+                30,
+              ),
+            }
+          : null,
+      }
+    : null;
+
+  return `问题：${question}${imageHint}
+
+上下文来源：${contextPayload?.source || 'legacy'}
+MCP上下文：${JSON.stringify(compactContext, null, 2)}
+范围提示：${JSON.stringify(contextPayload?.scopeHint ?? {}, null, 2)}
+统计提示：${JSON.stringify(contextPayload?.scoreHint ?? {}, null, 2)}`;
 };
 
 const toAbsoluteImageUrl = (url) => {
@@ -253,12 +359,12 @@ const normalizeImages = async (images) => {
   return result;
 };
 
-const buildContentParts = async (question, stats, scope, images) => {
+const buildContentParts = async (question, contextPayload, images) => {
   const normalizedImages = await normalizeImages(images);
   const parts = [
     {
       type: 'input_text',
-      text: buildUserContent(question, stats, scope, normalizedImages),
+      text: buildUserContent(question, contextPayload, normalizedImages),
     },
   ];
   normalizedImages.forEach((item) => {
@@ -447,7 +553,7 @@ const streamResponses = async (response, res, stats, scope, sessionKey) => {
           setCachedPrefix(sessionKey, latestResponseId);
         }
         res.write(
-          `event: done\ndata: ${JSON.stringify({ answer: fullText, scope, stats })}\n\n`,
+          `event: done\ndata: ${JSON.stringify({ answer: fullText, scope, stats, usage })}\n\n`,
         );
         res.end();
         return;
@@ -504,15 +610,22 @@ app.post('/assistant/answer', async (req, res) => {
   }
 
   try {
+    const userAuthorization = String(req.headers['x-user-authorization'] || '').trim();
     const thinkingType = normalizeThinking(thinking);
     const sessionKey = getSessionKey(sessionId, scope, thinkingType);
     const prefixResponseId = await ensurePrefixResponseId(sessionKey, thinkingType);
-    const content = await buildContentParts(question, stats, scope, images);
+    const contextPayload = await buildAssistantContextPayload({
+      question,
+      scope,
+      stats,
+      userAuthorization,
+    });
+    const content = await buildContentParts(question, contextPayload, images);
     const payload = {
       model: ASSISTANT_MODEL,
       input: [{ role: 'user', content }],
       caching: cacheAvailable ? { type: 'enabled' } : undefined,
-      max_output_tokens: 99999,
+      max_output_tokens: maxOutputTokens,
     };
     if (thinkingType) {
       payload.thinking = { type: thinkingType };
@@ -567,15 +680,22 @@ app.post('/assistant/answer/stream', async (req, res) => {
   res.write(`event: ready\ndata: {}\n\n`);
 
   try {
+    const userAuthorization = String(req.headers['x-user-authorization'] || '').trim();
     const thinkingType = normalizeThinking(thinking);
     const sessionKey = getSessionKey(sessionId, scope, thinkingType);
     const prefixResponseId = await ensurePrefixResponseId(sessionKey, thinkingType);
-    const content = await buildContentParts(question, stats, scope, images);
+    const contextPayload = await buildAssistantContextPayload({
+      question,
+      scope,
+      stats,
+      userAuthorization,
+    });
+    const content = await buildContentParts(question, contextPayload, images);
     const payload = {
       model: ASSISTANT_MODEL,
       input: [{ role: 'user', content }],
       caching: cacheAvailable ? { type: 'enabled' } : undefined,
-      max_output_tokens: 99999,
+      max_output_tokens: maxOutputTokens,
       stream: true,
     };
     if (thinkingType) {

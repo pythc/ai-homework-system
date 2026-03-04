@@ -9,9 +9,11 @@ import { SubmissionVersionEntity } from '../submission/entities/submission-versi
 import { AssignmentEntity } from '../assignment/entities/assignment.entity';
 import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 import { CourseEntity } from '../assignment/entities/course.entity';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
+    BillingModule,
     TypeOrmModule.forFeature([
       AiJobEntity,
       AiGradingEntity,

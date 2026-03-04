@@ -19,6 +19,8 @@ import {
 import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 import { CourseEntity } from '../assignment/entities/course.entity';
 import { UserRole } from '../auth/entities/user.entity';
+import { BillingService } from '../billing/billing.service';
+import { BillingUsageMetric } from '../billing/entities/billing-usage.entity';
 
 @Injectable()
 export class AiGradingService {
@@ -38,6 +40,7 @@ export class AiGradingService {
     private readonly snapshotRepo: Repository<AssignmentSnapshotEntity>,
     @InjectRepository(CourseEntity)
     private readonly courseRepo: Repository<CourseEntity>,
+    private readonly billingService: BillingService,
   ) {}
 
   async createGradingJob(
@@ -113,6 +116,27 @@ export class AiGradingService {
       status: AiJobStatus.QUEUED,
       stage: AiJobStage.PREPARE_INPUT,
     });
+    const schoolId = String(requester?.schoolId ?? '').trim();
+    let billingUsage:
+      | {
+          period: string;
+          metric: BillingUsageMetric;
+          schoolId: string;
+        }
+      | null = null;
+    if (schoolId) {
+      const usage = await this.billingService.consumeUsage(
+        schoolId,
+        BillingUsageMetric.AI_GRADING_JOBS,
+        1,
+      );
+      billingUsage = {
+        period: usage.period,
+        metric: usage.metric,
+        schoolId: usage.schoolId,
+      };
+    }
+
     try {
       const saved = await this.jobRepo.save(job);
       await this.queue.enqueue(saved.id, normalizedDto);
@@ -125,6 +149,14 @@ export class AiGradingService {
         },
       };
     } catch (error) {
+      if (billingUsage) {
+        await this.billingService.releaseUsage(
+          billingUsage.schoolId,
+          billingUsage.metric,
+          1,
+          billingUsage.period,
+        );
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to enqueue job: ${message}`);
       await this.jobRepo.update(

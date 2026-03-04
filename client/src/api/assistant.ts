@@ -28,7 +28,7 @@ export async function sendAssistantMessage(
 }
 
 export type AssistantStreamHandlers = {
-  onDelta?: (delta: string, full: string) => void
+  onDelta?: (delta: string) => void
   onDone?: (full: string) => void
   onError?: (error: Error) => void
 }
@@ -129,7 +129,7 @@ export async function streamAssistantMessage(
           const payloadJson = JSON.parse(data)
           if (payloadJson?.delta) {
             fullText += payloadJson.delta
-            handlers.onDelta?.(payloadJson.delta, fullText)
+            handlers.onDelta?.(payloadJson.delta)
           } else if (event === 'done' && payloadJson?.answer) {
             fullText = payloadJson.answer
             handlers.onDone?.(fullText)
@@ -137,7 +137,7 @@ export async function streamAssistantMessage(
           }
         } catch {
           fullText += data
-          handlers.onDelta?.(data, fullText)
+          handlers.onDelta?.(data)
         }
       }
     }

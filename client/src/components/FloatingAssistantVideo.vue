@@ -1,18 +1,33 @@
 <template>
   <div
+    ref="wrapRef"
     v-show="visible"
     class="assistant-float-wrap"
     :class="{ dragging: isDragging }"
     :style="floatStyle"
-    @mousedown.stop.prevent="onMouseDown"
-    @touchstart.stop.prevent="onTouchStart"
     @contextmenu.stop.prevent="onBlockContextMenu"
-    @click="onClick"
-    aria-label="打开 AI 助手"
-    role="button"
   >
-    <div class="assistant-tip" :class="{ show: showTip }">有困难就找我~</div>
-    <div class="assistant-float">
+    <div class="assistant-tip" :class="{ show: showTip }">{{ currentTip }}</div>
+    <div class="assistant-quick-actions" :class="{ open: actionsOpen }">
+      <button
+        v-for="(item, index) in quickActions"
+        :key="item.key"
+        class="assistant-quick-action"
+        :style="{ transitionDelay: actionsOpen ? `${index * 70}ms` : '0ms' }"
+        type="button"
+        @click.stop="onActionClick(item.path)"
+      >
+        {{ item.label }}
+      </button>
+    </div>
+    <div
+      class="assistant-float"
+      aria-label="打开 AI 快捷操作"
+      role="button"
+      @mousedown.stop.prevent="onMouseDown"
+      @touchstart.stop.prevent="onTouchStart"
+      @click.stop="onBallClick"
+    >
       <video
         ref="videoRef"
         class="assistant-float-video"
@@ -39,15 +54,45 @@ const FLOAT_SIZE = 112
 const EDGE_MARGIN = 22
 const PLAY_INTERVAL_MS = 15_000
 const TIP_DURATION_MS = 3_800
+const TIP_MESSAGES = [
+  '有困难就找我~',
+  '作业不会做？我来帮你~',
+  '要不要我帮你理清思路？',
+  '学习卡住了，点我就行~',
+  '遇到问题随时喊我~',
+]
+
+interface QuickAction {
+  key: string
+  label: string
+  path: string
+}
 
 const isHomePath = (path: string) => path === '/student' || path === '/teacher'
 const visible = computed(() => isHomePath(route.path))
 const targetAssistantPath = computed(() =>
   route.path.startsWith('/teacher') ? '/teacher/assistant' : '/student/assistant',
 )
+const quickActions = computed<QuickAction[]>(() => {
+  if (route.path.startsWith('/teacher')) {
+    return [
+      { key: 'teacher-grading', label: '去批改作业', path: '/teacher/grading' },
+      { key: 'teacher-publish', label: '去发布作业', path: '/teacher/assignments/publish' },
+      { key: 'teacher-other', label: '其他......', path: targetAssistantPath.value },
+    ]
+  }
+  return [
+    { key: 'student-assignments', label: '查看我的作业', path: '/student/assignments' },
+    { key: 'student-unsubmitted', label: '我有没有未提交', path: '/student/assignments' },
+    { key: 'student-other', label: '其他......', path: targetAssistantPath.value },
+  ]
+})
 
+const wrapRef = ref<HTMLElement | null>(null)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const showTip = ref(false)
+const currentTip = ref(TIP_MESSAGES[0])
+const actionsOpen = ref(false)
 let playTimer: number | null = null
 let tipTimer: number | null = null
 let waveRetryTimer: number | null = null
@@ -117,6 +162,7 @@ const updateDrag = (clientX: number, clientY: number) => {
   const deltaY = clientY - dragState.startY
   if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
     dragState.moved = true
+    closeActions()
   }
   position.x = clamp(dragState.originX + deltaX, 0, maxX())
   position.y = clamp(dragState.originY + deltaY, 0, maxY())
@@ -171,14 +217,31 @@ const onTouchStart = (event: TouchEvent) => {
   window.addEventListener('touchcancel', onTouchEnd)
 }
 
-const onClick = async () => {
+const closeActions = () => {
+  actionsOpen.value = false
+}
+
+const onBallClick = () => {
   if (suppressClick.value) {
     suppressClick.value = false
     return
   }
   if (!visible.value) return
-  if (route.path === targetAssistantPath.value) return
-  await router.push(targetAssistantPath.value)
+  actionsOpen.value = !actionsOpen.value
+}
+
+const onActionClick = async (path: string) => {
+  closeActions()
+  if (!path || route.path === path) return
+  await router.push(path)
+}
+
+const onWindowPointerDown = (event: MouseEvent | TouchEvent) => {
+  if (!actionsOpen.value) return
+  const target = event.target as Node | null
+  if (!target) return
+  if (wrapRef.value?.contains(target)) return
+  closeActions()
 }
 
 const onBlockContextMenu = (event: MouseEvent) => {
@@ -203,7 +266,13 @@ const clearWaveRetryTimer = () => {
   }
 }
 
+const pickRandomTip = () => {
+  const index = Math.floor(Math.random() * TIP_MESSAGES.length)
+  currentTip.value = TIP_MESSAGES[index] || TIP_MESSAGES[0]
+}
+
 const triggerTip = () => {
+  pickRandomTip()
   showTip.value = true
   clearTipTimer()
   tipTimer = window.setTimeout(() => {
@@ -277,6 +346,8 @@ const startPlaySchedule = () => {
 onMounted(() => {
   setDefaultPosition()
   window.addEventListener('resize', onResize)
+  window.addEventListener('mousedown', onWindowPointerDown)
+  window.addEventListener('touchstart', onWindowPointerDown)
   const video = videoRef.value
   if (video) {
     video.muted = true
@@ -295,6 +366,7 @@ watch(
       startPlaySchedule()
       return
     }
+    closeActions()
     stopPlaySchedule()
   },
   { immediate: true },
@@ -303,16 +375,22 @@ watch(
 watch(
   () => route.path,
   (nextPath, prevPath) => {
-    if (!isHomePath(nextPath)) return
-    if (!isHomePath(prevPath)) {
+    if (!isHomePath(nextPath)) {
+      closeActions()
+      return
+    }
+    if (!isHomePath(prevPath) || nextPath !== prevPath) {
       void triggerWaveNow()
     }
   },
 )
 
 onUnmounted(() => {
+  closeActions()
   stopPlaySchedule()
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('mousedown', onWindowPointerDown)
+  window.removeEventListener('touchstart', onWindowPointerDown)
   window.removeEventListener('mousemove', onMouseMove)
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('touchmove', onTouchMove)
@@ -325,7 +403,6 @@ onUnmounted(() => {
 .assistant-float-wrap {
   position: fixed;
   z-index: 120;
-  cursor: grab;
   touch-action: none;
   user-select: none;
 }
@@ -335,6 +412,7 @@ onUnmounted(() => {
   height: 100%;
   border-radius: 50%;
   overflow: hidden;
+  cursor: grab;
   box-shadow:
     0 18px 30px rgba(35, 59, 96, 0.28),
     0 4px 10px rgba(255, 255, 255, 0.4);
@@ -349,6 +427,7 @@ onUnmounted(() => {
 }
 
 .assistant-float-wrap.dragging .assistant-float {
+  cursor: grabbing;
   box-shadow:
     0 24px 38px rgba(35, 59, 96, 0.36),
     0 6px 14px rgba(255, 255, 255, 0.42);
@@ -366,6 +445,55 @@ onUnmounted(() => {
 
 .assistant-float-video::-webkit-media-controls-picture-in-picture-button {
   display: none !important;
+}
+
+.assistant-quick-actions {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.assistant-quick-action {
+  width: 188px;
+  min-height: 44px;
+  border: 1px solid rgba(181, 201, 236, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f3158;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: left;
+  padding: 11px 14px;
+  box-shadow: 0 10px 20px rgba(40, 68, 115, 0.16);
+  opacity: 0;
+  transform: translateX(12px) scaleX(0.82);
+  transform-origin: right center;
+  transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
+  cursor: pointer;
+}
+
+.assistant-quick-action:hover {
+  background: rgba(244, 249, 255, 0.98);
+  border-color: rgba(118, 160, 228, 0.9);
+}
+
+.assistant-quick-action:active {
+  transform: translateX(1px) scale(0.98);
+}
+
+.assistant-quick-actions.open {
+  pointer-events: auto;
+}
+
+.assistant-quick-actions.open .assistant-quick-action {
+  opacity: 1;
+  transform: translateX(0) scaleX(1);
 }
 
 .assistant-tip {

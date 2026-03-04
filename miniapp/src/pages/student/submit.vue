@@ -21,7 +21,7 @@
           :class="{ active: idx === currentIndex }"
           @click="currentIndex = idx"
         >
-          {{ idx + 1 }}
+          {{ questionIndexLabel(idx) }}
         </view>
       </scroll-view>
 
@@ -31,7 +31,7 @@
       </view>
 
       <view class="prompt-box">
-        <rich-text :nodes="renderPrompt(currentQuestion)"></rich-text>
+        <text class="prompt-text" user-select>{{ renderPrompt(currentQuestion) }}</text>
       </view>
 
       <view v-if="isSingleChoice(currentQuestion)" class="choice-list">
@@ -72,20 +72,59 @@
       </view>
 
       <view v-else>
-        <textarea
-          class="ui-textarea answer-textarea"
-          placeholder="请输入答案"
-          :value="answers[currentQuestion.questionId]?.contentText || ''"
-          @input="setTextAnswer(currentQuestion.questionId, $event.detail.value)"
-        ></textarea>
+        <view class="editor-wrap">
+          <scroll-view class="editor-toolbar" scroll-x>
+            <view class="editor-toolbar-inner">
+              <button class="editor-btn" @click="onEditorAction('undo')">↶</button>
+              <button class="editor-btn" @click="onEditorAction('redo')">↷</button>
+              <view class="editor-divider" />
+              <button class="editor-btn" @click="onEditorAction('h2')">H2</button>
+              <button class="editor-btn" @click="onEditorAction('ul')">• 列表</button>
+              <button class="editor-btn" @click="onEditorAction('ol')">1. 列表</button>
+              <view class="editor-divider" />
+              <button class="editor-btn" @click="onEditorAction('bold')">B</button>
+              <button class="editor-btn" @click="onEditorAction('italic')">I</button>
+              <button class="editor-btn" @click="onEditorAction('underline')">U</button>
+              <button class="editor-btn" @click="onEditorAction('strike')">S</button>
+              <view class="editor-divider" />
+              <button class="editor-btn" @click="onEditorAction('super')">x²</button>
+              <button class="editor-btn" @click="onEditorAction('sub')">x₂</button>
+              <view class="editor-divider" />
+              <button class="editor-btn" @click="onEditorAction('left')">左</button>
+              <button class="editor-btn" @click="onEditorAction('center')">中</button>
+              <button class="editor-btn" @click="onEditorAction('right')">右</button>
+              <view class="editor-divider" />
+              <button class="editor-btn" @click="onEditorAction('clear')">清除</button>
+            </view>
+          </scroll-view>
+          <editor
+            id="answer-editor"
+            class="answer-editor"
+            placeholder="请输入答案"
+            :read-only="finalized"
+            show-img-size
+            show-img-toolbar
+            show-img-resize
+            @ready="onEditorReady"
+            @input="onEditorInput"
+          />
+        </view>
+        <view class="editor-preview-card" v-if="answers[currentQuestion.questionId]?.contentText">
+          <view class="editor-preview-title">富文本预览</view>
+          <rich-text class="editor-preview-content" :nodes="answers[currentQuestion.questionId]?.contentText || ''"></rich-text>
+        </view>
       </view>
 
       <view class="upload-box">
         <view class="upload-head">
           <text class="upload-title">附图（最多4张）</text>
           <view class="tool-row">
-            <button class="tool-icon-btn" @click="pickImages(currentQuestion.questionId)">＋</button>
-            <button class="tool-icon-btn" @click="pickImages(currentQuestion.questionId)">📷</button>
+            <button class="tool-icon-btn" @click="pickImages(currentQuestion.questionId)">
+              <font-awesome-icon icon="far fa-image-polaroid" class="tool-icon" />
+            </button>
+            <button class="tool-icon-btn" @click="pickImages(currentQuestion.questionId)">
+              <font-awesome-icon icon="far fa-camera-alt" class="tool-icon" />
+            </button>
           </view>
         </view>
 
@@ -112,10 +151,11 @@
   </view>
 </template>
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { getAssignment, getAssignmentSnapshot } from '../../api/assignment'
 import { listLatestSubmissions, uploadSubmission } from '../../api/submission'
 import { requireStudent } from '../../utils/storage'
+import FontAwesomeIcon from '../../components/FontAwesomeIcon.vue'
 import StudentBottomNav from '../../components/StudentBottomNav.vue'
 import { toAbsoluteUrl } from '../../utils/http'
 
@@ -126,6 +166,9 @@ const currentIndex = ref(0)
 const answers = ref({})
 const submitting = ref(false)
 const finalized = ref(false)
+const editorCtx = ref(null)
+const editorReady = ref(false)
+const syncingEditor = ref(false)
 
 const currentQuestion = computed(() => questions.value[currentIndex.value] || null)
 const displayQuestionIndex = computed(() => currentQuestion.value?.questionIndex || currentIndex.value + 1)
@@ -147,6 +190,11 @@ onMounted(async () => {
   }
   await fetchSnapshot()
   await fetchLatest()
+  void syncEditorWithCurrentQuestion()
+})
+
+watch(currentQuestion, () => {
+  void syncEditorWithCurrentQuestion()
 })
 
 async function fetchAssignment() {
@@ -355,7 +403,8 @@ function latexToReadable(input = '') {
     if (command === 'sqrt') {
       const degree = parseOptionalDegree()
       const body = parseArgument()
-      const value = `√(${body})`
+      const cleanBody = String(body || '').trim().replace(/^\(([\s\S]*)\)$/, '$1')
+      const value = `√(${cleanBody})`
       return degree ? `${degree}${value}` : value
     }
 
@@ -431,19 +480,22 @@ function latexToReadable(input = '') {
     return result
   }
 
-  return parseUntil('').replace(/\s+/g, ' ').trim()
+  return parseUntil('')
+    .replace(/\\+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-function escapeHtml(input = '') {
+function decodeHtmlEntities(input = '') {
   return String(input)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
 }
 
-function renderMixedText(raw = '') {
+function renderPlainMathText(raw = '') {
   const source = String(raw)
     .replace(/\\\(/g, '$')
     .replace(/\\\)/g, '$')
@@ -454,15 +506,19 @@ function renderMixedText(raw = '') {
     if (!part) return ''
     if ((part.startsWith('$$') && part.endsWith('$$')) || (part.startsWith('$') && part.endsWith('$'))) {
       const pure = part.startsWith('$$') ? part.slice(2, -2) : part.slice(1, -1)
-      const readable = escapeHtml(latexToReadable(pure))
-      return `<span style="display:inline-block;margin:0 2px;background:transparent;color:#1f3665;font-family:Times New Roman, serif;">${readable}</span>`
+      return latexToReadable(pure)
     }
-    return escapeHtml(part).replace(/\n/g, '<br/>')
+    return /\\[a-zA-Z]+|[_^]/.test(part) ? latexToReadable(part) : part
   }).join('')
 }
 
 function renderPrompt(question) {
-  return renderMixedText(questionPrompt(question))
+  return decodeHtmlEntities(
+    renderPlainMathText(questionPrompt(question))
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/?[a-zA-Z][^>]*>/g, '')
+      .replace(/\r/g, ''),
+  )
 }
 
 function questionTypeLabel(type) {
@@ -495,6 +551,10 @@ function isMultiChoice(q) {
 
 function isFillBlank(q) {
   return q.questionType === 'FILL_BLANK'
+}
+
+function isObjectiveQuestion(q) {
+  return isSingleChoice(q) || isMultiChoice(q) || isFillBlank(q)
 }
 
 function getOptions(q) {
@@ -546,6 +606,132 @@ function setBlankAnswer(questionId, index, value) {
 
 function setTextAnswer(questionId, value) {
   answers.value[questionId].contentText = value
+}
+
+const CN_NUM_MAP = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+const CN_QUESTION_LABELS = [
+  '第一题',
+  '第二题',
+  '第三题',
+  '第四题',
+  '第五题',
+  '第六题',
+  '第七题',
+  '第八题',
+  '第九题',
+  '第十题',
+]
+function toChineseNumber(num) {
+  if (num <= 10) return num === 10 ? '十' : CN_NUM_MAP[num]
+  if (num < 20) return `十${CN_NUM_MAP[num % 10]}`
+  if (num < 100) {
+    const tens = Math.floor(num / 10)
+    const units = num % 10
+    return `${CN_NUM_MAP[tens]}十${units ? CN_NUM_MAP[units] : ''}`
+  }
+  return String(num)
+}
+
+function questionIndexLabel(idx) {
+  if (CN_QUESTION_LABELS[idx]) return CN_QUESTION_LABELS[idx]
+  return `第${toChineseNumber(idx + 1)}题`
+}
+
+function ensureEditorContext() {
+  if (editorCtx.value) return Promise.resolve(editorCtx.value)
+  return new Promise((resolve) => {
+    uni.createSelectorQuery()
+      .select('#answer-editor')
+      .context((res) => {
+        editorCtx.value = res?.context || null
+        resolve(editorCtx.value)
+      })
+      .exec()
+  })
+}
+
+async function syncEditorWithCurrentQuestion() {
+  const q = currentQuestion.value
+  if (!q || isObjectiveQuestion(q) || !editorReady.value) return
+  await nextTick()
+  const ctx = await ensureEditorContext()
+  if (!ctx) return
+  const html = answers.value[q.questionId]?.contentText || ''
+  syncingEditor.value = true
+  if (html) {
+    ctx.setContents({ html })
+  } else {
+    ctx.clear()
+  }
+  setTimeout(() => {
+    syncingEditor.value = false
+  }, 0)
+}
+
+async function onEditorAction(action) {
+  if (finalized.value) return
+  const q = currentQuestion.value
+  if (!q || isObjectiveQuestion(q)) return
+  const ctx = await ensureEditorContext()
+  if (!ctx) return
+
+  if (action === 'undo') {
+    if (typeof ctx.undo === 'function') ctx.undo()
+    return
+  }
+  if (action === 'redo') {
+    if (typeof ctx.redo === 'function') ctx.redo()
+    return
+  }
+  if (action === 'clear') {
+    if (typeof ctx.clear === 'function') {
+      ctx.clear()
+    } else if (typeof ctx.removeFormat === 'function') {
+      ctx.removeFormat()
+    }
+    return
+  }
+
+  if (action === 'h2') {
+    ctx.format('header', 'H2')
+    return
+  }
+  if (action === 'ul') {
+    ctx.format('list', 'bullet')
+    return
+  }
+  if (action === 'ol') {
+    ctx.format('list', 'ordered')
+    return
+  }
+  if (action === 'super') {
+    ctx.format('script', 'super')
+    return
+  }
+  if (action === 'sub') {
+    ctx.format('script', 'sub')
+    return
+  }
+  if (action === 'left' || action === 'center' || action === 'right') {
+    ctx.format('align', action)
+    return
+  }
+
+  if (['bold', 'italic', 'underline', 'strike'].includes(action)) {
+    ctx.format(action)
+  }
+}
+
+function onEditorReady() {
+  editorReady.value = true
+  void syncEditorWithCurrentQuestion()
+}
+
+function onEditorInput(event) {
+  if (syncingEditor.value) return
+  const q = currentQuestion.value
+  if (!q) return
+  setTextAnswer(q.questionId, event?.detail?.html || '')
 }
 
 function pickImages(questionId) {
@@ -648,7 +834,9 @@ function goBack() {
 }
 
 .index-item {
-  width: 62rpx;
+  min-width: 122rpx;
+  width: auto;
+  padding: 0 14rpx;
   height: 62rpx;
   margin-right: 10rpx;
   border-radius: 14rpx;
@@ -657,14 +845,16 @@ function goBack() {
   justify-content: center;
   background: #eef2f8;
   color: #64718c;
-  font-size: 24rpx;
+  font-size: 23rpx;
   font-weight: 700;
+  white-space: nowrap;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .index-item.active {
   background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
   color: #fff;
+  text-shadow: 0 2rpx 6rpx rgba(15, 47, 102, 0.25);
   box-shadow: 0 10rpx 18rpx rgba(83, 146, 238, 0.24);
 }
 
@@ -697,9 +887,13 @@ function goBack() {
   border: 2rpx solid #e1e8f5;
   background: #f9fbff;
   padding: 18rpx;
+}
+
+.prompt-text {
   font-size: 30rpx;
-  line-height: 1.58;
+  line-height: 1.62;
   color: #1f2d4b;
+  white-space: pre-wrap;
 }
 
 .choice-list {
@@ -739,11 +933,87 @@ function goBack() {
   gap: 10rpx;
 }
 
-.answer-textarea {
+.editor-wrap {
   margin-top: 16rpx;
+  border-radius: 18rpx;
+  border: 2rpx solid #dbe4f4;
+  background: #fff;
+  overflow: hidden;
+}
+
+.editor-toolbar {
+  white-space: nowrap;
+  padding: 0 12rpx;
+  border-bottom: 2rpx solid #edf2fb;
+  background: #f5f8fc;
+}
+
+.editor-toolbar-inner {
+  height: 68rpx;
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.editor-btn {
+  margin: 0;
+  min-width: 58rpx;
+  height: 50rpx;
+  padding: 0 14rpx;
+  border-radius: 10rpx;
+  border: 2rpx solid transparent;
+  background: transparent;
+  color: #6a7692;
+  font-size: 22rpx;
+  line-height: 50rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-btn::after {
+  border: none;
+}
+
+.editor-btn:active {
+  background: #e8eef9;
+}
+
+.editor-divider {
+  width: 2rpx;
+  height: 26rpx;
+  background: #d9e2f2;
+  border-radius: 1rpx;
+  margin: 0 2rpx;
+}
+
+.answer-editor {
   min-height: 340rpx;
+  padding: 16rpx;
   font-size: 30rpx;
-  line-height: 1.5;
+  line-height: 1.58;
+  color: #273451;
+}
+
+.editor-preview-card {
+  margin-top: 10rpx;
+  border-radius: 16rpx;
+  border: 2rpx solid #e4eaf6;
+  background: #f9fbff;
+  padding: 14rpx;
+}
+
+.editor-preview-title {
+  font-size: 23rpx;
+  color: rgba(26, 36, 64, 0.62);
+  margin-bottom: 8rpx;
+}
+
+.editor-preview-content {
+  font-size: 28rpx;
+  line-height: 1.56;
+  color: #24314e;
+  word-break: break-all;
 }
 
 .upload-box {
@@ -781,9 +1051,17 @@ function goBack() {
   background: #fff;
   color: #6f7c98;
   font-size: 34rpx;
-  line-height: 58rpx;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.tool-icon {
+  font-size: 30rpx;
+  line-height: 1;
 }
 
 .tool-icon-btn:active {

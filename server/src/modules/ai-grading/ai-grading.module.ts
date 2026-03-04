@@ -11,6 +11,7 @@ import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snap
 import { CourseEntity } from '../assignment/entities/course.entity';
 import { AiGradingWorkerService } from './ai-grading.worker';
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
 
 // 负责人: 周灿宇
 // 功能: AI评分（接口、调研）
@@ -19,6 +20,7 @@ import { AuthModule } from '../auth/auth.module';
 @Module({
   imports: [
     AuthModule,
+    BillingModule,
     TypeOrmModule.forFeature([
       AiJobEntity,
       AiGradingEntity,

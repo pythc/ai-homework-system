@@ -59,6 +59,13 @@
         >
           AI 助手
         </RouterLink>
+        <RouterLink
+          to="/teacher/subscription-plans"
+          class="nav-item"
+          :class="{ active: isActive('/teacher/subscription-plans') }"
+        >
+          订阅套餐
+        </RouterLink>
       </nav>
 
       <div class="sidebar-footer">

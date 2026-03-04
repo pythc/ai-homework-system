@@ -64,7 +64,7 @@ function goAssistant() {
   right: 0;
   bottom: 0;
   z-index: 100;
-  height: calc(112rpx + env(safe-area-inset-bottom));
+  height: calc(132rpx + env(safe-area-inset-bottom));
   pointer-events: none;
 }
 
@@ -74,7 +74,7 @@ function goAssistant() {
   left: 0;
   right: 0;
   bottom: 0;
-  height: calc(100rpx + env(safe-area-inset-bottom));
+  height: calc(106rpx + env(safe-area-inset-bottom));
   border-radius: 0;
   padding: 4rpx 0 env(safe-area-inset-bottom);
   border: 0;
@@ -111,8 +111,8 @@ function goAssistant() {
 }
 
 .dock-spacer {
-  width: 128rpx;
-  flex: 0 0 128rpx;
+  width: 156rpx;
+  flex: 0 0 156rpx;
 }
 
 .dock-ai {
@@ -120,9 +120,9 @@ function goAssistant() {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(30rpx + env(safe-area-inset-bottom));
-  width: 88rpx;
-  height: 88rpx;
+  bottom: calc(34rpx + env(safe-area-inset-bottom));
+  width: 108rpx;
+  height: 108rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -132,9 +132,9 @@ function goAssistant() {
 }
 
 .dock-ai-core {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 44rpx;
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 54rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -145,8 +145,8 @@ function goAssistant() {
 }
 
 .dock-ai-image {
-  width: 88rpx;
-  height: 88rpx;
+  width: 108rpx;
+  height: 108rpx;
   border-radius: 50%;
 }
 

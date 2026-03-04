@@ -22,21 +22,52 @@
               :key="message.id"
               :class="['assistant-message', message.role]"
             >
+              <div v-if="message.role !== 'assistant' && message.images?.length" class="assistant-message-images">
+                <button
+                  v-for="(image, imageIndex) in message.images"
+                  :key="`${message.id}-${imageIndex}`"
+                  type="button"
+                  class="assistant-message-image-btn"
+                  @click="openImagePreview(image)"
+                >
+                  <img
+                    class="assistant-message-image"
+                    :src="image.url"
+                    :alt="image.name || '已发送图片'"
+                  />
+                </button>
+              </div>
               <div class="assistant-bubble">
                 <template v-if="message.role === 'assistant'">
-                  <div
-                    v-if="!isTypingMessage(message)"
-                    class="assistant-markdown"
-                    v-html="renderMarkdown(message.content)"
-                    v-mathjax
-                  />
+                  <template v-if="!isTypingMessage(message)">
+                    <div
+                      v-if="isStreamingMessage(message)"
+                      class="assistant-text assistant-streaming"
+                    >
+                      {{ message.content }}
+                    </div>
+                    <div
+                      v-else-if="hasMathContent(message.content)"
+                      class="assistant-markdown"
+                      v-html="renderAssistantMarkdown(message)"
+                      v-mathjax
+                    />
+                    <div
+                      v-else
+                      class="assistant-markdown"
+                      v-html="renderAssistantMarkdown(message)"
+                    />
+                  </template>
                   <div v-else class="assistant-bubble typing">
-                    <span />
-                    <span />
-                    <span />
+                    <span class="assistant-typing-dot" />
+                    <span class="assistant-typing-dot" />
+                    <span class="assistant-typing-dot" />
+                    <span class="assistant-typing-meta">{{ loadingStatusText }}</span>
                   </div>
                 </template>
-                <div v-else class="assistant-text">{{ message.content }}</div>
+                <template v-else>
+                  <div class="assistant-text">{{ message.content }}</div>
+                </template>
               </div>
               <div
                 v-if="message.role === 'assistant' && message.content"
@@ -70,9 +101,9 @@
             </div>
             <div v-if="sending && !streamingMessageId" class="assistant-message assistant">
               <div class="assistant-bubble typing">
-                <span />
-                <span />
-                <span />
+                <span class="assistant-typing-dot" />
+                <span class="assistant-typing-dot" />
+                <span class="assistant-typing-dot" />
               </div>
             </div>
           </div>
@@ -146,7 +177,6 @@
             <textarea
               v-model="input"
               placeholder="输入问题，回车发送，Shift+Enter 换行"
-              :disabled="sending"
               @keydown.enter.exact.prevent="sendMessage"
             />
           </div>
@@ -172,6 +202,19 @@
         </div>
 
         <div v-if="error" class="assistant-error">{{ error }}</div>
+        <div v-if="previewImage" class="assistant-image-preview-backdrop" @click="closeImagePreview">
+          <div class="assistant-image-preview-card" @click.stop>
+            <img
+              class="assistant-image-preview"
+              :src="previewImage.url"
+              :alt="previewImage.name || '图片预览'"
+            />
+            <div class="assistant-image-preview-meta">
+              <span>{{ previewImage.name || '图片预览' }}</span>
+              <button type="button" @click="closeImagePreview">关闭</button>
+            </div>
+          </div>
+        </div>
         <div v-if="showConfirm" class="assistant-modal-backdrop">
           <div class="assistant-modal">
             <div class="assistant-modal-title">开启新对话</div>
@@ -191,9 +234,10 @@
 
 <script setup>
 import { marked } from 'marked'
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { streamAssistantMessage, uploadAssistantImages } from '../api/assistant'
+import { API_BASE_URL } from '../api/http'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getStoredUser } from '../auth/storage'
 
@@ -211,7 +255,28 @@ const showConfirm = ref(false)
 const attachments = ref([])
 const toolsOpen = ref(false)
 const thinkingMode = ref('disabled')
+const previewImage = ref(null)
 let persistTimer = null
+const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
+const STREAM_UPDATE_THROTTLE_MS = 100
+const MAX_CHAT_MESSAGES = 120
+const MAX_CHAT_CHARS = 120000
+const MARKDOWN_CACHE_LIMIT = 400
+const mathPattern = /(\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\(|\\\[|\\begin\{)/m
+const markdownCache = new Map()
+const activeThinkingMode = ref('disabled')
+const loadingElapsedSeconds = ref(0)
+let loadingTimer = null
+let loadingStartedAt = 0
+
+const resolveMessageImageUrl = (url) => {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  if (value.startsWith('/uploads/') || value.startsWith('/s3/')) {
+    return `${apiBaseOrigin}${value}`
+  }
+  return value
+}
 
 const resolveChatKey = () => {
   const user = getStoredUser()
@@ -303,13 +368,38 @@ const handleOutsideClick = (event) => {
   closeTools()
 }
 
+const normalizeMessageImages = (value) => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => ({
+      name: String(item?.name || ''),
+      url: resolveMessageImageUrl(item?.url),
+    }))
+    .filter((item) => Boolean(item.url))
+}
+
+const toStoredMessages = (value) => {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => {
+    const images = normalizeMessageImages(item?.images).filter(
+      (image) => !image.url.startsWith('data:') && !image.url.startsWith('blob:'),
+    )
+    return {
+      id: item?.id,
+      role: item?.role,
+      content: item?.content ?? '',
+      ...(images.length ? { images } : {}),
+    }
+  })
+}
+
 const persistMessages = () => {
   if (persistTimer) {
     clearTimeout(persistTimer)
   }
   persistTimer = setTimeout(() => {
     try {
-      localStorage.setItem(resolveChatKey(), JSON.stringify(messages.value))
+      localStorage.setItem(resolveChatKey(), JSON.stringify(toStoredMessages(messages.value)))
     } catch (err) {
       // ignore
     }
@@ -322,8 +412,14 @@ const loadMessages = () => {
     if (!raw) return false
     const parsed = JSON.parse(raw)
     if (Array.isArray(parsed)) {
-      messages.value = parsed
-      const maxId = parsed.reduce((max, item) => Math.max(max, item.id || 0), 0)
+      messages.value = parsed.map((item) => ({
+        id: item?.id,
+        role: item?.role,
+        content: item?.content ?? '',
+        images: normalizeMessageImages(item?.images),
+      }))
+      trimMessagesInPlace()
+      const maxId = messages.value.reduce((max, item) => Math.max(max, item.id || 0), 0)
       messageSeed.value = maxId + 1
       return true
     }
@@ -345,7 +441,78 @@ const quickPrompts = [
   '此系统不好用应该如何反馈',
 ]
 
-const renderMarkdown = (content) => marked.parse(content ?? '', { breaks: true })
+const calculateTotalChatChars = () =>
+  messages.value.reduce((sum, item) => sum + String(item?.content || '').length, 0)
+
+const trimMessagesInPlace = () => {
+  while (messages.value.length > MAX_CHAT_MESSAGES) {
+    messages.value.shift()
+  }
+  let totalChars = calculateTotalChatChars()
+  while (messages.value.length > 1 && totalChars > MAX_CHAT_CHARS) {
+    const removed = messages.value.shift()
+    totalChars -= String(removed?.content || '').length
+  }
+}
+
+const hasMathContent = (content) => mathPattern.test(String(content || ''))
+
+const normalizeMathForMarkdown = (value) => {
+  let output = String(value || '')
+  // Keep math delimiters in TeX form to avoid raw "$$" leaking into rendered markdown.
+  output = output.replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_all, inner) => `\\[${inner}\\]`)
+  output = output.replace(/\\\(\s*([\s\S]*?)\s*\\\)/g, (_all, inner) => `\\(${inner}\\)`)
+  return output
+}
+
+const renderAssistantMarkdown = (message) => {
+  const rawContent = String(message?.content || '')
+  const normalized = hasMathContent(rawContent) ? normalizeMathForMarkdown(rawContent) : rawContent
+  const content = hasMathContent(normalized) ? normalized.replace(/\\/g, '\\\\') : normalized
+  const key = `${message?.id ?? 'x'}:${content}`
+  const cached = markdownCache.get(key)
+  if (cached) return cached
+  const html = marked.parse(content, { breaks: true })
+  markdownCache.set(key, html)
+  if (markdownCache.size > MARKDOWN_CACHE_LIMIT) {
+    const oldestKey = markdownCache.keys().next().value
+    if (typeof oldestKey === 'string') {
+      markdownCache.delete(oldestKey)
+    }
+  }
+  return html
+}
+
+const startLoadingTimer = (mode) => {
+  activeThinkingMode.value = mode === 'enabled' ? 'enabled' : 'disabled'
+  loadingStartedAt = Date.now()
+  loadingElapsedSeconds.value = 0
+  if (loadingTimer) {
+    clearInterval(loadingTimer)
+  }
+  loadingTimer = setInterval(() => {
+    loadingElapsedSeconds.value = Math.max(
+      0,
+      Math.floor((Date.now() - loadingStartedAt) / 1000),
+    )
+  }, 250)
+}
+
+const stopLoadingTimer = () => {
+  if (loadingTimer) {
+    clearInterval(loadingTimer)
+    loadingTimer = null
+  }
+  loadingStartedAt = 0
+  loadingElapsedSeconds.value = 0
+  activeThinkingMode.value = 'disabled'
+}
+
+const loadingStatusText = computed(() =>
+  activeThinkingMode.value === 'enabled'
+    ? `深度思考中 · ${loadingElapsedSeconds.value} s`
+    : `${loadingElapsedSeconds.value} s`,
+)
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -356,29 +523,42 @@ const scrollToBottom = () => {
   })
 }
 
-const pushMessage = (role, content) => {
+const pushMessage = (role, content, options = {}) => {
   const id = messageSeed.value++
-  messages.value.push({ id, role, content })
+  const images = normalizeMessageImages(options.images)
+  messages.value.push({
+    id,
+    role,
+    content,
+    ...(images.length ? { images } : {}),
+  })
+  trimMessagesInPlace()
   scrollToBottom()
   persistMessages()
   return id
 }
 
-const updateMessage = (id, content) => {
+const updateMessage = (id, content, options = {}) => {
   const target = messages.value.find((msg) => msg.id === id)
   if (target) {
     target.content = content
+    trimMessagesInPlace()
     scrollToBottom()
-    persistMessages()
+    if (options.persist !== false) {
+      persistMessages()
+    }
   }
 }
 
 const clearConversation = () => {
   messageSeed.value = 1
   messages.value = createInitialMessages()
+  markdownCache.clear()
   input.value = ''
   error.value = ''
+  closeImagePreview()
   streamingMessageId.value = null
+  stopLoadingTimer()
   clearAttachments()
   resetSessionId()
   try {
@@ -443,6 +623,26 @@ const removeAttachment = (index) => {
   attachments.value.splice(index, 1)
 }
 
+const buildMessageImages = (images) =>
+  (Array.isArray(images) ? images : [])
+    .map((item) => ({
+      name: String(item?.name || ''),
+      url: resolveMessageImageUrl(item?.url || item?.dataUrl || ''),
+    }))
+    .filter((item) => Boolean(item.url))
+
+const openImagePreview = (image) => {
+  if (!image?.url) return
+  previewImage.value = {
+    name: image.name || '',
+    url: image.url,
+  }
+}
+
+const closeImagePreview = () => {
+  previewImage.value = null
+}
+
 const readFileAsDataUrl = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -495,32 +695,57 @@ const sendMessageWithText = async (question) => {
     refreshUsage()
     return
   }
-  pushMessage('user', userContent)
   sending.value = true
-  const assistantId = pushMessage('assistant', '')
-  streamingMessageId.value = assistantId
 
   try {
     const images = await buildImagesPayload()
+    const messageImages = buildMessageImages(images)
+    pushMessage('user', userContent, { images: messageImages })
+    const assistantId = pushMessage('assistant', '')
+    streamingMessageId.value = assistantId
+    startLoadingTimer(thinkingMode.value)
+    let streamBuffer = ''
+    let streamTimer = null
+    const flushStream = (persist = false) => {
+      if (!streamBuffer) return
+      updateMessage(assistantId, streamBuffer, { persist })
+    }
+
     await streamAssistantMessage(
       userContent,
       { sessionId: sessionId.value, thinking: thinkingMode.value, images },
       {
-        onDelta: (_delta, full) => {
-          updateMessage(assistantId, full || '...')
+        onDelta: (delta) => {
+          streamBuffer += delta
+          if (streamTimer) return
+          streamTimer = setTimeout(() => {
+            streamTimer = null
+            flushStream(false)
+          }, STREAM_UPDATE_THROTTLE_MS)
         },
         onDone: (full) => {
-          updateMessage(assistantId, full || '收到，我们继续聊。')
+          if (streamTimer) {
+            clearTimeout(streamTimer)
+            streamTimer = null
+          }
+          streamBuffer = full || streamBuffer || '收到，我们继续聊。'
+          streamingMessageId.value = null
+          flushStream(true)
           window.dispatchEvent(new Event('assistant-usage-refresh'))
         },
       },
     )
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'AI 请求失败'
-    updateMessage(assistantId, '请求失败，请稍后再试。')
+    if (!streamingMessageId.value) {
+      pushMessage('assistant', '请求失败，请稍后再试。')
+    } else {
+      updateMessage(streamingMessageId.value, '请求失败，请稍后再试。')
+    }
   } finally {
     sending.value = false
     streamingMessageId.value = null
+    stopLoadingTimer()
     clearAttachments()
     refreshUsage()
   }
@@ -571,6 +796,11 @@ const isTypingMessage = (message) =>
   streamingMessageId.value === message.id &&
   !message.content
 
+const isStreamingMessage = (message) =>
+  message.role === 'assistant' &&
+  streamingMessageId.value === message.id &&
+  Boolean(message.content)
+
 onMounted(async () => {
   await refreshProfile()
   if (!loadMessages()) {
@@ -581,6 +811,12 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  closeImagePreview()
+  stopLoadingTimer()
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
   document.removeEventListener('click', handleOutsideClick)
 })
 </script>
@@ -731,6 +967,37 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
 }
 
+.assistant-message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.assistant-message.user .assistant-message-images {
+  align-self: flex-end;
+  justify-content: flex-end;
+  max-width: 90%;
+}
+
+.assistant-message-image-btn {
+  width: 68px;
+  height: 68px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+}
+
+.assistant-message-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .assistant-message.user .assistant-avatar {
   background: linear-gradient(135deg, rgba(59, 168, 255, 0.85), rgba(116, 220, 210, 0.85));
   color: #ffffff;
@@ -749,21 +1016,33 @@ onBeforeUnmount(() => {
   align-items: center;
   min-width: 70px;
   justify-content: flex-start;
+  flex-wrap: nowrap;
 }
 
-.assistant-bubble.typing span {
+.assistant-typing-meta {
+  margin-left: 6px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.62);
+  white-space: nowrap;
+}
+
+.assistant-typing-dot {
   width: 10px;
   height: 10px;
+  min-width: 10px;
+  min-height: 10px;
+  flex: 0 0 10px;
   border-radius: 50%;
   background: rgba(26, 29, 51, 0.55);
   animation: typingPulse 1.2s infinite ease-in-out;
+  display: inline-block;
 }
 
-.assistant-bubble.typing span:nth-child(2) {
+.assistant-typing-dot:nth-child(2) {
   animation-delay: 0.2s;
 }
 
-.assistant-bubble.typing span:nth-child(3) {
+.assistant-typing-dot:nth-child(3) {
   animation-delay: 0.4s;
 }
 
@@ -1134,6 +1413,58 @@ onBeforeUnmount(() => {
 .assistant-modal-btn.primary {
   background: linear-gradient(135deg, rgba(88, 174, 255, 0.9), rgba(108, 229, 215, 0.9));
   color: #ffffff;
+}
+
+.assistant-image-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 280;
+  background: rgba(12, 18, 30, 0.55);
+  backdrop-filter: blur(1.5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.assistant-image-preview-card {
+  width: min(90vw, 860px);
+  max-height: 88vh;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(189, 204, 232, 0.9);
+  box-shadow: 0 22px 44px rgba(16, 25, 44, 0.35);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.assistant-image-preview {
+  width: 100%;
+  max-height: calc(88vh - 58px);
+  object-fit: contain;
+  background: #f2f6fd;
+}
+
+.assistant-image-preview-meta {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  color: #1e315a;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.assistant-image-preview-meta button {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, rgba(75, 154, 245, 0.92), rgba(102, 205, 228, 0.92));
+  color: #fff;
+  cursor: pointer;
 }
 
 @media (max-width: 768px) {

@@ -346,17 +346,23 @@ onMounted(() => {
 
 <style scoped>
 .assistant-page {
+  height: 100vh;
+  min-height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   padding-top: 12rpx;
-  padding-bottom: calc(192rpx + env(safe-area-inset-bottom));
+  padding-bottom: calc(136rpx + env(safe-area-inset-bottom));
 }
 
 .chat-card {
   flex: 1;
-  min-height: calc(100vh - 244rpx);
+  min-height: 0;
+  max-height: 100%;
   padding: 18rpx;
   display: flex;
   flex-direction: column;
   gap: 12rpx;
+  overflow: hidden;
 }
 
 .messages {

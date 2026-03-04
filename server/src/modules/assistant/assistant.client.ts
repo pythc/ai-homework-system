@@ -58,12 +58,18 @@ export class AssistantClient {
     sessionId?: string,
     thinking?: 'auto' | 'enabled' | 'disabled',
     images?: Array<{ name: string; dataUrl?: string; url?: string }>,
+    userAuthorization?: string,
   ) {
     const response = await this.fetchWithTimeout(
       `${this.baseUrl}/assistant/answer`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(userAuthorization
+            ? { 'x-user-authorization': userAuthorization }
+            : {}),
+        },
         body: JSON.stringify({
           question,
           stats,
@@ -96,12 +102,18 @@ export class AssistantClient {
     sessionId?: string,
     thinking?: 'auto' | 'enabled' | 'disabled',
     images?: Array<{ name: string; dataUrl?: string; url?: string }>,
+    userAuthorization?: string,
   ) {
     const response = await this.fetchWithTimeout(
       `${this.baseUrl}/assistant/answer/stream`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(userAuthorization
+            ? { 'x-user-authorization': userAuthorization }
+            : {}),
+        },
         body: JSON.stringify({
           question,
           stats,

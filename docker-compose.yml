@@ -165,6 +165,9 @@ services:
       ASSISTANT_PORT: 4100
       REDIS_URL: redis://redis:6379
       ASSISTANT_ASSET_BASE: http://web
+      ASSISTANT_USE_MCP: ${ASSISTANT_USE_MCP:-true}
+      ASSISTANT_MCP_API_BASE: ${ASSISTANT_MCP_API_BASE:-http://server_api:3000/api/v1}
+      ASSISTANT_MCP_API_TIMEOUT_MS: ${ASSISTANT_MCP_API_TIMEOUT_MS:-12000}
       NODE_ENV: production
     depends_on:
       redis:

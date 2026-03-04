@@ -5,10 +5,12 @@ import { AssistantService } from './assistant.service';
 import { AssistantClient } from './assistant.client';
 import { AuthModule } from '../auth/auth.module';
 import { AssistantTokenUsageEntity } from './entities/assistant-token-usage.entity';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
     AuthModule,
+    BillingModule,
     TypeOrmModule.forFeature([AssistantTokenUsageEntity]),
   ],
   controllers: [AssistantController],

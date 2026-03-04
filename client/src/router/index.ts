@@ -23,6 +23,7 @@ import TeacherGradingAssignments from '../views/TeacherGradingAssignments.vue'
 import TeacherGradingSubmissions from '../views/TeacherGradingSubmissions.vue'
 import TeacherGradingAssignmentConfig from '../views/TeacherGradingAssignmentConfig.vue'
 import TeacherAssistant from '../views/TeacherAssistant.vue'
+import TeacherSubscriptionPlans from '../views/TeacherSubscriptionPlans.vue'
 import TeacherClassImport from '../views/TeacherClassImport.vue'
 import TeacherQuestionBankCourses from '../views/TeacherQuestionBankCourses.vue'
 import TeacherQuestionBankTextbooks from '../views/TeacherQuestionBankTextbooks.vue'
@@ -135,6 +136,10 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/teacher/assistant',
     component: TeacherAssistant,
+  },
+  {
+    path: '/teacher/subscription-plans',
+    component: TeacherSubscriptionPlans,
   },
   {
     path: '/teacher/question-bank',

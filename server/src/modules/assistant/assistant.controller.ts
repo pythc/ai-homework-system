@@ -13,6 +13,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import type { Express } from 'express';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/auth.guard';
 import { AssistantService } from './assistant.service';
 import { AssistantChatDto } from './dto/assistant-chat.dto';
@@ -33,19 +34,25 @@ export class AssistantController {
   @UseGuards(JwtAuthGuard)
   async chat(
     @Body() dto: AssistantChatDto,
-    @Req() req: { user?: { sub?: string; role?: UserRole; schoolId?: string } },
+    @Req() req: Request & {
+      user?: { sub?: string; role?: UserRole; schoolId?: string };
+    },
   ) {
-    return this.assistantService.chat(dto, req.user ?? {});
+    const authorization = String(req.headers.authorization || '').trim();
+    return this.assistantService.chat(dto, req.user ?? {}, authorization);
   }
 
   @Post('chat/stream')
   @UseGuards(JwtAuthGuard)
   async chatStream(
     @Body() dto: AssistantChatDto,
-    @Req() req: { user?: { sub?: string; role?: UserRole; schoolId?: string } },
+    @Req() req: Request & {
+      user?: { sub?: string; role?: UserRole; schoolId?: string };
+    },
     @Res() res: Response,
   ) {
-    await this.assistantService.chatStream(dto, req.user ?? {}, res);
+    const authorization = String(req.headers.authorization || '').trim();
+    await this.assistantService.chatStream(dto, req.user ?? {}, res, authorization);
   }
 
   @Get('usage')

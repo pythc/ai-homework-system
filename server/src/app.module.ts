@@ -9,6 +9,7 @@ import { SubmissionModule } from './modules/submission/submission.module';
 import { QuestionBankModule } from './modules/question-bank/question-bank.module';
 import { CourseModule } from './modules/course/course.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { PostgresKeyModule } from './common/database/postgres.module';
 import { MongoLogModule } from './common/database/mongo.module';
 import { StorageModule } from './common/storage/storage.module';
@@ -29,6 +30,7 @@ import { StorageModule } from './common/storage/storage.module';
     QuestionBankModule, // 题库管理
     CourseModule,       // 课程管理
     AssistantModule,     // AI 助手统计
+    BillingModule,       // 订阅套餐与额度治理
   ],
   controllers: [AppController],
   providers: [AppService],
