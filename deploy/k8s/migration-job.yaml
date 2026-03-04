@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: server-migrate
+  labels:
+    app.kubernetes.io/name: server-migrate
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: server-migrate
+        app.kubernetes.io/part-of: ai-homework
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/pythc/ai-homework-system-server:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -lc
+            - npm run migration:run
+          envFrom:
+            - configMapRef:
+                name: ai-homework-config
+            - secretRef:
+                name: ai-homework-secret
+          env:
+            - name: SERVER_APP_PROFILE
+              value: api
+            - name: RUN_MIGRATIONS
+              value: "false"
+            - name: DISABLE_AI_WORKER
+              value: "true"

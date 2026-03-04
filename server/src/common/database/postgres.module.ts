@@ -2,6 +2,11 @@ import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 
+const readNumber = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
 // 负责人: 李昌峻 (功能配合表设计) / 白洋 (数据库设计)
 // 用途: PostgreSQL 连接配置 - 存储核心业务数据（用户、作业定义、最终成绩）
 @Global()
@@ -17,6 +22,12 @@ import { join } from 'path';
       autoLoadEntities: true,
       synchronize: false,
       migrations: [join(__dirname, '..', '..', 'migrations', '*{.ts,.js}')],
+      extra: {
+        max: readNumber('PG_POOL_MAX', 30),
+        min: readNumber('PG_POOL_MIN', 5),
+        idleTimeoutMillis: readNumber('PG_POOL_IDLE_TIMEOUT_MS', 30000),
+        connectionTimeoutMillis: readNumber('PG_POOL_CONNECT_TIMEOUT_MS', 5000),
+      },
     }),
   ],
   exports: [TypeOrmModule],

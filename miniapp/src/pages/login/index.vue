@@ -1,6 +1,9 @@
 <template>
   <view class="page ui-shell no-tab auth-page">
-    <view class="ui-card brand-card" @longpress="onToggleApiConfig">
+    <view class="auth-bg auth-bg-left" />
+    <view class="auth-bg auth-bg-right" />
+
+    <view class="ui-card brand-card fx-fade-in" @longpress="onToggleApiConfig">
       <view class="brand-badge">S</view>
       <view class="brand-text">
         <view class="brand-title">STUDENT</view>
@@ -8,7 +11,7 @@
       </view>
     </view>
 
-    <view class="ui-card auth-card">
+    <view class="ui-card auth-card fx-scale-in fx-delay-1">
       <view class="ui-title">登录</view>
       <view class="ui-subtitle">使用现有账号登录系统</view>
 
@@ -39,7 +42,7 @@
         <input v-model="form.password" class="ui-input" placeholder="请输入密码" password />
       </view>
 
-      <button class="ui-btn-primary submit-btn" :disabled="loading" @click="onLogin">
+      <button class="ui-btn-primary submit-btn fx-pulse-soft" :disabled="loading" @click="onLogin">
         {{ loading ? '登录中...' : '登录' }}
       </button>
 
@@ -199,6 +202,7 @@ async function onLogin() {
 .auth-page {
   justify-content: center;
   gap: 24rpx;
+  overflow: hidden;
 }
 
 .brand-card {
@@ -206,10 +210,15 @@ async function onLogin() {
   display: flex;
   align-items: center;
   gap: 16rpx;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.55));
+  box-shadow:
+    0 16rpx 34rpx rgba(35, 53, 89, 0.16),
+    inset 0 2rpx 0 rgba(255, 255, 255, 0.8);
 }
 
 .brand-card:active {
-  opacity: 0.92;
+  transform: scale(0.992);
+  opacity: 0.95;
 }
 
 .brand-badge {
@@ -224,13 +233,16 @@ async function onLogin() {
   align-items: center;
   justify-content: center;
   box-shadow: 0 10rpx 20rpx rgba(241, 167, 101, 0.34);
+  animation: badgeFloat 3.8s ease-in-out infinite;
 }
 
 .brand-title {
   font-size: 44rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
-  color: #1a2440;
+  color: #1c2b4a;
+  text-shadow: 0 8rpx 20rpx rgba(38, 90, 180, 0.18);
+  animation: titleFloat 4.8s ease-in-out infinite;
 }
 
 .brand-sub {
@@ -241,10 +253,28 @@ async function onLogin() {
 
 .auth-card {
   padding: 32rpx 28rpx;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.66));
+  border: 2rpx solid rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 20rpx 40rpx rgba(32, 78, 156, 0.14),
+    inset 0 2rpx 0 rgba(255, 255, 255, 0.85);
 }
 
 .field-group {
   margin-top: 16rpx;
+  animation: fieldEnter 0.52s ease both;
+}
+
+.field-group:nth-of-type(1) {
+  animation-delay: 0.06s;
+}
+
+.field-group:nth-of-type(2) {
+  animation-delay: 0.12s;
+}
+
+.field-group:nth-of-type(3) {
+  animation-delay: 0.18s;
 }
 
 .field-label {
@@ -257,6 +287,11 @@ async function onLogin() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  transition: transform 0.2s ease;
+}
+
+.picker:active .picker-value {
+  transform: translateY(-1rpx);
 }
 
 .picker-arrow {
@@ -293,5 +328,73 @@ async function onLogin() {
 
 .api-btn {
   flex: 1;
+}
+
+.auth-bg {
+  position: absolute;
+  border-radius: 9999rpx;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.auth-bg-left {
+  width: 360rpx;
+  height: 360rpx;
+  left: -120rpx;
+  top: 6%;
+  background: radial-gradient(circle, rgba(255, 192, 174, 0.42), rgba(255, 192, 174, 0));
+  animation: blobDrift 8.6s ease-in-out infinite;
+}
+
+.auth-bg-right {
+  width: 420rpx;
+  height: 420rpx;
+  right: -150rpx;
+  bottom: 10%;
+  background: radial-gradient(circle, rgba(162, 207, 255, 0.4), rgba(162, 207, 255, 0));
+  animation: blobDrift 10.8s ease-in-out infinite reverse;
+}
+
+@keyframes fieldEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes badgeFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5rpx);
+  }
+}
+
+@keyframes titleFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.97;
+  }
+  50% {
+    transform: translateY(-4rpx);
+    opacity: 1;
+  }
+}
+
+@keyframes blobDrift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-14rpx);
+  }
 }
 </style>

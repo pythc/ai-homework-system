@@ -17,7 +17,69 @@ function isLocalhostApiBase(url = '') {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url)
 }
 
+function getApiOrigin() {
+  const base = String(getApiBaseUrl() || '').trim()
+  const match = /^(https?:\/\/[^/]+)/i.exec(base)
+  return match?.[1] || ''
+}
+
+function safeParseUrl(value = '') {
+  try {
+    return new URL(value)
+  } catch {
+    return null
+  }
+}
+
+function toMiniappSafeAbsoluteUrl(value = '') {
+  const raw = String(value || '').trim()
+  if (!/^https?:\/\//i.test(raw)) return raw
+
+  const parsed = safeParseUrl(raw)
+  if (!parsed) return raw
+
+  const protocol = parsed.protocol.toLowerCase()
+  const hostname = parsed.hostname.toLowerCase()
+  const pathAndQuery = `${parsed.pathname || ''}${parsed.search || ''}${parsed.hash || ''}`
+  const apiOrigin = getApiOrigin()
+
+  if (protocol === 'http:' && (hostname === 'localhost' || hostname === '127.0.0.1')) {
+    if (apiOrigin) return `${apiOrigin}${pathAndQuery}`
+    return raw
+  }
+
+  if (protocol === 'http:') {
+    return `https://${parsed.host}${pathAndQuery}`
+  }
+
+  return raw
+}
+
 function getRuntimePlatform() {
+  try {
+    if (typeof wx !== 'undefined') {
+      const deviceInfo = wx.getDeviceInfo?.()
+      if (deviceInfo?.platform) {
+        return String(deviceInfo.platform).toLowerCase()
+      }
+      const appBaseInfo = wx.getAppBaseInfo?.()
+      if (appBaseInfo?.platform) {
+        return String(appBaseInfo.platform).toLowerCase()
+      }
+    }
+  } catch {
+    // ignore and fallback to uni APIs
+  }
+
+  try {
+    const deviceInfo = uni.getDeviceInfo?.()
+    if (deviceInfo?.platform) {
+      return String(deviceInfo.platform).toLowerCase()
+    }
+  } catch {
+    // ignore and fallback
+  }
+
   try {
     const info = uni.getSystemInfoSync?.() || {}
     return String(info.platform || '').toLowerCase()
@@ -70,14 +132,34 @@ function buildUrl(path) {
 export function toAbsoluteUrl(path = '') {
   const value = String(path || '').trim()
   if (!value) return ''
-  if (/^https?:\/\//.test(value)) return value
+  if (/^https?:\/\//.test(value)) return toMiniappSafeAbsoluteUrl(value)
   const normalized = value.startsWith('/') ? value : `/${value}`
-  const base = String(getApiBaseUrl() || '').trim()
-  const match = /^(https?:\/\/[^/]+)/i.exec(base)
-  if (match?.[1]) {
-    return `${match[1]}${normalized}`
+  const origin = getApiOrigin()
+  if (origin) {
+    return `${origin}${normalized}`
   }
   return normalized
+}
+
+let authRedirecting = false
+
+function redirectToLoginOnAuthFailure() {
+  if (authRedirecting) return
+  authRedirecting = true
+  setTimeout(() => {
+    try {
+      const pages = getCurrentPages?.() || []
+      const current = pages[pages.length - 1]
+      const route = String(current?.route || '')
+      if (route !== 'pages/login/index') {
+        uni.reLaunch({ url: '/pages/login/index' })
+      }
+    } catch {
+      // ignore
+    } finally {
+      authRedirecting = false
+    }
+  }, 0)
 }
 
 function requestRaw(path, options = {}) {
@@ -184,6 +266,11 @@ export async function request(path, options = {}) {
         },
       })
     }
+  }
+
+  if (auth && (res.statusCode === 401 || res.statusCode === 403)) {
+    clearAuth()
+    redirectToLoginOnAuthFailure()
   }
 
   const message = res?.data?.message || `请求失败(${res.statusCode})`

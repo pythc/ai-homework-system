@@ -15,6 +15,7 @@ page {
     radial-gradient(860rpx 700rpx at 96% 10%, rgba(255, 228, 206, 0.52), transparent 60%),
     linear-gradient(132deg, #d8f0f6 0%, #f6efe6 48%, #e4e8fb 100%);
   font-family: "PingFang SC", "Noto Sans SC", "Helvetica Neue", sans-serif;
+  overflow-x: hidden;
 }
 
 view,
@@ -50,10 +51,47 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 18rpx;
+  position: relative;
 }
 
 .ui-shell.no-tab {
   padding-bottom: 34rpx;
+}
+
+.ui-shell::before,
+.ui-shell::after {
+  content: "";
+  position: fixed;
+  border-radius: 9999rpx;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ui-shell::before {
+  width: 460rpx;
+  height: 460rpx;
+  left: -180rpx;
+  top: 18%;
+  background: radial-gradient(circle, rgba(255, 182, 156, 0.38), rgba(255, 182, 156, 0));
+  animation: appFloatBlob 9s ease-in-out infinite;
+}
+
+.ui-shell::after {
+  width: 560rpx;
+  height: 560rpx;
+  right: -220rpx;
+  bottom: 2%;
+  background: radial-gradient(circle, rgba(156, 202, 255, 0.38), rgba(156, 202, 255, 0));
+  animation: appFloatBlob 11s ease-in-out infinite reverse;
+}
+
+.ui-shell > view,
+.ui-shell > button,
+.ui-shell > scroll-view,
+.ui-shell > swiper,
+.ui-shell > navigator {
+  position: relative;
+  z-index: 1;
 }
 
 .ui-card {
@@ -61,6 +99,11 @@ textarea {
   border: 2rpx solid rgba(255, 255, 255, 0.66);
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 12rpx 28rpx rgba(35, 53, 89, 0.1);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.ui-card:active {
+  transform: translateY(1rpx) scale(0.998);
 }
 
 .ui-header-card {
@@ -153,6 +196,7 @@ textarea {
   padding: 0 22rpx;
   height: 68rpx;
   line-height: 68rpx;
+  transition: transform 0.18s ease, opacity 0.18s ease;
 }
 
 .ui-btn-primary {
@@ -250,5 +294,111 @@ textarea {
 .ui-btn-ghost::after,
 .ui-btn-soft::after {
   border: none;
+}
+
+.ui-btn-primary:active,
+.ui-btn-ghost:active,
+.ui-btn-soft:active {
+  transform: scale(0.98);
+  opacity: 0.96;
+}
+
+.fx-fade-in {
+  animation: appFadeIn 0.62s ease both;
+}
+
+.fx-fade-up {
+  animation: appFadeUp 0.68s ease both;
+}
+
+.fx-scale-in {
+  animation: appScaleIn 0.66s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.fx-float-soft {
+  animation: appFloatSoft 3.8s ease-in-out infinite;
+}
+
+.fx-pulse-soft {
+  animation: appPulseSoft 2.8s ease-in-out infinite;
+}
+
+.fx-delay-1 {
+  animation-delay: 0.06s;
+}
+
+.fx-delay-2 {
+  animation-delay: 0.12s;
+}
+
+.fx-delay-3 {
+  animation-delay: 0.18s;
+}
+
+.fx-delay-4 {
+  animation-delay: 0.24s;
+}
+
+@keyframes appFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes appFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes appScaleIn {
+  from {
+    opacity: 0;
+    transform: translateY(20rpx) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes appFloatBlob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-16rpx);
+  }
+}
+
+@keyframes appFloatSoft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8rpx);
+  }
+}
+
+@keyframes appPulseSoft {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
 }
 </style>

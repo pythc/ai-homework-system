@@ -158,7 +158,24 @@ git clone https://github.com/pythc/ai-homework-system.git
 cd ai-homework-system
 cp .env.example .env
 docker compose up -d --build
-````
+```
+
+The default compose setup now follows the high-throughput isolation blueprint (Option 2):
+
+1. `server_api`: core business APIs (AI worker disabled here)
+2. `server_auth`: dedicated login/auth service
+3. `server_worker`: async AI grading worker process
+4. `minio`: private object storage with presigned access via `/s3/*`
+
+Common switches:
+
+1. `STORAGE_BACKEND=s3` (default): object storage + presigned URLs
+2. `STORAGE_BACKEND=local`: fallback to local `/uploads/*`
+3. Keep `RUN_MIGRATIONS=true` on `server_api` only
+
+Kubernetes baseline with HPA + PgBouncer + edge rate limiting/WAF:
+
+`deploy/k8s/README.md`
 
 ---
 

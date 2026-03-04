@@ -13,6 +13,7 @@ import { SubmissionVersionEntity, AiStatus, SubmissionStatus } from '../submissi
 import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 import { TriggerAiGradingDto } from './dto/trigger-ai-grading.dto';
 import { QuestionType } from '../assignment/entities/assignment-question.entity';
+import { StorageService } from '../../common/storage/storage.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -47,6 +48,7 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly submissionVersionRepo: Repository<SubmissionVersionEntity>,
     @InjectRepository(AssignmentSnapshotEntity)
     private readonly snapshotRepo: Repository<AssignmentSnapshotEntity>,
+    private readonly storageService: StorageService,
   ) {}
 
   onModuleInit(): void {
@@ -300,7 +302,7 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
 
     await fs.writeFile(inputPath, JSON.stringify(jsonPayload, null, 2), 'utf-8');
 
-    const images = await this.collectImagePaths(fileUrlValue);
+    const images = await this.collectImagePaths(fileUrlValue, tempDir);
     const scriptPath = path.resolve(process.cwd(), 'ai_worker', 'grader.py');
     const python = process.env.AI_GRADING_PYTHON || 'python3';
 
@@ -892,15 +894,24 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
     return [value];
   }
 
-  private async collectImagePaths(value: string): Promise<string[]> {
+  private async collectImagePaths(value: string, tempDir: string): Promise<string[]> {
     const maxBytes = this.readNumberEnv('AI_IMAGE_MAX_BYTES', 9 * 1024 * 1024);
     const candidates = this.parseFileUrls(value);
     const kept: string[] = [];
-    for (const filePath of candidates) {
+    for (const fileRef of candidates) {
       if (kept.length >= 4) {
         break;
       }
       try {
+        const materialized = await this.storageService.materializeForProcessing(
+          fileRef,
+          tempDir,
+        );
+        if (!materialized) {
+          this.logger.warn(`Skip missing image: ${fileRef}`);
+          continue;
+        }
+        const filePath = materialized.filePath;
         const stat = await fs.stat(filePath);
         if (stat.size <= maxBytes) {
           kept.push(filePath);
@@ -910,7 +921,7 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
           );
         }
       } catch (error) {
-        this.logger.warn(`Skip missing image: ${filePath}`);
+        this.logger.warn(`Skip invalid image ref: ${fileRef}`);
       }
     }
     return kept;

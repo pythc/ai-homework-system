@@ -1,6 +1,6 @@
 <template>
   <view class="page ui-shell">
-    <view class="ui-card ui-header-card">
+    <view class="ui-card ui-header-card fx-fade-in">
       <view class="ui-header-main">
         <view class="ui-title">成绩看板</view>
         <view class="ui-subtitle">{{ isCourseMode ? `课程：${courseName}` : '按课程查看成绩' }}</view>
@@ -9,7 +9,7 @@
       <view v-else class="ui-chip blue">{{ courseCards.length }} 门</view>
     </view>
 
-    <view class="ui-card section-card" v-if="!isCourseMode">
+    <view class="ui-card section-card fx-fade-up fx-delay-1" v-if="!isCourseMode">
       <view class="section-head">
         <view class="ui-card-title">课程列表</view>
       </view>
@@ -17,7 +17,7 @@
       <view v-if="loading" class="ui-empty">加载中...</view>
       <view v-else-if="!courseCards.length" class="ui-empty">暂无成绩</view>
       <view v-else class="score-list">
-        <view v-for="course in courseCards" :key="course.id" class="score-item">
+        <view v-for="course in courseCards" :key="course.id" class="score-item fx-scale-in">
           <view class="left">
             <view class="name">{{ course.name }}</view>
             <view class="meta">作业 {{ course.total }} 份 · 可见成绩 {{ course.viewable }} 份</view>
@@ -27,7 +27,7 @@
       </view>
     </view>
 
-    <view class="ui-card section-card" v-else>
+    <view class="ui-card section-card fx-fade-up fx-delay-2" v-else>
       <view class="section-head">
         <view class="ui-card-title">课程成绩</view>
         <view class="ui-chip orange">{{ rows.length }} 份</view>
@@ -36,7 +36,7 @@
       <view v-if="loading" class="ui-empty">加载中...</view>
       <view v-else-if="!rows.length" class="ui-empty">暂无成绩</view>
       <view v-else class="score-list">
-        <view v-for="row in rows" :key="row.assignmentId" class="score-item">
+        <view v-for="row in rows" :key="row.assignmentId" class="score-item fx-scale-in">
           <view class="left">
             <view class="name">{{ row.assignmentTitle }}</view>
             <view class="meta">状态：{{ row.totalScore == null ? '不可见/待发布' : '已发布' }}</view>
@@ -192,6 +192,12 @@ function goBack() {
   justify-content: space-between;
   gap: 14rpx;
   align-items: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.score-item:active {
+  transform: translateY(2rpx) scale(0.995);
+  box-shadow: 0 10rpx 20rpx rgba(32, 58, 106, 0.1);
 }
 
 .left {
@@ -236,5 +242,21 @@ function goBack() {
   background: #b8c5df;
   color: rgba(255, 255, 255, 0.82);
   box-shadow: none;
+}
+
+.score-list .score-item:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.score-list .score-item:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.score-list .score-item:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.score-list .score-item:nth-child(4) {
+  animation-delay: 0.16s;
 }
 </style>

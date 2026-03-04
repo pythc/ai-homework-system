@@ -1,6 +1,6 @@
 <template>
   <view class="dock-wrap">
-    <view class="dock-shell ui-card">
+    <view class="dock-shell ui-card fx-fade-up">
       <view class="dock-item" :class="{ active: active === 'assignments' }" @click="goAssignments">
         <view class="dock-icon">作</view>
         <text class="dock-label">作业</text>
@@ -119,6 +119,9 @@ function goAssistant() {
   display: flex;
   align-items: center;
   justify-content: center;
+  animation:
+    appScaleIn 0.65s cubic-bezier(0.22, 1, 0.36, 1) both,
+    dockFloat 3.8s ease-in-out 0.7s infinite;
 }
 
 .dock-ai-core {
@@ -141,5 +144,15 @@ function goAssistant() {
   font-size: 30rpx;
   font-weight: 800;
   letter-spacing: 1rpx;
+}
+
+@keyframes dockFloat {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-7rpx);
+  }
 }
 </style>

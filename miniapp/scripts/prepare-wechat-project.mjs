@@ -48,12 +48,20 @@ const targets = [
     file: resolve('dist/build/project.config.json'),
     config: {
       ...baseConfig,
-      miniprogramRoot: 'mp-weixin/',
-      srcMiniprogramRoot: 'mp-weixin/',
+      miniprogramRoot: 'mp-weixin',
+      srcMiniprogramRoot: 'mp-weixin',
     },
   },
   {
-    file: resolve('dist/build/project.private.config.json'),
+    file: resolve('dist/build/mp-weixin/project.config.json'),
+    config: {
+      ...baseConfig,
+      miniprogramRoot: './',
+      srcMiniprogramRoot: './',
+    },
+  },
+  {
+    file: resolve('dist/build/mp-weixin/project.private.config.json'),
     config: privateConfig,
   },
 ]

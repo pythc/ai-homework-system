@@ -1,6 +1,6 @@
 <template>
   <view class="page ui-shell">
-    <view class="ui-card ui-header-card">
+    <view class="ui-card ui-header-card fx-fade-in">
       <view class="ui-header-main">
         <view class="ui-title">作业提交</view>
         <view class="ui-subtitle">{{ assignment.title || '未命名作业' }}</view>
@@ -8,16 +8,16 @@
       <button class="ui-btn-ghost back-btn" @click="goBack">返回</button>
     </view>
 
-    <view class="ui-card block-card" v-if="visibleBlocked">
+    <view class="ui-card block-card fx-fade-up fx-delay-1" v-if="visibleBlocked">
       <view class="ui-empty">教师设置提交后暂不可见</view>
     </view>
 
-    <view v-else-if="currentQuestion" class="ui-card submit-card">
+    <view v-else-if="currentQuestion" class="ui-card submit-card fx-scale-in fx-delay-1">
       <scroll-view class="index-list" scroll-x>
         <view
           v-for="(q, idx) in questions"
           :key="q.questionId"
-          class="index-item"
+          class="index-item fx-fade-up"
           :class="{ active: idx === currentIndex }"
           @click="currentIndex = idx"
         >
@@ -38,7 +38,7 @@
         <label
           v-for="opt in getOptions(currentQuestion)"
           :key="opt.id"
-          class="choice-item"
+          class="choice-item fx-fade-up"
         >
           <radio
             :value="opt.id"
@@ -50,7 +50,7 @@
       </view>
 
       <view v-else-if="isMultiChoice(currentQuestion)" class="choice-list">
-        <label v-for="opt in getOptions(currentQuestion)" :key="opt.id" class="choice-item">
+        <label v-for="opt in getOptions(currentQuestion)" :key="opt.id" class="choice-item fx-fade-up">
           <checkbox
             :value="opt.id"
             :checked="(getAnswerPayload(currentQuestion.questionId).optionIds || []).includes(opt.id)"
@@ -102,7 +102,7 @@
       </view>
     </view>
 
-    <view v-if="!visibleBlocked" class="submit-footer">
+    <view v-if="!visibleBlocked" class="submit-footer fx-fade-up fx-delay-2">
       <button class="ui-btn-primary submit-btn" :disabled="submitting || finalized" @click="submitAll">
         {{ finalized ? '已评分不可再提交' : submitting ? '提交中...' : '提交作业' }}
       </button>
@@ -659,11 +659,17 @@ function goBack() {
   color: #64718c;
   font-size: 24rpx;
   font-weight: 700;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .index-item.active {
   background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
   color: #fff;
+  box-shadow: 0 10rpx 18rpx rgba(83, 146, 238, 0.24);
+}
+
+.index-item:active {
+  transform: scale(0.96);
 }
 
 .question-head {
@@ -711,6 +717,12 @@ function goBack() {
   display: flex;
   align-items: center;
   gap: 12rpx;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.choice-item:active {
+  transform: translateY(2rpx) scale(0.995);
+  box-shadow: 0 10rpx 20rpx rgba(32, 58, 106, 0.1);
 }
 
 .choice-text {
@@ -740,6 +752,7 @@ function goBack() {
   border: 2rpx solid #e1e8f5;
   background: #fff;
   padding: 14rpx;
+  animation: fieldEnter 0.5s ease both;
 }
 
 .upload-head {
@@ -770,6 +783,12 @@ function goBack() {
   font-size: 34rpx;
   line-height: 58rpx;
   padding: 0;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.tool-icon-btn:active {
+  transform: scale(0.94);
+  box-shadow: 0 8rpx 16rpx rgba(32, 58, 106, 0.12);
 }
 
 .img-list {
@@ -819,5 +838,36 @@ function goBack() {
 
 .tool-icon-btn::after {
   border: none;
+}
+
+.choice-list .choice-item:nth-child(1),
+.index-list .index-item:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.choice-list .choice-item:nth-child(2),
+.index-list .index-item:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.choice-list .choice-item:nth-child(3),
+.index-list .index-item:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.choice-list .choice-item:nth-child(4),
+.index-list .index-item:nth-child(4) {
+  animation-delay: 0.16s;
+}
+
+@keyframes fieldEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

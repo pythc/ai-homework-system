@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-worker
+  labels:
+    app.kubernetes.io/name: server-worker
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: server-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: server-worker
+        app.kubernetes.io/part-of: ai-homework
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: server-worker
+          image: ghcr.io/pythc/ai-homework-system-server:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ai-homework-config
+            - secretRef:
+                name: ai-homework-secret
+          env:
+            - name: SERVER_APP_PROFILE
+              value: worker
+            - name: RUN_MIGRATIONS
+              value: "false"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2
+              memory: 3Gi

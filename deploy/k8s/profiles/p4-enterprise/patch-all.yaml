@@ -1,0 +1,217 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-homework-config
+data:
+  AUTH_LOGIN_MAX_INFLIGHT: "110"
+  PG_POOL_MAX: "220"
+  PG_POOL_MIN: "40"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+spec:
+  replicas: 6
+  template:
+    spec:
+      containers:
+        - name: pgbouncer
+          env:
+            - name: PGBOUNCER_MAX_CLIENT_CONN
+              value: "20000"
+            - name: PGBOUNCER_DEFAULT_POOL_SIZE
+              value: "700"
+            - name: PGBOUNCER_MIN_POOL_SIZE
+              value: "200"
+            - name: PGBOUNCER_RESERVE_POOL_SIZE
+              value: "150"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-api
+spec:
+  replicas: 20
+  template:
+    spec:
+      containers:
+        - name: server-api
+          resources:
+            requests:
+              cpu: 1
+              memory: 2Gi
+            limits:
+              cpu: 4
+              memory: 6Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-auth
+spec:
+  replicas: 8
+  template:
+    spec:
+      containers:
+        - name: server-auth
+          resources:
+            requests:
+              cpu: 700m
+              memory: 1536Mi
+            limits:
+              cpu: 3
+              memory: 4Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-worker
+spec:
+  replicas: 8
+  template:
+    spec:
+      containers:
+        - name: server-worker
+          resources:
+            requests:
+              cpu: 1500m
+              memory: 2Gi
+            limits:
+              cpu: 4
+              memory: 6Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assistant-service
+spec:
+  replicas: 8
+  template:
+    spec:
+      containers:
+        - name: assistant-service
+          resources:
+            requests:
+              cpu: 1
+              memory: 1536Mi
+            limits:
+              cpu: 3
+              memory: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 8
+  template:
+    spec:
+      containers:
+        - name: web
+          resources:
+            requests:
+              cpu: 400m
+              memory: 512Mi
+            limits:
+              cpu: 2
+              memory: 2Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: server-api
+spec:
+  minReplicas: 20
+  maxReplicas: 120
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: server-auth
+spec:
+  minReplicas: 8
+  maxReplicas: 40
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: server-worker
+spec:
+  minReplicas: 8
+  maxReplicas: 48
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: assistant-service
+spec:
+  minReplicas: 8
+  maxReplicas: 32
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+spec:
+  minReplicas: 8
+  maxReplicas: 40
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-homework-api
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "300"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    nginx.ingress.kubernetes.io/limit-connections: "700"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-homework-web
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "600"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    nginx.ingress.kubernetes.io/limit-connections: "1200"

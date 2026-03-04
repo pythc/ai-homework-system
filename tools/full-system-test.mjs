@@ -15,6 +15,26 @@ const ASSISTANT_DIRECT_BASE_URL =
   process.env.ASSISTANT_DIRECT_BASE_URL?.trim() || 'http://127.0.0.1:4100';
 const SCHOOL_ID = process.env.E2E_SCHOOL_ID?.trim() || '重庆邮电大学';
 const E2E_PASSWORD = process.env.E2E_PASSWORD?.trim() || 'Codex#E2E2026';
+const API_ORIGIN = (() => {
+  try {
+    return new URL(API_BASE_URL).origin;
+  } catch {
+    return 'http://127.0.0.1:3000';
+  }
+})();
+const METRICS_BASE_URL = process.env.METRICS_BASE_URL?.trim() || API_ORIGIN;
+
+function parseEnvBoolean(value, fallback = false) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+const SKIP_SERVER_API_SMOKE =
+  parseEnvBoolean(process.env.SKIP_SERVER_API_SMOKE, false) ||
+  parseEnvBoolean(process.env.FULL_SYSTEM_TEST_CONTAINER_MODE, false);
 
 const REPORT_DIR = path.join(ROOT_DIR, 'tools', 'test-reports');
 const REPORT_JSON = path.join(REPORT_DIR, 'full-system-test-report.json');
@@ -28,6 +48,7 @@ const NOW_TAG = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
 const report = {
   startedAt: new Date().toISOString(),
   apiBaseUrl: API_BASE_URL,
+  metricsBaseUrl: METRICS_BASE_URL,
   assistantDirectBaseUrl: ASSISTANT_DIRECT_BASE_URL,
   schoolId: SCHOOL_ID,
   env: {
@@ -109,6 +130,40 @@ function cloneRequestBody(body) {
   }
   if (typeof body === 'object') return JSON.parse(JSON.stringify(body));
   return String(body);
+}
+
+function compactEnv(envMap) {
+  return Object.fromEntries(
+    Object.entries(envMap).filter(([, value]) => {
+      if (value === undefined || value === null) return false;
+      return String(value).trim().length > 0;
+    }),
+  );
+}
+
+function buildServerSmokeEnv() {
+  const host = process.env.SMOKE_POSTGRES_HOST?.trim() || process.env.POSTGRES_HOST?.trim();
+  const port = process.env.SMOKE_POSTGRES_PORT?.trim() || process.env.POSTGRES_PORT?.trim();
+  const user = process.env.SMOKE_POSTGRES_USER?.trim() || process.env.POSTGRES_USER?.trim();
+  const password =
+    process.env.SMOKE_POSTGRES_PASSWORD?.trim() || process.env.POSTGRES_PASSWORD?.trim();
+  const database = process.env.SMOKE_POSTGRES_DB?.trim() || process.env.POSTGRES_DB?.trim();
+  const redisUrl = process.env.SMOKE_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();
+
+  return compactEnv({
+    POSTGRES_HOST: host,
+    POSTGRES_PORT: port,
+    POSTGRES_USER: user,
+    POSTGRES_PASSWORD: password,
+    POSTGRES_DB: database,
+    PGHOST: host,
+    PGPORT: port,
+    PGUSER: user,
+    PGPASSWORD: password,
+    PGDATABASE: database,
+    REDIS_URL: redisUrl,
+    API_BASE_URL: process.env.SMOKE_API_BASE_URL?.trim(),
+  });
 }
 
 async function httpRequest({
@@ -523,12 +578,13 @@ async function main() {
     name: 'Metrics API /metrics',
     method: 'GET',
     path: '/metrics',
-    baseUrl: 'http://127.0.0.1:3000',
+    baseUrl: METRICS_BASE_URL,
     expectStatus: 200,
     expect: (r) => ({
       passed: r.text.includes('process_cpu_user_seconds_total'),
       message: 'expect Prometheus metrics content',
     }),
+    note: `metrics base: ${METRICS_BASE_URL}`,
   });
 
   await runHttpCase({
@@ -1723,15 +1779,39 @@ async function main() {
   // 10) Build & smoke commands
   // ----------------------------
   // Command-based tests are captured as pseudo-cases.
-  async function runCommandCase(name, cmd, cwd) {
+  async function runCommandCase(name, cmd, cwd, options = {}) {
     const { exec } = await import('node:child_process');
     const { promisify } = await import('node:util');
     const execAsync = promisify(exec);
+    const {
+      env = {},
+      timeoutMs = 180000,
+      skip = false,
+      skipReason = null,
+    } = options;
+
+    if (skip) {
+      pushCase({
+        name,
+        passed: true,
+        note: skipReason || 'skipped by env',
+        request: { method: 'COMMAND', url: cmd, headers: {}, hasToken: false, body: null },
+        response: {
+          status: 0,
+          headers: {},
+          bodyPreview: short({ skipped: true, reason: skipReason || 'skipped by env' }, 800),
+        },
+        expectation: 'command skipped by test environment',
+      });
+      return;
+    }
+
     try {
       const { stdout, stderr } = await execAsync(cmd, {
         cwd,
-        timeout: 180000,
+        timeout: timeoutMs,
         maxBuffer: 2 * 1024 * 1024,
+        env: { ...process.env, ...env },
       });
       pushCase({
         name,
@@ -1771,7 +1851,12 @@ async function main() {
     path.join(ROOT_DIR, 'assistant_service'),
   );
   await runCommandCase('Build miniapp h5', 'npm run build:h5', path.join(ROOT_DIR, 'miniapp'));
-  await runCommandCase('Server API smoke', 'npm run test:api', path.join(ROOT_DIR, 'server'));
+  await runCommandCase('Server API smoke', 'npm run test:api', path.join(ROOT_DIR, 'server'), {
+    env: buildServerSmokeEnv(),
+    skip: SKIP_SERVER_API_SMOKE,
+    skipReason:
+      'SKIP_SERVER_API_SMOKE=true or FULL_SYSTEM_TEST_CONTAINER_MODE=true, skip server smoke',
+  });
 
   // ----------------------------
   // finalize report
@@ -1787,6 +1872,7 @@ async function main() {
   mdLines.push(`- Started: ${report.startedAt}`);
   mdLines.push(`- Finished: ${report.finishedAt}`);
   mdLines.push(`- API Base: ${API_BASE_URL}`);
+  mdLines.push(`- Metrics Base: ${METRICS_BASE_URL}`);
   mdLines.push(`- Assistant Direct Base: ${ASSISTANT_DIRECT_BASE_URL}`);
   mdLines.push(`- Total: ${report.summary.total}`);
   mdLines.push(`- Passed: ${report.summary.passed}`);

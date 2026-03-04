@@ -11,10 +11,53 @@ const {
   ASSISTANT_CACHE_TTL_MS = '1800000',
   ASSISTANT_MODEL_TIMEOUT_MS = '30000',
   ASSISTANT_IMAGE_FETCH_TIMEOUT_MS = '10000',
+  ASSISTANT_ENFORCE_ARK_API_KEY = '',
+  NODE_ENV = 'development',
 } = process.env;
 
-if (!ARK_API_KEY) {
-  console.warn('[assistant] ARK_API_KEY is not set.');
+const parseEnvBoolean = (value, fallback = false) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+};
+
+const invalidArkApiKeyValues = new Set([
+  '',
+  'your_ark_api_key',
+  'your-api-key',
+  'api_key_here',
+  'replace_with_real_key',
+  'replace_me',
+  'change_me',
+  'changeme',
+  '<ark_api_key>',
+  '<your_ark_api_key>',
+]);
+
+const isInvalidArkApiKey = (value) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (invalidArkApiKeyValues.has(normalized)) return true;
+  if (normalized.startsWith('your_') && normalized.includes('api_key')) return true;
+  return false;
+};
+
+const enforceArkApiKey = parseEnvBoolean(
+  ASSISTANT_ENFORCE_ARK_API_KEY,
+  NODE_ENV === 'production',
+);
+
+if (isInvalidArkApiKey(ARK_API_KEY)) {
+  const message =
+    '[assistant] ARK_API_KEY is missing or placeholder. Please set a valid key before starting assistant_service.';
+  if (enforceArkApiKey) {
+    console.error(message);
+    process.exit(1);
+  }
+  console.warn(
+    `${message} Continue only because ASSISTANT_ENFORCE_ARK_API_KEY is disabled.`,
+  );
 }
 
 const app = express();
@@ -134,6 +177,9 @@ const toAbsoluteImageUrl = (url) => {
   if (url.startsWith('/uploads/')) {
     return `${ASSISTANT_ASSET_BASE.replace(/\/+$/, '')}${url}`;
   }
+  if (url.startsWith('/s3/')) {
+    return `${ASSISTANT_ASSET_BASE.replace(/\/+$/, '')}${url}`;
+  }
   return '';
 };
 
@@ -175,6 +221,9 @@ const normalizeImages = async (images) => {
         return true;
       }
       if (typeof item?.url === 'string' && item.url.startsWith('/uploads/')) {
+        return true;
+      }
+      if (typeof item?.url === 'string' && item.url.startsWith('/s3/')) {
         return true;
       }
       return false;

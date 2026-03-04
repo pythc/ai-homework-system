@@ -1,6 +1,6 @@
 <template>
   <view class="page ui-shell">
-    <view class="ui-card ui-header-card">
+    <view class="ui-card ui-header-card fx-fade-in">
       <view class="ui-header-main">
         <view class="ui-title">110实验室 AI 助手</view>
         <view class="ui-subtitle">同学您好，随时提问课程、作业与学习方法</view>
@@ -14,11 +14,11 @@
       </view>
     </view>
 
-    <view class="ui-card chat-card">
+    <view class="ui-card chat-card fx-fade-up fx-delay-1">
       <scroll-view class="messages" scroll-y :scroll-top="scrollTop" :scroll-with-animation="true">
         <view v-if="!messages.length" class="empty-hero">你好，让我们从这里启程</view>
 
-        <view v-for="(item, idx) in messages" :key="item.id" class="msg-row" :class="item.role">
+        <view v-for="(item, idx) in messages" :key="item.id" class="msg-row fx-fade-up" :class="item.role">
           <view class="msg-bubble" :class="{ pending: item.pending }">
             <text class="msg-text" selectable>{{ item.pending ? '...' : item.content }}</text>
           </view>
@@ -418,6 +418,7 @@ onMounted(() => {
 
 .msg-bubble.pending {
   opacity: 0.72;
+  animation: typingPulse 1.2s ease-in-out infinite;
 }
 
 .msg-row.assistant .msg-bubble {
@@ -459,6 +460,12 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 0;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.icon-action:active {
+  transform: scale(0.94);
+  box-shadow: 0 8rpx 16rpx rgba(32, 58, 106, 0.16);
 }
 
 .icon-symbol {
@@ -497,11 +504,16 @@ onMounted(() => {
   color: #4d5c79;
   font-size: 22rpx;
   font-weight: 600;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .prompt-chip.new {
   color: #fff;
   background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
+}
+
+.prompt-chip:active {
+  transform: translateY(2rpx) scale(0.98);
 }
 
 .attachment-list {
@@ -546,6 +558,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12rpx;
+  animation: composerEnter 0.55s ease both;
 }
 
 .composer-input {
@@ -576,6 +589,7 @@ onMounted(() => {
   text-align: center;
   padding: 0;
   line-height: 1;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .plus-btn {
@@ -600,6 +614,10 @@ onMounted(() => {
   color: #fff;
 }
 
+.circle-btn:active {
+  transform: scale(0.94);
+}
+
 .error {
   color: #d65656;
   font-size: 24rpx;
@@ -610,5 +628,44 @@ onMounted(() => {
 .plus-btn::after,
 .send-btn::after {
   border: none;
+}
+
+.messages .msg-row:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.messages .msg-row:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.messages .msg-row:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.messages .msg-row:nth-child(4) {
+  animation-delay: 0.16s;
+}
+
+@keyframes typingPulse {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.72;
+  }
+  50% {
+    transform: translateY(-2rpx) scale(1.02);
+    opacity: 0.95;
+  }
+}
+
+@keyframes composerEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

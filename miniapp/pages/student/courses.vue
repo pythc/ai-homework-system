@@ -1,6 +1,6 @@
 <template>
   <view class="page ui-shell">
-    <view class="ui-card ui-header-card">
+    <view class="ui-card ui-header-card fx-fade-in">
       <view class="ui-header-main">
         <view class="ui-title">个人主页</view>
         <view class="ui-subtitle">学习进度与任务安排一屏总览</view>
@@ -18,29 +18,29 @@
     </view>
 
     <view class="kpi-grid">
-      <view class="kpi-card blue">
+      <view class="kpi-card blue fx-fade-up fx-delay-1">
         <view class="kpi-title">我的课程</view>
         <view class="kpi-value">{{ totalCourses }}</view>
         <view class="kpi-meta">进行中课程</view>
       </view>
-      <view class="kpi-card green">
+      <view class="kpi-card green fx-fade-up fx-delay-2">
         <view class="kpi-title">未截止作业</view>
         <view class="kpi-value">{{ openAssignmentCount }}</view>
         <view class="kpi-meta">当前任务池</view>
       </view>
-      <view class="kpi-card amber">
+      <view class="kpi-card amber fx-fade-up fx-delay-3">
         <view class="kpi-title">待提交</view>
         <view class="kpi-value">{{ pendingCount }}</view>
         <view class="kpi-meta">尽快完成</view>
       </view>
-      <view class="kpi-card purple">
+      <view class="kpi-card purple fx-fade-up fx-delay-4">
         <view class="kpi-title">已出分</view>
         <view class="kpi-value">{{ gradedCount }}</view>
         <view class="kpi-meta">可查看成绩</view>
       </view>
     </view>
 
-    <view class="ui-card section-card">
+    <view class="ui-card section-card fx-fade-up fx-delay-2">
       <view class="section-head">
         <view class="ui-card-title">待提交作业</view>
         <button class="ui-btn-soft slim-btn" @click="goAssignments">查看全部</button>
@@ -49,7 +49,7 @@
       <view v-if="loading" class="ui-empty">加载中...</view>
       <view v-else-if="!pendingTasks.length" class="ui-empty">当前没有紧急截止作业</view>
       <view v-else class="task-list">
-        <view v-for="task in pendingTasks" :key="task.id" class="task-item">
+        <view v-for="task in pendingTasks" :key="task.id" class="task-item fx-scale-in">
           <view class="task-main">
             <view class="task-title">{{ task.title }}</view>
             <view class="task-meta">{{ task.course }} · {{ task.deadlineText }}</view>
@@ -59,33 +59,33 @@
       </view>
     </view>
 
-    <view class="ui-card section-card">
+    <view class="ui-card section-card fx-fade-up fx-delay-3">
       <view class="section-head">
         <view class="ui-card-title">成绩概览</view>
         <button class="ui-btn-soft slim-btn" @click="goScores">查看详情</button>
       </view>
 
       <view class="mini-grid">
-        <view class="mini-card">
+        <view class="mini-card fx-fade-up fx-delay-1">
           <view class="mini-label">已出分作业</view>
           <view class="mini-value">{{ gradedCount }}</view>
         </view>
-        <view class="mini-card">
+        <view class="mini-card fx-fade-up fx-delay-2">
           <view class="mini-label">平均分</view>
           <view class="mini-value good">{{ averageScore }}</view>
         </view>
-        <view class="mini-card">
+        <view class="mini-card fx-fade-up fx-delay-3">
           <view class="mini-label">最高分</view>
           <view class="mini-value">{{ bestScore }}</view>
         </view>
-        <view class="mini-card">
+        <view class="mini-card fx-fade-up fx-delay-4">
           <view class="mini-label">最近得分</view>
           <view class="mini-value warn">{{ latestScore }}</view>
         </view>
       </view>
     </view>
 
-    <view class="ui-card section-card">
+    <view class="ui-card section-card fx-fade-up fx-delay-4">
       <view class="section-head">
         <view class="ui-card-title">我的课程</view>
         <button class="ui-btn-soft slim-btn" @click="goScores">成绩看板</button>
@@ -94,7 +94,7 @@
       <view v-if="loading" class="ui-empty">加载中...</view>
       <view v-else-if="!courseCards.length" class="ui-empty">暂无课程</view>
       <view v-else class="course-list">
-        <view v-for="item in courseCards" :key="item.id" class="course-item">
+        <view v-for="item in courseCards" :key="item.id" class="course-item fx-scale-in">
           <view class="course-main">
             <view class="course-name">{{ item.name }}</view>
             <view class="course-meta">作业 {{ item.assignmentCount }} 份 · 已出分 {{ item.gradedCount }} 份</view>
@@ -323,6 +323,13 @@ function logout() {
   border-radius: 20rpx;
   padding: 20rpx;
   color: #fff;
+  box-shadow: 0 10rpx 22rpx rgba(37, 53, 89, 0.16);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kpi-card:active {
+  transform: translateY(2rpx) scale(0.992);
+  box-shadow: 0 8rpx 16rpx rgba(37, 53, 89, 0.12);
 }
 
 .kpi-card.blue {
@@ -395,6 +402,13 @@ function logout() {
   align-items: center;
   justify-content: space-between;
   gap: 12rpx;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-item:active,
+.course-item:active {
+  transform: translateY(2rpx) scale(0.995);
+  box-shadow: 0 10rpx 22rpx rgba(33, 56, 98, 0.1);
 }
 
 .task-main,
@@ -445,6 +459,31 @@ function logout() {
   border: 2rpx solid #e1e7f4;
   background: #f9fbff;
   padding: 16rpx;
+  transition: transform 0.2s ease;
+}
+
+.mini-card:active {
+  transform: translateY(1rpx) scale(0.996);
+}
+
+.task-list .task-item:nth-child(1),
+.course-list .course-item:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.task-list .task-item:nth-child(2),
+.course-list .course-item:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.task-list .task-item:nth-child(3),
+.course-list .course-item:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.task-list .task-item:nth-child(4),
+.course-list .course-item:nth-child(4) {
+  animation-delay: 0.16s;
 }
 
 .mini-label {

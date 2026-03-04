@@ -9,8 +9,16 @@ if [ -n "$POSTGRES_HOST" ]; then
   done
 fi
 
-echo "[server] running migrations..."
-npm run migration:run
+if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
+  echo "[server] running migrations..."
+  npm run migration:run
+fi
 
-echo "[server] starting api..."
+MODE="${SERVER_APP_PROFILE:-api}"
+if [ "$MODE" = "worker" ]; then
+  echo "[server] starting worker..."
+  exec node dist/worker.js
+fi
+
+echo "[server] starting http profile: ${MODE} ..."
 exec node dist/main.js

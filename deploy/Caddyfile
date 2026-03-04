@@ -1,16 +1,27 @@
 {$SITE_HOSTS} {
   encode gzip
 
+  handle /api/v1/auth* {
+    reverse_proxy server_auth:3000
+  }
+
   handle /api/* {
-    reverse_proxy server:3000
+    reverse_proxy server_api:3000
   }
 
   handle /assistant/* {
     reverse_proxy assistant_service:4100
   }
 
+  handle /s3/* {
+    uri strip_prefix /s3
+    reverse_proxy minio:9000 {
+      header_up Host minio:9000
+    }
+  }
+
   handle /uploads/* {
-    reverse_proxy server:3000
+    reverse_proxy server_api:3000
   }
 
   handle {

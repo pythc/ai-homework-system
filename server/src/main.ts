@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { AuthAppModule } from './auth-app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -71,7 +72,12 @@ async function seedTestUser(dataSource: DataSource) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const profile = String(process.env.SERVER_APP_PROFILE || 'api').toLowerCase();
+  if (profile === 'worker') {
+    throw new Error('SERVER_APP_PROFILE=worker must run via worker entrypoint');
+  }
+  const moduleRef = profile === 'auth' ? AuthAppModule : AppModule;
+  const app = await NestFactory.create(moduleRef);
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ extended: true, limit: '50mb' }));
   app.setGlobalPrefix('api/v1');
@@ -109,19 +115,28 @@ async function bootstrap() {
       res.end(await register.metrics());
     });
   }
-  const cwdUploads = join(process.cwd(), 'uploads');
-  const repoUploads = join(process.cwd(), 'server', 'uploads');
-  const cwdSubmissions = join(cwdUploads, 'submissions');
-  const repoSubmissions = join(repoUploads, 'submissions');
-
-  // Prefer the directory that actually contains submission files.
-  let uploadRoot = existsSync(cwdUploads) ? cwdUploads : repoUploads;
-  if (existsSync(cwdSubmissions)) {
-    uploadRoot = cwdUploads;
-  } else if (existsSync(repoSubmissions)) {
-    uploadRoot = repoUploads;
+  const storageBackend = String(process.env.STORAGE_BACKEND || 'local').toLowerCase();
+  if (storageBackend !== 's3') {
+    const envUploads = process.env.LOCAL_STORAGE_ROOT
+      ? join(process.cwd(), process.env.LOCAL_STORAGE_ROOT)
+      : null;
+    const cwdUploads = join(process.cwd(), 'uploads');
+    const repoUploads = join(process.cwd(), 'server', 'uploads');
+    const cwdSubmissions = join(cwdUploads, 'submissions');
+    const repoSubmissions = join(repoUploads, 'submissions');
+    let uploadRoot =
+      envUploads && existsSync(envUploads)
+        ? envUploads
+        : existsSync(cwdUploads)
+          ? cwdUploads
+          : repoUploads;
+    if (existsSync(cwdSubmissions)) {
+      uploadRoot = cwdUploads;
+    } else if (existsSync(repoSubmissions)) {
+      uploadRoot = repoUploads;
+    }
+    app.use('/uploads', express.static(uploadRoot));
   }
-  app.use('/uploads', express.static(uploadRoot));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

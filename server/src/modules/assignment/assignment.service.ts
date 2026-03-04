@@ -23,6 +23,7 @@ import {
 } from './entities/assignment-question.entity';
 import { CourseEntity } from './entities/course.entity';
 import { UserRole } from '../auth/entities/user.entity';
+import { StorageService } from '../../common/storage/storage.service';
 
 @Injectable()
 export class AssignmentService {
@@ -36,6 +37,7 @@ export class AssignmentService {
     private readonly questionRepo: Repository<AssignmentQuestionEntity>,
     @InjectRepository(CourseEntity)
     private readonly courseRepo: Repository<CourseEntity>,
+    private readonly storageService: StorageService,
   ) {}
 
   async createAssignment(
@@ -396,7 +398,17 @@ export class AssignmentService {
     const course = await this.getCourseByIdOrThrow(assignment.courseId);
     this.assertCourseWriteAccessByRole(course, requester);
 
+    const fileRefsToDelete = new Set<string>();
     await this.dataSource.transaction(async (manager) => {
+      const fileRows = await manager.query(
+        `SELECT file_url FROM submission_versions WHERE assignment_id = $1`,
+        [assignmentId],
+      );
+      for (const row of fileRows ?? []) {
+        const refs = this.parseSerializedFileUrls(row?.file_url);
+        refs.forEach((ref) => fileRefsToDelete.add(ref));
+      }
+
       const versionRows = await manager.query(
         `SELECT id FROM submission_versions WHERE assignment_id = $1`,
         [assignmentId],
@@ -425,7 +437,29 @@ export class AssignmentService {
       await manager.query(`DELETE FROM assignments WHERE id = $1`, [assignmentId]);
     });
 
+    if (fileRefsToDelete.size > 0) {
+      await this.storageService.deleteMany(Array.from(fileRefsToDelete));
+    }
+
     return { success: true };
+  }
+
+  private parseSerializedFileUrls(value: unknown): string[] {
+    if (typeof value !== 'string' || !value.trim()) {
+      return [];
+    }
+    const trimmed = value.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map(String).filter(Boolean);
+        }
+      } catch {
+        return [trimmed];
+      }
+    }
+    return [trimmed];
   }
 
   async getCurrentSnapshot(

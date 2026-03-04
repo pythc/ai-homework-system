@@ -3,6 +3,11 @@ import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { join } from 'path';
 
+const readNumber = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
 export const AppDataSource = new DataSource({
   type: 'postgres',
   host: process.env.POSTGRES_HOST || 'localhost',
@@ -14,4 +19,10 @@ export const AppDataSource = new DataSource({
   migrations: [join(__dirname, '..', '..', 'migrations', '*{.ts,.js}')],
   migrationsTransactionMode: 'each',
   synchronize: false,
+  extra: {
+    max: readNumber('PG_POOL_MAX', 30),
+    min: readNumber('PG_POOL_MIN', 5),
+    idleTimeoutMillis: readNumber('PG_POOL_IDLE_TIMEOUT_MS', 30000),
+    connectionTimeoutMillis: readNumber('PG_POOL_CONNECT_TIMEOUT_MS', 5000),
+  },
 });

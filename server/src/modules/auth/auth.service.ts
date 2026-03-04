@@ -1,9 +1,12 @@
 import {
+  HttpException,
+  HttpStatus,
   ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
   BadRequestException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -21,6 +24,11 @@ import { CourseEntity, CourseStatus } from '../assignment/entities/course.entity
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly loginMaxInFlight = this.readNumberEnv(
+    'AUTH_LOGIN_MAX_INFLIGHT',
+    25,
+  );
+  private loginInFlight = 0;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -33,6 +41,26 @@ export class AuthService {
   ) {}
 
   async login(
+    dto: LoginRequestDto,
+    meta: { ip?: string; userAgent?: string; deviceId?: string },
+  ) {
+    return this.withLoginSlot(async () => {
+      try {
+        return await this.executeLogin(dto, meta);
+      } catch (error) {
+        if (!this.isLoginOverloadError(error)) {
+          throw error;
+        }
+
+        this.logger.warn(
+          `Login dependency timeout: inFlight=${this.loginInFlight}/${this.loginMaxInFlight}; error=${this.toErrorMessage(error)}`,
+        );
+        throw new ServiceUnavailableException('登录服务繁忙，请稍后重试');
+      }
+    });
+  }
+
+  private async executeLogin(
     dto: LoginRequestDto,
     meta: { ip?: string; userAgent?: string; deviceId?: string },
   ) {
@@ -572,6 +600,62 @@ export class AuthService {
 
   private getRefreshTtlSeconds(): number {
     return Number(process.env.JWT_REFRESH_TTL_SECONDS || 2592000);
+  }
+
+  private async withLoginSlot<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.loginInFlight >= this.loginMaxInFlight) {
+      throw new HttpException(
+        '登录请求过多，请稍后重试',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    this.loginInFlight += 1;
+    try {
+      return await operation();
+    } finally {
+      this.loginInFlight = Math.max(this.loginInFlight - 1, 0);
+    }
+  }
+
+  private isLoginOverloadError(error: unknown): boolean {
+    const message = this.toErrorMessage(error).toLowerCase();
+    if (!message) {
+      return false;
+    }
+
+    const overloadMarkers = [
+      'connection timeout',
+      'connection terminated',
+      'timeout exceeded when trying to connect',
+      'too many clients',
+      'etimedout',
+      'econnreset',
+      'connection is closed',
+    ];
+    return overloadMarkers.some((marker) => message.includes(marker));
+  }
+
+  private toErrorMessage(error: unknown): string {
+    if (error === null || error === undefined) {
+      return '';
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    if (error instanceof Error) {
+      return `${error.name}: ${error.message}`;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+
+  private readNumberEnv(name: string, fallback: number): number {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 
   async hashPassword(password: string): Promise<string> {

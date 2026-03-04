@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-auth
+  labels:
+    app.kubernetes.io/name: server-auth
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: server-auth
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: server-auth
+        app.kubernetes.io/part-of: ai-homework
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: server-auth
+          image: ghcr.io/pythc/ai-homework-system-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: ai-homework-config
+            - secretRef:
+                name: ai-homework-secret
+          env:
+            - name: SERVER_APP_PROFILE
+              value: auth
+            - name: RUN_MIGRATIONS
+              value: "false"
+            - name: DISABLE_AI_WORKER
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /api/v1
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /api/v1
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-auth
+  labels:
+    app.kubernetes.io/name: server-auth
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  selector:
+    app.kubernetes.io/name: server-auth
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

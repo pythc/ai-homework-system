@@ -1,6 +1,6 @@
 <template>
   <view class="page ui-shell">
-    <view class="ui-card ui-header-card">
+    <view class="ui-card ui-header-card fx-fade-in">
       <view class="ui-header-main">
         <view class="ui-title">成绩详情</view>
         <view class="ui-subtitle">{{ detail.assignmentTitle || '作业' }}</view>
@@ -8,24 +8,28 @@
       <button class="ui-btn-ghost back-btn" @click="goBack">返回</button>
     </view>
 
-    <view class="ui-card section-card" v-if="loading">
+    <view class="ui-card section-card fx-fade-up fx-delay-1" v-if="loading">
       <view class="ui-empty">加载中...</view>
     </view>
 
-    <view class="ui-card section-card" v-else>
+    <view class="ui-card section-card fx-fade-up fx-delay-1" v-else>
       <view class="summary-grid">
-        <view class="summary-item">
+        <view class="summary-item fx-fade-up fx-delay-1">
           <view class="summary-label">总分</view>
           <view class="summary-value">{{ detail.totalScore == null ? '--' : detail.totalScore }}</view>
         </view>
-        <view class="summary-item">
+        <view class="summary-item fx-fade-up fx-delay-2">
           <view class="summary-label">作业满分</view>
           <view class="summary-value">{{ detail.weightedScore == null ? '--' : detail.weightedScore }}</view>
         </view>
       </view>
 
       <view class="question-list">
-        <view v-for="q in detail.questions || []" :key="`${q.questionIndex}-${q.questionId || ''}`" class="question-item">
+        <view
+          v-for="q in detail.questions || []"
+          :key="`${q.questionIndex}-${q.questionId || ''}`"
+          class="question-item fx-scale-in"
+        >
           <view class="question-top">
             <view class="question-title">第{{ q.questionIndex }}题</view>
             <view class="question-score">{{ q.score == null ? '--' : q.score }} / {{ q.maxScore }}</view>
@@ -97,6 +101,11 @@ function goBack() {
   border: 2rpx solid #e1e8f5;
   background: #f9fbff;
   padding: 16rpx;
+  transition: transform 0.2s ease;
+}
+
+.summary-item:active {
+  transform: translateY(1rpx) scale(0.996);
 }
 
 .summary-label {
@@ -123,6 +132,12 @@ function goBack() {
   border: 2rpx solid #e1e8f5;
   background: #fff;
   padding: 16rpx;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.question-item:active {
+  transform: translateY(2rpx) scale(0.995);
+  box-shadow: 0 10rpx 20rpx rgba(32, 58, 106, 0.1);
 }
 
 .question-top {
@@ -149,5 +164,21 @@ function goBack() {
   font-size: 24rpx;
   color: rgba(26, 36, 64, 0.6);
   line-height: 1.52;
+}
+
+.question-list .question-item:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.question-list .question-item:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.question-list .question-item:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.question-list .question-item:nth-child(4) {
+  animation-delay: 0.16s;
 }
 </style>

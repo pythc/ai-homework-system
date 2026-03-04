@@ -132,7 +132,24 @@ git clone https://github.com/pythc/ai-homework-system.git
 cd ai-homework-system
 cp .env.example .env
 docker compose up -d --build
-````
+```
+
+默认编排已切换为高承载隔离形态（方案 2）：
+
+1. `server_api`：业务读写 API（不跑 AI Worker）
+2. `server_auth`：登录/鉴权独立进程
+3. `server_worker`：AI 批改异步 Worker
+4. `minio`：私有对象存储（文件访问使用签名 URL，经 `/s3/*` 反代）
+
+常用配置：
+
+1. `STORAGE_BACKEND=s3`（默认）：对象存储 + 签名 URL
+2. `STORAGE_BACKEND=local`：回退本地磁盘 `/uploads/*`
+3. `RUN_MIGRATIONS=true` 仅建议在 `server_api` 保持开启
+
+Kubernetes + HPA + PgBouncer + 边缘限流/WAF 参考清单见：
+
+`deploy/k8s/README.md`
 
 ---
 

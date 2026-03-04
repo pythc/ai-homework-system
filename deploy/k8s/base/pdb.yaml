@@ -1,0 +1,77 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: server-api
+  labels:
+    app.kubernetes.io/name: server-api
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: server-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: server-auth
+  labels:
+    app.kubernetes.io/name: server-auth
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: server-auth
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: server-worker
+  labels:
+    app.kubernetes.io/name: server-worker
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: server-worker
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: assistant-service
+  labels:
+    app.kubernetes.io/name: assistant-service
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: assistant-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pgbouncer
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgbouncer
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web

@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgbouncer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pgbouncer
+        app.kubernetes.io/part-of: ai-homework
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: pgbouncer
+          image: bitnami/pgbouncer:1.24.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: pgbouncer
+              containerPort: 6432
+          env:
+            - name: POSTGRESQL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-homework-config
+                  key: POSTGRES_PRIMARY_HOST
+            - name: POSTGRESQL_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-homework-config
+                  key: POSTGRES_PRIMARY_PORT
+            - name: POSTGRESQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ai-homework-secret
+                  key: POSTGRES_USER
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ai-homework-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: ai-homework-secret
+                  key: POSTGRES_DB
+            - name: PGBOUNCER_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: ai-homework-secret
+                  key: POSTGRES_DB
+            - name: PGBOUNCER_PORT
+              value: "6432"
+            - name: PGBOUNCER_POOL_MODE
+              value: transaction
+            - name: PGBOUNCER_MAX_CLIENT_CONN
+              value: "1000"
+            - name: PGBOUNCER_DEFAULT_POOL_SIZE
+              value: "80"
+            - name: PGBOUNCER_MIN_POOL_SIZE
+              value: "20"
+            - name: PGBOUNCER_RESERVE_POOL_SIZE
+              value: "20"
+            - name: PGBOUNCER_IGNORE_STARTUP_PARAMETERS
+              value: "extra_float_digits"
+            - name: PGBOUNCER_AUTH_TYPE
+              value: scram-sha-256
+            - name: PGBOUNCER_ADMIN_USERS
+              valueFrom:
+                secretKeyRef:
+                  name: ai-homework-secret
+                  key: POSTGRES_USER
+            - name: PGBOUNCER_STATS_USERS
+              valueFrom:
+                secretKeyRef:
+                  name: ai-homework-secret
+                  key: POSTGRES_USER
+          readinessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: ai-homework
+spec:
+  selector:
+    app.kubernetes.io/name: pgbouncer
+  ports:
+    - name: pgbouncer
+      port: 6432
+      targetPort: pgbouncer

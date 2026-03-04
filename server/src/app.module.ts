@@ -11,12 +11,14 @@ import { CourseModule } from './modules/course/course.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { PostgresKeyModule } from './common/database/postgres.module';
 import { MongoLogModule } from './common/database/mongo.module';
+import { StorageModule } from './common/storage/storage.module';
 
 @Module({
   imports: [
     // 基础设施模块 (Infrastructure)
     PostgresKeyModule, // 核心业务数据 (PostgreSQL)
     MongoLogModule,    // AI日志与输出 (MongoDB)
+    StorageModule,     // 文件存储抽象（本地/S3）
     
     // 业务模块 (Feature Modules)
     AuthModule,        // 登录 (张天齐)

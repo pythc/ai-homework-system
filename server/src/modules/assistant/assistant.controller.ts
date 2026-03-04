@@ -18,15 +18,16 @@ import { AssistantService } from './assistant.service';
 import { AssistantChatDto } from './dto/assistant-chat.dto';
 import { UserRole } from '../auth/entities/user.entity';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { existsSync, mkdirSync } from 'fs';
-import { extname, join } from 'path';
-import { randomUUID } from 'crypto';
+import { memoryStorage } from 'multer';
+import { StorageService } from '../../common/storage/storage.service';
 
 @ApiTags('Assistant')
 @Controller('assistant')
 export class AssistantController {
-  constructor(private readonly assistantService: AssistantService) {}
+  constructor(
+    private readonly assistantService: AssistantService,
+    private readonly storageService: StorageService,
+  ) {}
 
   @Post('chat')
   @UseGuards(JwtAuthGuard)
@@ -59,31 +60,35 @@ export class AssistantController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FilesInterceptor('files', 4, {
-      storage: diskStorage({
-        destination: (req, file, cb) => {
-          const base = join(process.cwd(), 'uploads', 'assistant');
-          if (!existsSync(base)) {
-            mkdirSync(base, { recursive: true });
-          }
-          cb(null, base);
-        },
-        filename: (req, file, cb) => {
-          const ext = extname(file.originalname || '').toLowerCase();
-          const safeExt = ext && ext.length <= 10 ? ext : '';
-          cb(null, `${randomUUID()}${safeExt}`);
-        },
-      }),
+      storage: memoryStorage(),
       limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype?.startsWith('image/')) {
+          cb(new BadRequestException('仅支持图片上传'), false);
+          return;
+        }
+        cb(null, true);
+      },
     }),
   )
   async uploadImages(@UploadedFiles() files: Array<Express.Multer.File>) {
     if (!files?.length) {
       throw new BadRequestException('未选择图片');
     }
-    const items = files.map((file) => ({
-      name: file.originalname,
-      url: `/uploads/assistant/${file.filename}`,
-    }));
+    const items = await Promise.all(
+      files.map(async (file) => {
+        const ref = await this.storageService.persistBuffer(file.buffer, {
+          prefix: 'assistant',
+          originalName: file.originalname,
+          contentType: file.mimetype,
+        });
+        const url = await this.storageService.resolvePublicUrl(ref);
+        return {
+          name: file.originalname,
+          url,
+        };
+      }),
+    );
     return { files: items };
   }
 }

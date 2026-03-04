@@ -1,0 +1,22 @@
+controller:
+  replicaCount: 2
+  allowSnippetAnnotations: false
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 60
+  metrics:
+    enabled: true
+  config:
+    use-forwarded-headers: "true"
+    compute-full-forwarded-for: "true"
+    # Replace with your CDN/WAF egress CIDRs in production.
+    proxy-real-ip-cidr: "0.0.0.0/0"
+    enable-modsecurity: "true"
+    enable-owasp-modsecurity-crs: "true"
+    limit-req-status-code: "429"
+    proxy-body-size: "50m"
+    server-tokens: "false"
+  service:
+    externalTrafficPolicy: Local

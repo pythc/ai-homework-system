@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-homework-config
+  labels:
+    app.kubernetes.io/name: ai-homework-system
+    app.kubernetes.io/part-of: ai-homework
+
+data:
+  NODE_ENV: "production"
+  ENABLE_METRICS: "true"
+
+  # App -> PgBouncer
+  POSTGRES_HOST: "pgbouncer"
+  POSTGRES_PORT: "6432"
+
+  # PgBouncer -> Primary PostgreSQL (managed PostgreSQL endpoint recommended)
+  POSTGRES_PRIMARY_HOST: "postgresql.primary.svc.cluster.local"
+  POSTGRES_PRIMARY_PORT: "5432"
+
+  # Redis should point to managed Redis/Valkey for production
+  REDIS_URL: "redis://redis-master.redis.svc.cluster.local:6379"
+  AI_GRADING_PREFIX_CACHE_REDIS_URL: "redis://redis-master.redis.svc.cluster.local:6379"
+
+  # Internal service discovery
+  ASSISTANT_BASE_URL: "http://assistant-service:4100"
+
+  # AI worker
+  AI_GRADING_PYTHON: "python3"
+  AI_JOB_TIMEOUT_SECONDS: "180"
+  AI_JOB_MAX_ATTEMPTS: "3"
+  AI_JOB_RETRY_DELAY_SECONDS: "5"
+  AI_JOB_RETRY_MAX_DELAY_SECONDS: "60"
+  AI_JOB_PAYLOAD_TTL_SECONDS: "86400"
+  AI_JOB_STALE_SECONDS: "300"
+  AI_JOB_RECOVER_INTERVAL_SECONDS: "60"
+  AI_IMAGE_MAX_BYTES: "9437184"
+
+  # DB pool tuning (works with PgBouncer)
+  AUTH_LOGIN_MAX_INFLIGHT: "25"
+  PG_POOL_MAX: "50"
+  PG_POOL_MIN: "10"
+  PG_POOL_IDLE_TIMEOUT_MS: "30000"
+  PG_POOL_CONNECT_TIMEOUT_MS: "5000"
+
+  # Object storage
+  STORAGE_BACKEND: "s3"
+  STORAGE_SIGNED_URL_TTL_SECONDS: "900"
+  S3_REGION: "us-east-1"
+  S3_ENDPOINT: "https://s3.amazonaws.com"
+  S3_BUCKET: "ai-homework-files"
+  S3_FORCE_PATH_STYLE: "false"
+  S3_PUBLIC_BASE_URL: "https://cdn.example.com"
+
+  # assistant_service needs a public origin when fetching /uploads or /s3 links
+  ASSISTANT_ASSET_BASE: "https://homework.example.com"

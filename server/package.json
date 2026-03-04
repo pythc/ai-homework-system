@@ -8,12 +8,15 @@
   "scripts": {
     "build": "nest build",
     "start": "nest start",
+    "start:worker": "node dist/worker.js",
     "start:dev": "nest start --watch",
     "migration:run": "node --require dotenv/config --require ts-node/register/transpile-only ./node_modules/typeorm/cli.js -d src/common/database/data-source.ts migration:run",
     "migration:revert": "node --require dotenv/config --require ts-node/register/transpile-only ./node_modules/typeorm/cli.js -d src/common/database/data-source.ts migration:revert",
     "test:api": "node --require dotenv/config --require ts-node/register/transpile-only scripts/api-smoke.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1000.0",
+    "@aws-sdk/s3-request-presigner": "^3.1000.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
     "@nestjs/mongoose": "^10.0.0",

@@ -1,6 +1,6 @@
 <template>
   <view class="page ui-shell">
-    <view class="ui-card ui-header-card">
+    <view class="ui-card ui-header-card fx-fade-in">
       <view class="ui-header-main">
         <view class="ui-title">作业库</view>
         <view class="ui-subtitle">{{ isCourseMode ? `课程：${courseName}` : '按课程查看作业' }}</view>
@@ -9,7 +9,7 @@
       <view v-else class="ui-chip orange count-chip">{{ courseCards.length }} 门</view>
     </view>
 
-    <view class="ui-card section-card" v-if="!isCourseMode">
+    <view class="ui-card section-card fx-fade-up fx-delay-1" v-if="!isCourseMode">
       <view class="section-head">
         <view class="ui-card-title">课程列表</view>
       </view>
@@ -17,7 +17,7 @@
       <view v-if="loading" class="ui-empty">加载中...</view>
       <view v-else-if="!courseCards.length" class="ui-empty">暂无作业</view>
       <view v-else class="course-list">
-        <view v-for="course in courseCards" :key="course.id" class="course-item">
+        <view v-for="course in courseCards" :key="course.id" class="course-item fx-scale-in">
           <view class="course-main">
             <view class="course-name">{{ course.name }}</view>
             <view class="course-meta">作业 {{ course.total }} 份</view>
@@ -32,7 +32,7 @@
       </view>
     </view>
 
-    <view class="ui-card section-card" v-else>
+    <view class="ui-card section-card fx-fade-up fx-delay-2" v-else>
       <view class="section-head">
         <view class="ui-card-title">课程作业</view>
         <view class="ui-chip orange">{{ assignments.length }} 份</view>
@@ -41,7 +41,7 @@
       <view v-if="loading" class="ui-empty">加载中...</view>
       <view v-else-if="!assignments.length" class="ui-empty">暂无作业</view>
       <view v-else class="assignment-list">
-        <view v-for="item in assignments" :key="item.id || item.assignmentId" class="assignment-item">
+        <view v-for="item in assignments" :key="item.id || item.assignmentId" class="assignment-item fx-scale-in">
           <view class="assignment-main">
             <view class="assignment-name">{{ item.title }}</view>
             <view class="assignment-meta">状态：{{ statusLabel(item) }}</view>
@@ -201,6 +201,13 @@ function goBack() {
   justify-content: space-between;
   align-items: center;
   gap: 12rpx;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.course-item:active,
+.assignment-item:active {
+  transform: translateY(2rpx) scale(0.995);
+  box-shadow: 0 10rpx 20rpx rgba(32, 58, 106, 0.1);
 }
 
 .course-main,
@@ -248,5 +255,25 @@ function goBack() {
   background: #b8c5df;
   color: rgba(255, 255, 255, 0.82);
   box-shadow: none;
+}
+
+.course-list .course-item:nth-child(1),
+.assignment-list .assignment-item:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.course-list .course-item:nth-child(2),
+.assignment-list .assignment-item:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.course-list .course-item:nth-child(3),
+.assignment-list .assignment-item:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.course-list .course-item:nth-child(4),
+.assignment-list .assignment-item:nth-child(4) {
+  animation-delay: 0.16s;
 }
 </style>

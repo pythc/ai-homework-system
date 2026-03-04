@@ -5,8 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { promises as fs } from 'fs';
-import * as path from 'path';
 import { DataSource, In, Repository } from 'typeorm';
 import type { Express } from 'express';
 import { AssignmentEntity, AssignmentStatus } from '../assignment/entities/assignment.entity';
@@ -26,6 +24,7 @@ import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { AiGradingService } from '../ai-grading/ai-grading.service';
 import { SnapshotPolicy } from '../ai-grading/dto/trigger-ai-grading.dto';
 import { UserRole } from '../auth/entities/user.entity';
+import { StorageService } from '../../common/storage/storage.service';
 
 type SubmissionAnswerInput = {
   questionId: string;
@@ -43,13 +42,6 @@ type SubmissionAnswerDraft = {
 
 @Injectable()
 export class SubmissionService {
-  private readonly uploadDir = path.resolve(
-    process.cwd(),
-    'uploads',
-    'submissions',
-  );
-  private readonly uploadRoot = path.resolve(process.cwd(), 'uploads');
-
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(SubmissionEntity)
@@ -65,6 +57,7 @@ export class SubmissionService {
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
     private readonly aiGradingService: AiGradingService,
+    private readonly storageService: StorageService,
   ) {}
 
   async createSubmissionVersion(dto: CreateSubmissionDto) {
@@ -184,6 +177,7 @@ export class SubmissionService {
     }
     await this.assertCanReadSubmission(version, requester);
 
+    const fileRefs = this.parseFileUrls(version.fileUrl);
     return {
       submissionVersionId: version.id,
       submissionId: version.submissionId,
@@ -192,7 +186,7 @@ export class SubmissionService {
       studentId: version.studentId,
       questionId: version.questionId,
       submitNo: version.submitNo,
-      fileUrls: this.toPublicFileUrls(this.parseFileUrls(version.fileUrl)),
+      fileUrls: await this.toPublicFileUrls(fileRefs),
       contentText: version.contentText ?? null,
       answerPayload: version.answerPayload ?? null,
       answerFormat: version.answerFormat ?? null,
@@ -305,24 +299,18 @@ export class SubmissionService {
       filesByQuestion.set(questionId, list);
     }
 
-    const savedPaths: string[] = [];
+    const savedRefs: string[] = [];
 
     const questionRows = await this.questionRepo.find({
       where: { id: In(requiredIds) },
     });
     if (questionRows.length !== requiredIds.length) {
-      await Promise.all(
-        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
-      );
       throw new BadRequestException('作业题目存在无效项');
     }
     const nonLeaf = questionRows.find(
       (question) => question.nodeType !== QuestionNodeType.LEAF,
     );
     if (nonLeaf) {
-      await Promise.all(
-        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
-      );
       throw new BadRequestException('作业题目必须为叶子题');
     }
     const questionById = new Map(questionRows.map((item) => [item.id, item]));
@@ -343,8 +331,6 @@ export class SubmissionService {
       normalizedAnswers.set(questionId, normalized);
     }
 
-    await fs.mkdir(this.uploadDir, { recursive: true });
-
     const savedByQuestion = new Map<string, string[]>();
     try {
       for (const file of files) {
@@ -353,21 +339,18 @@ export class SubmissionService {
           throw new BadRequestException('文件字段需使用 files[questionId]');
         }
         const questionId = match[1];
-        const fileExt = path.extname(file.originalname);
-        const uniqueFileName = `${studentId}-${assignmentId}-${questionId}-${Date.now()}-${Math.random()
-          .toString(16)
-          .slice(2)}${fileExt}`;
-        const fileSavePath = path.join(this.uploadDir, uniqueFileName);
-        await fs.rename(file.path, fileSavePath);
-        savedPaths.push(fileSavePath);
+        const storageRef = await this.storageService.persistUploadedFile(file.path, {
+          prefix: `submissions/${assignmentId}/${studentId}/${questionId}`,
+          originalName: file.originalname,
+          contentType: file.mimetype,
+        });
+        savedRefs.push(storageRef);
         const list = savedByQuestion.get(questionId) ?? [];
-        list.push(fileSavePath);
+        list.push(storageRef);
         savedByQuestion.set(questionId, list);
       }
     } catch (error) {
-      await Promise.all(
-        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
-      );
+      await this.storageService.deleteMany(savedRefs);
       const message = error instanceof Error ? error.message : String(error);
       throw new InternalServerErrorException(`文件上传失败：${message}`);
     }
@@ -376,9 +359,7 @@ export class SubmissionService {
       where: { id: studentId },
     });
     if (!student) {
-      await Promise.all(
-        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
-      );
+      await this.storageService.deleteMany(savedRefs);
       throw new NotFoundException('学生不存在');
     }
 
@@ -478,17 +459,13 @@ export class SubmissionService {
         }
       });
     } catch (error) {
-      await Promise.all(
-        savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
-      );
+      await this.storageService.deleteMany(savedRefs);
       throw error;
     }
 
     if (existingFiles.length > 0) {
       const uniqueFiles = Array.from(new Set(existingFiles));
-      await Promise.all(
-        uniqueFiles.map((filePath) => fs.unlink(filePath).catch(() => undefined)),
-      );
+      await this.storageService.deleteMany(uniqueFiles);
     }
 
     if (assignment.aiEnabled) {
@@ -507,21 +484,25 @@ export class SubmissionService {
       );
     }
 
+    const responseItems = await Promise.all(
+      results.map(async (item) => ({
+        questionId: item.questionId,
+        submissionVersionId: item.submissionVersionId,
+        submissionId: item.submissionId,
+        fileUrls: await this.toPublicFileUrls(
+          savedByQuestion.get(item.questionId) ?? [],
+        ),
+        aiStatus: item.aiStatus,
+      })),
+    );
+
     return {
       code: 200,
       message: '作业提交成功',
       data: {
         assignmentId,
         submitNo: nextSubmitNo,
-        items: results.map((item) => ({
-          questionId: item.questionId,
-          submissionVersionId: item.submissionVersionId,
-          submissionId: item.submissionId,
-          fileUrls: this.toPublicFileUrls(
-            savedByQuestion.get(item.questionId) ?? [],
-          ),
-          aiStatus: item.aiStatus,
-        })),
+        items: responseItems,
         aiEnabled: assignment.aiEnabled,
       },
     };
@@ -590,8 +571,8 @@ export class SubmissionService {
       [assignmentId],
     );
 
-    return {
-      items: rows.map((row: any) => ({
+    const items = await Promise.all(
+      rows.map(async (row: any) => ({
         submissionId: row.submissionId,
         submissionVersionId: row.submissionVersionId,
         questionId: row.questionId,
@@ -610,7 +591,9 @@ export class SubmissionService {
         contentText: row.contentText ?? '',
         answerPayload: row.answerPayload ?? null,
         answerFormat: row.answerFormat ?? null,
-        fileUrls: this.toPublicFileUrls(this.parseFileUrls(row.fileUrl ?? '')),
+        fileUrls: await this.toPublicFileUrls(
+          this.parseFileUrls(row.fileUrl ?? ''),
+        ),
         submittedAt: row.submittedAt,
         scorePublished: row.scorePublished === true || row.scorePublished === 1,
         student: {
@@ -619,7 +602,9 @@ export class SubmissionService {
           account: row.studentAccount ?? null,
         },
       })),
-    };
+    );
+
+    return { items };
   }
 
   private async assertCanReadSubmission(
@@ -741,8 +726,8 @@ export class SubmissionService {
       [assignmentId, studentId],
     );
 
-    return {
-      items: rows.map((row: any) => ({
+    const items = await Promise.all(
+      rows.map(async (row: any) => ({
         submissionId: row.submissionId,
         submissionVersionId: row.submissionVersionId,
         questionId: row.questionId,
@@ -750,11 +735,14 @@ export class SubmissionService {
         contentText: row.contentText ?? '',
         answerPayload: row.answerPayload ?? null,
         answerFormat: row.answerFormat ?? null,
-        fileUrls: this.toPublicFileUrls(this.parseFileUrls(row.fileUrl ?? '')),
+        fileUrls: await this.toPublicFileUrls(
+          this.parseFileUrls(row.fileUrl ?? ''),
+        ),
         submittedAt: row.submittedAt,
         isFinal: row.isFinal === true || row.isFinal === 1,
       })),
-    };
+    );
+    return { items };
   }
 
   private normalizeAnswerDraftForQuestion(
@@ -958,29 +946,16 @@ export class SubmissionService {
     return [value];
   }
 
-  private toPublicFileUrls(fileUrls: string[]): string[] {
-    return fileUrls.map((fileUrl) => this.toPublicFileUrl(fileUrl));
-  }
-
-  private toPublicFileUrl(fileUrl: string): string {
-    if (!fileUrl) {
-      return fileUrl;
-    }
-    if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-      return fileUrl;
-    }
-    const normalized = fileUrl.replace(/\\/g, '/');
-    const marker = '/uploads/';
-    const markerIndex = normalized.lastIndexOf(marker);
-    if (markerIndex !== -1) {
-      return normalized.slice(markerIndex);
-    }
-
-    const relativePath = path.relative(this.uploadRoot, fileUrl);
-    if (relativePath.startsWith('..')) {
-      return fileUrl;
-    }
-    return `/uploads/${relativePath.split(path.sep).join('/')}`;
+  private async toPublicFileUrls(fileUrls: string[]): Promise<string[]> {
+    return Promise.all(
+      fileUrls.map(async (fileRef) => {
+        try {
+          return await this.storageService.resolvePublicUrl(fileRef);
+        } catch {
+          return fileRef;
+        }
+      }),
+    );
   }
 
   private isImageUrl(value: string): boolean {
