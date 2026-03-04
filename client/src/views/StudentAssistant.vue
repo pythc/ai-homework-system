@@ -717,12 +717,12 @@ const sendMessageWithText = async (question) => {
             flushStream(false)
           }, STREAM_UPDATE_THROTTLE_MS)
         },
-        onDone: (full) => {
+        onDone: ({ answer }) => {
           if (streamTimer) {
             clearTimeout(streamTimer)
             streamTimer = null
           }
-          streamBuffer = full || streamBuffer || '收到，我们继续聊。'
+          streamBuffer = answer || streamBuffer || '收到，我们继续聊。'
           streamingMessageId.value = null
           flushStream(true)
           window.dispatchEvent(new Event('assistant-usage-refresh'))

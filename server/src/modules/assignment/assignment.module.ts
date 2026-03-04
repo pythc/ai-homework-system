@@ -24,6 +24,7 @@ import { AuthModule } from '../auth/auth.module';
     ]),
   ],
   controllers: [AssignmentController, AssignmentSnapshotController],
-  providers: [AssignmentService]
+  providers: [AssignmentService],
+  exports: [AssignmentService],
 })
 export class AssignmentModule {}

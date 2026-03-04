@@ -5,6 +5,38 @@ export type AssistantResponse = {
   answer: string
   stats?: Record<string, unknown>
   scope?: Record<string, unknown>
+  actions?: AssistantActionCall[]
+  cards?: AssistantActionCard[]
+}
+
+export type AssistantActionCall = {
+  type: 'ASSIGNMENT_PUBLISH'
+  confidence?: number
+  args?: {
+    originalText?: string
+    courseId?: string
+    courseName?: string
+    textbookTitle?: string
+    chapterTitle?: string
+    exerciseRef?: string
+    questionRef?: string
+    questionNo?: number
+  }
+}
+
+export type AssistantActionCard = {
+  type: 'assignment_publish_confirm'
+  actionId: string
+  status: string
+  canConfirm: boolean
+  title: string
+  summary: string
+  fields?: Array<{ label: string; value: string }>
+  warnings?: string[]
+  actions?: {
+    confirmLabel?: string
+    cancelLabel?: string
+  }
 }
 
 export type AssistantRequest = {
@@ -29,7 +61,12 @@ export async function sendAssistantMessage(
 
 export type AssistantStreamHandlers = {
   onDelta?: (delta: string) => void
-  onDone?: (full: string) => void
+  onDone?: (payload: {
+    answer: string
+    actions?: AssistantActionCall[]
+    cards?: AssistantActionCard[]
+    raw?: Record<string, unknown>
+  }) => void | Promise<void>
   onError?: (error: Error) => void
 }
 
@@ -38,6 +75,53 @@ export type AssistantUsage = {
   usedTokens: number
   limitTokens: number
   weekStart?: string
+}
+
+export type ProposeAssignmentActionPayload = {
+  originalText?: string
+  courseId?: string
+  courseName?: string
+  textbookTitle?: string
+  chapterTitle?: string
+  exerciseRef?: string
+  questionRef?: string
+  questionNo?: number
+  assignmentTitle?: string
+  description?: string
+  deadline?: string
+  confidence?: number
+}
+
+export async function proposeAssignmentAction(payload: ProposeAssignmentActionPayload) {
+  return httpRequest<{
+    actionId: string
+    status: string
+    card?: AssistantActionCard
+  }>('/assistant/actions/assignment/propose', {
+    method: 'POST',
+    body: payload,
+  })
+}
+
+export async function confirmAssistantAction(actionId: string) {
+  return httpRequest<{
+    actionId: string
+    status: string
+    assignmentId?: string
+    snapshotId?: string
+    message?: string
+  }>(`/assistant/actions/${actionId}/confirm`, {
+    method: 'POST',
+  })
+}
+
+export async function cancelAssistantAction(actionId: string) {
+  return httpRequest<{
+    actionId: string
+    status: string
+  }>(`/assistant/actions/${actionId}/cancel`, {
+    method: 'POST',
+  })
 }
 
 export async function fetchAssistantUsage() {
@@ -122,7 +206,7 @@ export async function streamAssistantMessage(
         const data = dataLines.join('\n')
         if (!data) continue
         if (data === '[DONE]') {
-          handlers.onDone?.(fullText)
+          await handlers.onDone?.({ answer: fullText })
           return
         }
         try {
@@ -130,9 +214,18 @@ export async function streamAssistantMessage(
           if (payloadJson?.delta) {
             fullText += payloadJson.delta
             handlers.onDelta?.(payloadJson.delta)
-          } else if (event === 'done' && payloadJson?.answer) {
-            fullText = payloadJson.answer
-            handlers.onDone?.(fullText)
+          } else if (event === 'done' && payloadJson?.answer !== undefined) {
+            fullText = String(payloadJson.answer || '')
+            await handlers.onDone?.({
+              answer: fullText,
+              actions: Array.isArray(payloadJson.actions)
+                ? (payloadJson.actions as AssistantActionCall[])
+                : [],
+              cards: Array.isArray(payloadJson.cards)
+                ? (payloadJson.cards as AssistantActionCard[])
+                : [],
+              raw: payloadJson as Record<string, unknown>,
+            })
             return
           }
         } catch {
@@ -141,7 +234,7 @@ export async function streamAssistantMessage(
         }
       }
     }
-    handlers.onDone?.(fullText)
+    await handlers.onDone?.({ answer: fullText })
   } catch (err) {
     const error = err instanceof Error ? err : new Error('AI 请求失败')
     handlers.onError?.(error)

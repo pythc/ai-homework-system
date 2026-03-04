@@ -70,6 +70,60 @@
                 </template>
               </div>
               <div
+                v-if="message.role === 'assistant' && message.cards?.length"
+                class="assistant-action-cards"
+              >
+                <div
+                  v-for="card in message.cards"
+                  :key="card.actionId"
+                  class="assistant-action-card"
+                  :class="{ disabled: !canConfirmCard(card) }"
+                >
+                  <div class="assistant-action-card-header">
+                    <div class="assistant-action-card-title">{{ card.title }}</div>
+                    <span class="assistant-action-card-status">{{ formatCardStatus(card.status) }}</span>
+                  </div>
+                  <div class="assistant-action-card-summary">{{ card.summary }}</div>
+                  <div
+                    v-if="Array.isArray(card.fields) && card.fields.length"
+                    class="assistant-action-card-fields"
+                  >
+                    <div
+                      v-for="field in card.fields"
+                      :key="`${card.actionId}-${field.label}`"
+                      class="assistant-action-card-field"
+                    >
+                      <span>{{ field.label }}</span>
+                      <strong>{{ field.value }}</strong>
+                    </div>
+                  </div>
+                  <ul
+                    v-if="Array.isArray(card.warnings) && card.warnings.length"
+                    class="assistant-action-card-warnings"
+                  >
+                    <li v-for="warning in card.warnings" :key="warning">{{ warning }}</li>
+                  </ul>
+                  <div class="assistant-action-card-buttons">
+                    <button
+                      type="button"
+                      class="assistant-action-card-btn primary"
+                      :disabled="!canConfirmCard(card)"
+                      @click="handleAssistantCardConfirm(message.id, card)"
+                    >
+                      {{ card.actions?.confirmLabel || '确认发布' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="assistant-action-card-btn ghost"
+                      :disabled="!canCancelCard(card)"
+                      @click="handleAssistantCardCancel(message.id, card)"
+                    >
+                      {{ card.actions?.cancelLabel || '取消' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div
                 v-if="message.role === 'assistant' && message.content"
                 class="assistant-actions"
               >
@@ -235,13 +289,21 @@
 <script setup>
 import { marked } from 'marked'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
-import { streamAssistantMessage, uploadAssistantImages } from '../api/assistant'
+import {
+  cancelAssistantAction,
+  confirmAssistantAction,
+  proposeAssignmentAction,
+  streamAssistantMessage,
+  uploadAssistantImages,
+} from '../api/assistant'
 import { API_BASE_URL } from '../api/http'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getStoredUser } from '../auth/storage'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
+const router = useRouter()
 
 const listRef = ref(null)
 const fileInputRef = ref(null)
@@ -256,6 +318,7 @@ const attachments = ref([])
 const toolsOpen = ref(false)
 const thinkingMode = ref('disabled')
 const previewImage = ref(null)
+const actionPendingIds = ref([])
 let persistTimer = null
 const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
 const STREAM_UPDATE_THROTTLE_MS = 100
@@ -378,17 +441,56 @@ const normalizeMessageImages = (value) => {
     .filter((item) => Boolean(item.url))
 }
 
+const normalizeAssistantCards = (value) => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((card) => {
+      const actionId = String(card?.actionId || '').trim()
+      if (!actionId) return null
+      const fields = Array.isArray(card?.fields)
+        ? card.fields
+            .map((field) => ({
+              label: String(field?.label || '').trim(),
+              value: String(field?.value || '').trim(),
+            }))
+            .filter((field) => field.label && field.value)
+        : []
+      const warnings = Array.isArray(card?.warnings)
+        ? card.warnings
+            .map((warning) => String(warning || '').trim())
+            .filter(Boolean)
+        : []
+      return {
+        type: String(card?.type || 'assignment_publish_confirm'),
+        actionId,
+        status: String(card?.status || 'PENDING').toUpperCase(),
+        canConfirm: Boolean(card?.canConfirm),
+        title: String(card?.title || '请确认操作'),
+        summary: String(card?.summary || ''),
+        fields,
+        warnings,
+        actions: {
+          confirmLabel: String(card?.actions?.confirmLabel || '确认发布'),
+          cancelLabel: String(card?.actions?.cancelLabel || '取消'),
+        },
+      }
+    })
+    .filter(Boolean)
+}
+
 const toStoredMessages = (value) => {
   if (!Array.isArray(value)) return []
   return value.map((item) => {
     const images = normalizeMessageImages(item?.images).filter(
       (image) => !image.url.startsWith('data:') && !image.url.startsWith('blob:'),
     )
+    const cards = normalizeAssistantCards(item?.cards)
     return {
       id: item?.id,
       role: item?.role,
       content: item?.content ?? '',
       ...(images.length ? { images } : {}),
+      ...(cards.length ? { cards } : {}),
     }
   })
 }
@@ -417,6 +519,7 @@ const loadMessages = () => {
         role: item?.role,
         content: item?.content ?? '',
         images: normalizeMessageImages(item?.images),
+        cards: normalizeAssistantCards(item?.cards),
       }))
       trimMessagesInPlace()
       const maxId = messages.value.reduce((max, item) => Math.max(max, item.id || 0), 0)
@@ -526,11 +629,13 @@ const scrollToBottom = () => {
 const pushMessage = (role, content, options = {}) => {
   const id = messageSeed.value++
   const images = normalizeMessageImages(options.images)
+  const cards = normalizeAssistantCards(options.cards)
   messages.value.push({
     id,
     role,
     content,
     ...(images.length ? { images } : {}),
+    ...(cards.length ? { cards } : {}),
   })
   trimMessagesInPlace()
   scrollToBottom()
@@ -542,6 +647,14 @@ const updateMessage = (id, content, options = {}) => {
   const target = messages.value.find((msg) => msg.id === id)
   if (target) {
     target.content = content
+    if (options.cards !== undefined) {
+      const cards = normalizeAssistantCards(options.cards)
+      if (cards.length) {
+        target.cards = cards
+      } else {
+        delete target.cards
+      }
+    }
     trimMessagesInPlace()
     scrollToBottom()
     if (options.persist !== false) {
@@ -558,6 +671,7 @@ const clearConversation = () => {
   error.value = ''
   closeImagePreview()
   streamingMessageId.value = null
+  actionPendingIds.value = []
   stopLoadingTimer()
   clearAttachments()
   resetSessionId()
@@ -683,6 +797,207 @@ const refreshUsage = () => {
   }
 }
 
+const formatCardStatus = (status) => {
+  const value = String(status || '').toUpperCase()
+  if (value === 'PENDING') return '待确认'
+  if (value === 'CONFIRMING') return '发布中'
+  if (value === 'CONFIRMED') return '已发布'
+  if (value === 'CANCELED') return '已取消'
+  if (value === 'EXPIRED') return '已过期'
+  if (value === 'FAILED') return '失败'
+  return status || '未知'
+}
+
+const isActionBusy = (actionId) => {
+  const id = String(actionId || '').trim()
+  return Boolean(id) && actionPendingIds.value.includes(id)
+}
+
+const markActionBusy = (actionId, busy) => {
+  const id = String(actionId || '').trim()
+  if (!id) return
+  if (busy) {
+    if (!actionPendingIds.value.includes(id)) {
+      actionPendingIds.value.push(id)
+    }
+    return
+  }
+  actionPendingIds.value = actionPendingIds.value.filter((item) => item !== id)
+}
+
+const canConfirmCard = (card) => {
+  const status = String(card?.status || '').toUpperCase()
+  return Boolean(card?.canConfirm) && status === 'PENDING' && !isActionBusy(card?.actionId)
+}
+
+const canCancelCard = (card) => {
+  const status = String(card?.status || '').toUpperCase()
+  return status === 'PENDING' && !isActionBusy(card?.actionId)
+}
+
+const updateAssistantCard = (messageId, actionId, updater, options = {}) => {
+  const target = messages.value.find((msg) => msg.id === messageId)
+  if (!target) return
+  const cards = normalizeAssistantCards(target.cards)
+  const index = cards.findIndex((item) => item.actionId === actionId)
+  if (index < 0) return
+  const current = cards[index]
+  const next = typeof updater === 'function' ? updater(current) : updater
+  cards[index] = normalizeAssistantCards([next])[0] || current
+  target.cards = cards
+  if (options.persist !== false) {
+    persistMessages()
+  }
+}
+
+const buildActionProposalPayload = (action, originalText) => ({
+  originalText: String(action?.args?.originalText || originalText || '').trim(),
+  courseId: action?.args?.courseId,
+  courseName: action?.args?.courseName,
+  textbookTitle: action?.args?.textbookTitle,
+  chapterTitle: action?.args?.chapterTitle,
+  exerciseRef: action?.args?.exerciseRef,
+  questionRef: action?.args?.questionRef,
+  questionNo: Number.isFinite(Number(action?.args?.questionNo))
+    ? Number(action?.args?.questionNo)
+    : undefined,
+  confidence: Number.isFinite(Number(action?.confidence))
+    ? Number(action?.confidence)
+    : undefined,
+})
+
+const buildFailedActionCard = (message) => ({
+  type: 'assignment_publish_confirm',
+  actionId: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  status: 'FAILED',
+  canConfirm: false,
+  title: '发布确认卡片生成失败',
+  summary: '本次未能自动生成发布卡片，请补充信息后重试。',
+  warnings: [String(message || '未知错误')],
+  fields: [],
+  actions: {
+    confirmLabel: '确认发布',
+    cancelLabel: '取消',
+  },
+})
+
+const navigateAfterAssignmentConfirmed = async (assignmentId) => {
+  const id = String(assignmentId || '').trim()
+  if (!id) {
+    await router.push('/teacher/grading')
+    return
+  }
+  try {
+    await router.push({
+      path: `/teacher/grading/${id}`,
+      query: {
+        from: 'assistant',
+      },
+    })
+  } catch {
+    await router.push('/teacher/grading')
+  }
+}
+
+const proposeCardsFromActions = async (actions, originalText) => {
+  const cards = []
+  for (const action of Array.isArray(actions) ? actions : []) {
+    if (String(action?.type || '').toUpperCase() !== 'ASSIGNMENT_PUBLISH') continue
+    try {
+      const response = await proposeAssignmentAction(
+        buildActionProposalPayload(action, originalText),
+      )
+      if (response?.card) {
+        cards.push(response.card)
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '生成卡片失败'
+      cards.push(buildFailedActionCard(message))
+    }
+  }
+  return normalizeAssistantCards(cards)
+}
+
+const handleAssistantCardConfirm = async (messageId, card) => {
+  if (!canConfirmCard(card)) return
+  const actionId = String(card.actionId || '')
+  markActionBusy(actionId, true)
+  updateAssistantCard(
+    messageId,
+    actionId,
+    (current) => ({
+      ...current,
+      status: 'CONFIRMING',
+      canConfirm: false,
+      summary: '正在发布作业，请稍候...',
+      warnings: current?.warnings || [],
+    }),
+    { persist: true },
+  )
+  try {
+    const response = await confirmAssistantAction(actionId)
+    updateAssistantCard(
+      messageId,
+      actionId,
+      (current) => ({
+        ...current,
+        status: String(response?.status || 'CONFIRMED').toUpperCase(),
+        canConfirm: false,
+        summary: response?.message || '作业已发布',
+      }),
+      { persist: true },
+    )
+    if (response?.assignmentId) {
+      pushMessage('assistant', `已为你发布作业，作业ID：${response.assignmentId}，正在跳转到该作业详情页。`)
+    } else {
+      pushMessage('assistant', '作业已发布，正在跳转到发布记录页。')
+    }
+    await navigateAfterAssignmentConfirmed(response?.assignmentId)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '确认发布失败，请稍后再试'
+    error.value = message
+    updateAssistantCard(
+      messageId,
+      actionId,
+      (current) => ({
+        ...current,
+        status: 'FAILED',
+        canConfirm: false,
+        summary: '发布失败，请重新描述需求后再试',
+        warnings: [...(current?.warnings || []), message],
+      }),
+      { persist: true },
+    )
+  } finally {
+    markActionBusy(actionId, false)
+  }
+}
+
+const handleAssistantCardCancel = async (messageId, card) => {
+  if (!canCancelCard(card)) return
+  const actionId = String(card.actionId || '')
+  markActionBusy(actionId, true)
+  try {
+    const response = await cancelAssistantAction(actionId)
+    updateAssistantCard(
+      messageId,
+      actionId,
+      (current) => ({
+        ...current,
+        status: String(response?.status || 'CANCELED').toUpperCase(),
+        canConfirm: false,
+        summary: '已取消本次发布',
+      }),
+      { persist: true },
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '取消失败，请稍后再试'
+    error.value = message
+  } finally {
+    markActionBusy(actionId, false)
+  }
+}
+
 const sendMessageWithText = async (question) => {
   const trimmed = question.trim()
   if ((!trimmed && !attachments.value.length) || sending.value) return
@@ -723,14 +1038,23 @@ const sendMessageWithText = async (question) => {
             flushStream(false)
           }, STREAM_UPDATE_THROTTLE_MS)
         },
-        onDone: (full) => {
+        onDone: async (payload) => {
           if (streamTimer) {
             clearTimeout(streamTimer)
             streamTimer = null
           }
-          streamBuffer = full || streamBuffer || '收到，我们继续聊。'
+          const finalAnswer = String(payload?.answer || '')
+          streamBuffer = finalAnswer || streamBuffer || '收到，我们继续聊。'
           streamingMessageId.value = null
-          flushStream(true)
+          let cards = normalizeAssistantCards(payload?.cards)
+          if (!cards.length && Array.isArray(payload?.actions) && payload.actions.length) {
+            cards = await proposeCardsFromActions(payload.actions, userContent)
+          }
+          updateMessage(assistantId, streamBuffer, {
+            persist: false,
+            ...(cards.length ? { cards } : {}),
+          })
+          persistMessages()
           window.dispatchEvent(new Event('assistant-usage-refresh'))
         },
       },
@@ -1046,6 +1370,123 @@ onBeforeUnmount(() => {
   animation-delay: 0.4s;
 }
 
+.assistant-action-cards {
+  width: min(760px, 92%);
+  display: grid;
+  gap: 10px;
+  margin: 2px 0 2px 10px;
+}
+
+.assistant-action-card {
+  border-radius: 14px;
+  border: 1px solid rgba(110, 134, 188, 0.35);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 16px rgba(30, 46, 82, 0.08);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-action-card.disabled {
+  opacity: 0.92;
+}
+
+.assistant-action-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assistant-action-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1c315e;
+}
+
+.assistant-action-card-status {
+  font-size: 12px;
+  color: #2f67c5;
+  background: rgba(79, 136, 230, 0.14);
+  border: 1px solid rgba(79, 136, 230, 0.28);
+  border-radius: 999px;
+  padding: 2px 10px;
+  line-height: 20px;
+}
+
+.assistant-action-card-summary {
+  font-size: 13px;
+  color: rgba(30, 49, 90, 0.78);
+  line-height: 1.5;
+}
+
+.assistant-action-card-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.assistant-action-card-field {
+  display: grid;
+  gap: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(140, 166, 213, 0.25);
+  background: rgba(246, 250, 255, 0.86);
+  padding: 8px;
+}
+
+.assistant-action-card-field span {
+  font-size: 12px;
+  color: rgba(33, 48, 79, 0.6);
+}
+
+.assistant-action-card-field strong {
+  font-size: 13px;
+  color: #223a70;
+  line-height: 1.4;
+}
+
+.assistant-action-card-warnings {
+  margin: 0;
+  padding-left: 16px;
+  color: #af5d42;
+  font-size: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.assistant-action-card-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.assistant-action-card-btn {
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.assistant-action-card-btn.primary {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(75, 149, 241, 0.95), rgba(86, 197, 227, 0.95));
+}
+
+.assistant-action-card-btn.ghost {
+  color: #335994;
+  background: rgba(77, 129, 212, 0.1);
+  border: 1px solid rgba(77, 129, 212, 0.25);
+}
+
+.assistant-action-card-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .assistant-actions {
   display: flex;
   gap: 4px;
@@ -1357,6 +1798,15 @@ onBeforeUnmount(() => {
   .assistant-prompts {
     height: auto;
     overflow: visible;
+  }
+
+  .assistant-action-cards {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .assistant-action-card-fields {
+    grid-template-columns: 1fr;
   }
 }
 
