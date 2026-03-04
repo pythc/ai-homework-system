@@ -119,6 +119,10 @@ export class AssignmentService {
         allowViewAnswer: dto.allowViewAnswer ?? false,
         allowViewScore: dto.allowViewScore ?? true,
         handwritingRecognition: dto.handwritingRecognition ?? false,
+        plagiarismDetection: dto.plagiarismDetection ?? true,
+        jumpStepDetection: dto.jumpStepDetection ?? true,
+        stepConflictDetection: dto.stepConflictDetection ?? true,
+        requiredStepDetection: dto.requiredStepDetection ?? true,
         aiPromptGuidance: dto.aiPromptGuidance?.trim() || null,
         aiGradingStrictness:
           dto.aiGradingStrictness ?? AssignmentAiGradingStrictness.BALANCED,
@@ -183,6 +187,14 @@ export class AssignmentService {
     assignment.allowViewScore = dto.allowViewScore ?? assignment.allowViewScore;
     assignment.handwritingRecognition =
       dto.handwritingRecognition ?? assignment.handwritingRecognition;
+    assignment.plagiarismDetection =
+      dto.plagiarismDetection ?? assignment.plagiarismDetection;
+    assignment.jumpStepDetection =
+      dto.jumpStepDetection ?? assignment.jumpStepDetection;
+    assignment.stepConflictDetection =
+      dto.stepConflictDetection ?? assignment.stepConflictDetection;
+    assignment.requiredStepDetection =
+      dto.requiredStepDetection ?? assignment.requiredStepDetection;
     assignment.aiGradingStrictness =
       dto.aiGradingStrictness ?? assignment.aiGradingStrictness;
     if (dto.aiPromptGuidance !== undefined) {
@@ -240,6 +252,14 @@ export class AssignmentService {
     const nextAiEnabled = dto.aiEnabled ?? assignment.aiEnabled;
     const nextHandwritingRecognition =
       dto.handwritingRecognition ?? assignment.handwritingRecognition;
+    const nextPlagiarismDetection =
+      dto.plagiarismDetection ?? assignment.plagiarismDetection;
+    const nextJumpStepDetection =
+      dto.jumpStepDetection ?? assignment.jumpStepDetection;
+    const nextStepConflictDetection =
+      dto.stepConflictDetection ?? assignment.stepConflictDetection;
+    const nextRequiredStepDetection =
+      dto.requiredStepDetection ?? assignment.requiredStepDetection;
     const nextAiGradingStrictness =
       dto.aiGradingStrictness ?? assignment.aiGradingStrictness;
     const nextAiPromptGuidance =
@@ -264,6 +284,10 @@ export class AssignmentService {
       assignment.allowViewScore = nextAllowViewScore;
       assignment.aiEnabled = nextAiEnabled;
       assignment.handwritingRecognition = nextHandwritingRecognition;
+      assignment.plagiarismDetection = nextPlagiarismDetection;
+      assignment.jumpStepDetection = nextJumpStepDetection;
+      assignment.stepConflictDetection = nextStepConflictDetection;
+      assignment.requiredStepDetection = nextRequiredStepDetection;
       assignment.aiGradingStrictness = nextAiGradingStrictness;
       assignment.aiPromptGuidance = nextAiPromptGuidance;
       assignment.aiConfidenceThreshold = nextAiConfidenceThreshold.toFixed(3);
@@ -516,6 +540,10 @@ export class AssignmentService {
       allowViewAnswer: assignment.allowViewAnswer,
       allowViewScore: assignment.allowViewScore,
       handwritingRecognition: assignment.handwritingRecognition,
+      plagiarismDetection: assignment.plagiarismDetection,
+      jumpStepDetection: assignment.jumpStepDetection,
+      stepConflictDetection: assignment.stepConflictDetection,
+      requiredStepDetection: assignment.requiredStepDetection,
     };
   }
 
@@ -545,6 +573,10 @@ export class AssignmentService {
           a.allow_view_answer AS "allowViewAnswer",
           a.allow_view_score AS "allowViewScore",
           a.handwriting_recognition AS "handwritingRecognition",
+          a.plagiarism_detection AS "plagiarismDetection",
+          a.jump_step_detection AS "jumpStepDetection",
+          a.step_conflict_detection AS "stepConflictDetection",
+          a.required_step_detection AS "requiredStepDetection",
           a.ai_grading_strictness AS "aiGradingStrictness",
           a.ai_prompt_guidance AS "aiPromptGuidance"
         FROM assignments a
@@ -575,6 +607,10 @@ export class AssignmentService {
         allowViewAnswer: row.allowViewAnswer === true,
         allowViewScore: row.allowViewScore === true,
         handwritingRecognition: row.handwritingRecognition === true,
+        plagiarismDetection: row.plagiarismDetection !== false,
+        jumpStepDetection: row.jumpStepDetection !== false,
+        stepConflictDetection: row.stepConflictDetection !== false,
+        requiredStepDetection: row.requiredStepDetection !== false,
         aiGradingStrictness: row.aiGradingStrictness ?? AssignmentAiGradingStrictness.BALANCED,
         aiPromptGuidance: row.aiPromptGuidance ?? null,
       })),
@@ -607,6 +643,10 @@ export class AssignmentService {
           a.allow_view_answer AS "allowViewAnswer",
           a.allow_view_score AS "allowViewScore",
           a.handwriting_recognition AS "handwritingRecognition",
+          a.plagiarism_detection AS "plagiarismDetection",
+          a.jump_step_detection AS "jumpStepDetection",
+          a.step_conflict_detection AS "stepConflictDetection",
+          a.required_step_detection AS "requiredStepDetection",
           a.ai_grading_strictness AS "aiGradingStrictness",
           a.ai_prompt_guidance AS "aiPromptGuidance"
         FROM assignments a
@@ -636,6 +676,10 @@ export class AssignmentService {
         allowViewAnswer: row.allowViewAnswer === true,
         allowViewScore: row.allowViewScore === true,
         handwritingRecognition: row.handwritingRecognition === true,
+        plagiarismDetection: row.plagiarismDetection !== false,
+        jumpStepDetection: row.jumpStepDetection !== false,
+        stepConflictDetection: row.stepConflictDetection !== false,
+        requiredStepDetection: row.requiredStepDetection !== false,
         aiGradingStrictness: row.aiGradingStrictness ?? AssignmentAiGradingStrictness.BALANCED,
         aiPromptGuidance: row.aiPromptGuidance ?? null,
       })),
@@ -797,6 +841,10 @@ export class AssignmentService {
       allowViewAnswer: assignment.allowViewAnswer,
       allowViewScore: assignment.allowViewScore,
       handwritingRecognition: assignment.handwritingRecognition,
+      plagiarismDetection: assignment.plagiarismDetection,
+      jumpStepDetection: assignment.jumpStepDetection,
+      stepConflictDetection: assignment.stepConflictDetection,
+      requiredStepDetection: assignment.requiredStepDetection,
       createdAt: snapshot.createdAt.toISOString(),
     };
   }
@@ -1173,6 +1221,10 @@ export class AssignmentService {
       allowViewAnswer: assignment.allowViewAnswer,
       allowViewScore: assignment.allowViewScore,
       handwritingRecognition: assignment.handwritingRecognition,
+      plagiarismDetection: assignment.plagiarismDetection,
+      jumpStepDetection: assignment.jumpStepDetection,
+      stepConflictDetection: assignment.stepConflictDetection,
+      requiredStepDetection: assignment.requiredStepDetection,
       aiPromptGuidance: assignment.aiPromptGuidance ?? null,
       aiGradingStrictness:
         assignment.aiGradingStrictness ?? AssignmentAiGradingStrictness.BALANCED,

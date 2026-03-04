@@ -181,6 +181,10 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
             minConfidence: payload.uncertaintyPolicy?.minConfidence,
             returnStudentMarkdown: payload.options?.returnStudentMarkdown,
             handwritingRecognition: payload.options?.handwritingRecognition,
+            plagiarismDetection: payload.options?.plagiarismDetection,
+            jumpStepDetection: payload.options?.jumpStepDetection,
+            stepConflictDetection: payload.options?.stepConflictDetection,
+            requiredStepDetection: payload.options?.requiredStepDetection,
             gradingStrictness: payload.options?.gradingStrictness,
             customGuidance: payload.options?.customGuidance,
           },
@@ -266,6 +270,10 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
       minConfidence?: number;
       returnStudentMarkdown?: boolean;
       handwritingRecognition?: boolean;
+      plagiarismDetection?: boolean;
+      jumpStepDetection?: boolean;
+      stepConflictDetection?: boolean;
+      requiredStepDetection?: boolean;
       gradingStrictness?: string;
       customGuidance?: string;
     },
@@ -295,6 +303,10 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
         returnStudentMarkdown: input.returnStudentMarkdown ?? false,
         minConfidence: input.minConfidence ?? 0.75,
         handwritingRecognition: input.handwritingRecognition ?? false,
+        plagiarismDetection: input.plagiarismDetection ?? true,
+        jumpStepDetection: input.jumpStepDetection ?? true,
+        stepConflictDetection: input.stepConflictDetection ?? true,
+        requiredStepDetection: input.requiredStepDetection ?? true,
         gradingStrictness: input.gradingStrictness ?? 'BALANCED',
         customGuidance: input.customGuidance ?? '',
       },

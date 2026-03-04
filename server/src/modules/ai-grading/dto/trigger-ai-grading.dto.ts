@@ -55,6 +55,26 @@ export class AiRunOptionsDto {
   @IsBoolean()
   handwritingRecognition?: boolean;
 
+  /** 启用抄袭识别提示词 */
+  @IsOptional()
+  @IsBoolean()
+  plagiarismDetection?: boolean;
+
+  /** 启用跳步识别提示词 */
+  @IsOptional()
+  @IsBoolean()
+  jumpStepDetection?: boolean;
+
+  /** 启用步骤矛盾识别提示词 */
+  @IsOptional()
+  @IsBoolean()
+  stepConflictDetection?: boolean;
+
+  /** 启用必要步骤识别提示词 */
+  @IsOptional()
+  @IsBoolean()
+  requiredStepDetection?: boolean;
+
   /** 批改严厉程度：宽松 / 均衡 / 严格 */
   @IsOptional()
   @IsEnum(AssignmentAiGradingStrictness)

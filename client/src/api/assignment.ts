@@ -28,6 +28,10 @@ export type AssignmentSummary = {
   allowViewAnswer?: boolean
   allowViewScore?: boolean
   handwritingRecognition?: boolean
+  plagiarismDetection?: boolean
+  jumpStepDetection?: boolean
+  stepConflictDetection?: boolean
+  requiredStepDetection?: boolean
   aiPromptGuidance?: string | null
   aiGradingStrictness?: AiGradingStrictness
   aiConfidenceThreshold?: number
@@ -76,6 +80,10 @@ export type AssignmentSnapshotResponse = {
   allowViewAnswer?: boolean
   allowViewScore?: boolean
   handwritingRecognition?: boolean
+  plagiarismDetection?: boolean
+  jumpStepDetection?: boolean
+  stepConflictDetection?: boolean
+  requiredStepDetection?: boolean
   questions: AssignmentSnapshotQuestion[]
   createdAt: string
 }
@@ -91,6 +99,10 @@ export type CreateAssignmentRequest = {
   allowViewAnswer?: boolean
   allowViewScore?: boolean
   handwritingRecognition?: boolean
+  plagiarismDetection?: boolean
+  jumpStepDetection?: boolean
+  stepConflictDetection?: boolean
+  requiredStepDetection?: boolean
   aiPromptGuidance?: string
   aiGradingStrictness?: AiGradingStrictness
   aiConfidenceThreshold?: number
@@ -204,6 +216,10 @@ export async function updateAssignmentGradingConfig(
     allowViewAnswer?: boolean
     allowViewScore?: boolean
     handwritingRecognition?: boolean
+    plagiarismDetection?: boolean
+    jumpStepDetection?: boolean
+    stepConflictDetection?: boolean
+    requiredStepDetection?: boolean
     aiPromptGuidance?: string
     aiGradingStrictness?: AiGradingStrictness
     aiConfidenceThreshold?: number

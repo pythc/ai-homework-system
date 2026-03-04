@@ -81,6 +81,22 @@
                     <input v-model="handwritingRecognition" type="checkbox" :disabled="!aiEnabled" />
                     启用手写识别
                   </label>
+                  <label class="checkbox-item">
+                    <input v-model="plagiarismDetection" type="checkbox" :disabled="!aiEnabled" />
+                    启用抄袭识别
+                  </label>
+                  <label class="checkbox-item">
+                    <input v-model="jumpStepDetection" type="checkbox" :disabled="!aiEnabled" />
+                    启用跳步识别
+                  </label>
+                  <label class="checkbox-item">
+                    <input v-model="stepConflictDetection" type="checkbox" :disabled="!aiEnabled" />
+                    启用步骤矛盾识别
+                  </label>
+                  <label class="checkbox-item">
+                    <input v-model="requiredStepDetection" type="checkbox" :disabled="!aiEnabled" />
+                    启用必要步骤识别
+                  </label>
                 </div>
               </div>
 
@@ -248,6 +264,10 @@ const allowViewAnswer = ref(false)
 const allowViewScore = ref(true)
 const aiEnabled = ref(true)
 const handwritingRecognition = ref(false)
+const plagiarismDetection = ref(true)
+const jumpStepDetection = ref(true)
+const stepConflictDetection = ref(true)
+const requiredStepDetection = ref(true)
 const aiGradingStrictness = ref<AiGradingStrictness>('BALANCED')
 const aiPromptGuidance = ref('')
 const aiConfidenceThreshold = ref(0.75)
@@ -345,6 +365,10 @@ const fetchConfig = async () => {
     allowViewScore.value = assignment.allowViewScore !== false
     aiEnabled.value = assignment.aiEnabled !== false
     handwritingRecognition.value = assignment.handwritingRecognition === true
+    plagiarismDetection.value = assignment.plagiarismDetection !== false
+    jumpStepDetection.value = assignment.jumpStepDetection !== false
+    stepConflictDetection.value = assignment.stepConflictDetection !== false
+    requiredStepDetection.value = assignment.requiredStepDetection !== false
     aiGradingStrictness.value = normalizeStrictness(assignment.aiGradingStrictness)
     aiPromptGuidance.value = String(assignment.aiPromptGuidance ?? '')
     aiConfidenceThreshold.value = Number(assignment.aiConfidenceThreshold ?? 0.75)
@@ -470,6 +494,10 @@ const saveConfig = async () => {
       allowViewScore: allowViewScore.value,
       aiEnabled: aiEnabled.value,
       handwritingRecognition: handwritingRecognition.value,
+      plagiarismDetection: plagiarismDetection.value,
+      jumpStepDetection: jumpStepDetection.value,
+      stepConflictDetection: stepConflictDetection.value,
+      requiredStepDetection: requiredStepDetection.value,
       aiGradingStrictness: normalizeStrictness(aiGradingStrictness.value),
       aiPromptGuidance: aiPromptGuidance.value.trim() || undefined,
       aiConfidenceThreshold: Number(aiConfidenceThreshold.value),

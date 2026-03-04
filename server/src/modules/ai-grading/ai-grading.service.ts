@@ -92,6 +92,22 @@ export class AiGradingService {
           dto.options?.handwritingRecognition ??
           assignment.handwritingRecognition ??
           false,
+        plagiarismDetection:
+          dto.options?.plagiarismDetection ??
+          assignment.plagiarismDetection ??
+          true,
+        jumpStepDetection:
+          dto.options?.jumpStepDetection ??
+          assignment.jumpStepDetection ??
+          true,
+        stepConflictDetection:
+          dto.options?.stepConflictDetection ??
+          assignment.stepConflictDetection ??
+          true,
+        requiredStepDetection:
+          dto.options?.requiredStepDetection ??
+          assignment.requiredStepDetection ??
+          true,
         gradingStrictness:
           dto.options?.gradingStrictness ??
           assignment.aiGradingStrictness ??

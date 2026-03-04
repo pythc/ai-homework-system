@@ -51,6 +51,18 @@ export class AssignmentEntity {
   @Column({ name: 'handwriting_recognition', type: 'boolean', default: false })
   handwritingRecognition!: boolean;
 
+  @Column({ name: 'plagiarism_detection', type: 'boolean', default: true })
+  plagiarismDetection!: boolean;
+
+  @Column({ name: 'jump_step_detection', type: 'boolean', default: true })
+  jumpStepDetection!: boolean;
+
+  @Column({ name: 'step_conflict_detection', type: 'boolean', default: true })
+  stepConflictDetection!: boolean;
+
+  @Column({ name: 'required_step_detection', type: 'boolean', default: true })
+  requiredStepDetection!: boolean;
+
   @Column({ name: 'ai_prompt_guidance', type: 'text', nullable: true })
   aiPromptGuidance?: string | null;
 

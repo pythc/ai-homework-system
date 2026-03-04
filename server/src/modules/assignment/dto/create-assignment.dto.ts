@@ -102,6 +102,22 @@ export class CreateAssignmentDto {
   handwritingRecognition?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  plagiarismDetection?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  jumpStepDetection?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  stepConflictDetection?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiredStepDetection?: boolean;
+
+  @IsOptional()
   @IsEnum(AssignmentAiGradingStrictness)
   aiGradingStrictness?: AssignmentAiGradingStrictness;
 

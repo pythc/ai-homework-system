@@ -30,6 +30,26 @@ export class AiRunOptionsDto {
   handwritingRecognition?: boolean;
 
   @ApiPropertyOptional({
+    description: 'Enable plagiarism risk detection prompt.',
+  })
+  plagiarismDetection?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Enable jump-step detection prompt.',
+  })
+  jumpStepDetection?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Enable step-conflict detection prompt.',
+  })
+  stepConflictDetection?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Enable required-step detection prompt.',
+  })
+  requiredStepDetection?: boolean;
+
+  @ApiPropertyOptional({
     enum: AssignmentAiGradingStrictness,
     description: 'Grading strictness level.',
   })
@@ -127,6 +147,7 @@ export class AiUncertaintyReasonDto {
       'FORMAT_AMBIGUOUS',
       'LOW_CONFIDENCE',
       'NON_HANDWRITTEN',
+      'PLAGIARISM_RISK',
     ],
   })
   code!: string;

@@ -86,6 +86,22 @@
                     <input v-model="handwritingRecognition" type="checkbox" :disabled="!aiEnabled" />
                     启用手写识别
                   </label>
+                  <label class="checkbox-item">
+                    <input v-model="plagiarismDetection" type="checkbox" :disabled="!aiEnabled" />
+                    启用抄袭识别
+                  </label>
+                  <label class="checkbox-item">
+                    <input v-model="jumpStepDetection" type="checkbox" :disabled="!aiEnabled" />
+                    启用跳步识别
+                  </label>
+                  <label class="checkbox-item">
+                    <input v-model="stepConflictDetection" type="checkbox" :disabled="!aiEnabled" />
+                    启用步骤矛盾识别
+                  </label>
+                  <label class="checkbox-item">
+                    <input v-model="requiredStepDetection" type="checkbox" :disabled="!aiEnabled" />
+                    启用必要步骤识别
+                  </label>
                 </div>
               </div>
               <div class="ai-assist-card">
@@ -692,6 +708,10 @@ const visibleAfterSubmit = ref(true)
 const allowViewAnswer = ref(false)
 const allowViewScore = ref(true)
 const handwritingRecognition = ref(false)
+const plagiarismDetection = ref(true)
+const jumpStepDetection = ref(true)
+const stepConflictDetection = ref(true)
+const requiredStepDetection = ref(true)
 const totalScore = ref(100)
 const courseStudentCount = ref(0)
 const courseAssignmentCount = ref(0)
@@ -1071,6 +1091,22 @@ const hydrateForm = async () => {
       typeof payload?.handwritingRecognition === 'boolean'
         ? payload.handwritingRecognition
         : handwritingRecognition.value
+    plagiarismDetection.value =
+      typeof payload?.plagiarismDetection === 'boolean'
+        ? payload.plagiarismDetection
+        : plagiarismDetection.value
+    jumpStepDetection.value =
+      typeof payload?.jumpStepDetection === 'boolean'
+        ? payload.jumpStepDetection
+        : jumpStepDetection.value
+    stepConflictDetection.value =
+      typeof payload?.stepConflictDetection === 'boolean'
+        ? payload.stepConflictDetection
+        : stepConflictDetection.value
+    requiredStepDetection.value =
+      typeof payload?.requiredStepDetection === 'boolean'
+        ? payload.requiredStepDetection
+        : requiredStepDetection.value
     aiConfidenceThreshold.value =
       typeof payload?.aiConfidenceThreshold === 'number'
         ? normalizeConfidenceThreshold(payload.aiConfidenceThreshold)
@@ -1128,6 +1164,10 @@ const persistForm = () => {
     allowViewAnswer: allowViewAnswer.value,
     allowViewScore: allowViewScore.value,
     handwritingRecognition: handwritingRecognition.value,
+    plagiarismDetection: plagiarismDetection.value,
+    jumpStepDetection: jumpStepDetection.value,
+    stepConflictDetection: stepConflictDetection.value,
+    requiredStepDetection: requiredStepDetection.value,
     aiConfidenceThreshold: aiConfidenceThreshold.value,
     totalScore: totalScore.value,
     step: step.value,
@@ -1182,6 +1222,10 @@ watch(
     allowViewAnswer,
     allowViewScore,
     handwritingRecognition,
+    plagiarismDetection,
+    jumpStepDetection,
+    stepConflictDetection,
+    requiredStepDetection,
     aiConfidenceThreshold,
     totalScore,
     step,
@@ -1905,6 +1949,10 @@ const handlePublish = async () => {
       allowViewAnswer: allowViewAnswer.value,
       allowViewScore: allowViewScore.value,
       handwritingRecognition: handwritingRecognition.value,
+      plagiarismDetection: plagiarismDetection.value,
+      jumpStepDetection: jumpStepDetection.value,
+      stepConflictDetection: stepConflictDetection.value,
+      requiredStepDetection: requiredStepDetection.value,
       aiConfidenceThreshold: normalizeConfidenceThreshold(aiConfidenceThreshold.value),
       selectedQuestionIds: bankQuestionIds,
       questions: customPayload,
@@ -1964,6 +2012,10 @@ const handlePublish = async () => {
     allowViewAnswer.value = false
     allowViewScore.value = true
     handwritingRecognition.value = false
+    plagiarismDetection.value = true
+    jumpStepDetection.value = true
+    stepConflictDetection.value = true
+    requiredStepDetection.value = true
     aiConfidenceThreshold.value = 0.75
     totalScore.value = 100
     selectedQuestionIds.value = new Set()
