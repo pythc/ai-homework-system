@@ -39,6 +39,8 @@ const SKIP_SERVER_API_SMOKE =
 const REPORT_DIR = path.join(ROOT_DIR, 'tools', 'test-reports');
 const REPORT_JSON = path.join(REPORT_DIR, 'full-system-test-report.json');
 const REPORT_MD = path.join(REPORT_DIR, 'full-system-test-report.md');
+const ROUTE_COVERAGE_TXT = path.join(REPORT_DIR, 'route-coverage-current.txt');
+const API_DOC_PATH = path.join(ROOT_DIR, 'docs', 'api-endpoints.md');
 
 const PNG_1X1_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WnM6e8AAAAASUVORK5CYII=';
@@ -83,6 +85,9 @@ const context = {
     questionDeleteId: null,
     textbookId: null,
     paperId: null,
+    assistantActionConfirmId: null,
+    assistantActionCancelId: null,
+    assistantActionAssignmentId: null,
     aiJobId: null,
     aiSubmissionVersionId: null,
     submissionVersionIds: [],
@@ -553,6 +558,93 @@ function finding(key, title, severity, detail, evidenceCaseNames = []) {
     detail,
     evidenceCaseNames,
   });
+}
+
+function normalizeRoutePath(rawPath) {
+  if (!rawPath) return '/';
+  let normalized = String(rawPath).trim();
+  if (!normalized.startsWith('/')) normalized = `/${normalized}`;
+  if (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized || '/';
+}
+
+function extractApiPathFromUrl(url) {
+  if (!url) return null;
+  let pathname = '';
+  try {
+    const parsed = new URL(url);
+    pathname = parsed.pathname || '/';
+  } catch {
+    pathname = String(url).split('?')[0] || '/';
+  }
+  const normalized = normalizeRoutePath(pathname);
+  if (normalized.startsWith('/api/v1/')) {
+    return normalizeRoutePath(normalized.slice('/api/v1'.length));
+  }
+  if (normalized === '/api/v1') {
+    return '/';
+  }
+  return normalized;
+}
+
+function routeTemplateToRegExp(routePath) {
+  const escaped = routePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const withParams = escaped.replace(/:([A-Za-z0-9_]+)/g, '[^/]+');
+  return new RegExp(`^${withParams}$`);
+}
+
+async function buildRouteCoverage() {
+  const docText = await fs.readFile(API_DOC_PATH, 'utf-8');
+  const docRoutes = [
+    ...docText.matchAll(/^###\s+(GET|POST|PUT|PATCH|DELETE)\s+([^\s]+)/gm),
+  ].map((match) => ({
+    method: match[1],
+    path: normalizeRoutePath(match[2].split('?')[0]),
+  }));
+
+  const testedRoutes = report.cases
+    .map((item) => {
+      const method = String(item?.request?.method || '').toUpperCase();
+      if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        return null;
+      }
+      const apiPath = extractApiPathFromUrl(item?.request?.url);
+      if (!apiPath) return null;
+      return { method, path: apiPath };
+    })
+    .filter(Boolean);
+
+  const missingRoutes = docRoutes.filter((docRoute) => {
+    const matcher = routeTemplateToRegExp(docRoute.path);
+    return !testedRoutes.some(
+      (tested) =>
+        tested.method === docRoute.method &&
+        matcher.test(tested.path),
+    );
+  });
+
+  const covered = docRoutes.length - missingRoutes.length;
+  report.routeCoverage = {
+    docRoutes: docRoutes.length,
+    covered,
+    missing: missingRoutes.length,
+    missingRoutes: missingRoutes.map((item) => `${item.method} ${item.path}`),
+  };
+
+  const lines = [
+    `doc_routes=${docRoutes.length}`,
+    `covered=${covered}`,
+    `missing=${missingRoutes.length}`,
+  ];
+  if (missingRoutes.length > 0) {
+    lines.push('missing_routes:');
+    for (const route of missingRoutes) {
+      lines.push(`- ${route.method} ${route.path}`);
+    }
+  }
+  await fs.writeFile(ROUTE_COVERAGE_TXT, `${lines.join('\n')}\n`, 'utf-8');
 }
 
 async function main() {
@@ -1745,7 +1837,226 @@ async function main() {
   });
 
   // ----------------------------
-  // 9) Security check aggregation
+  // 9) Assistant Actions APIs
+  // ----------------------------
+  const assistantActionCommonPayload = {
+    originalText: `请为${context.bulk.teacherCourseName}布置一道题（E2E）`,
+    courseId: context.ids.courseMainId,
+    // 选择当前课程中由前序作业创建流程稳定产出的题目编码，确保可命中唯一题目
+    questionRef: 'CUST-JUDGE-1',
+    assignmentTitle: `E2E Assistant Action Confirm ${NOW_TAG}`,
+    description: 'E2E assistant action propose/confirm 自动化用例',
+    deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+
+  await runHttpCase({
+    name: 'Assistant action propose without token (security check)',
+    method: 'POST',
+    path: '/assistant/actions/assignment/propose',
+    body: assistantActionCommonPayload,
+    expectStatus: 401,
+  });
+
+  await runHttpCase({
+    name: 'Assistant action propose with student token (security check)',
+    method: 'POST',
+    path: '/assistant/actions/assignment/propose',
+    token: context.tokens.student,
+    body: assistantActionCommonPayload,
+    expectStatus: 403,
+  });
+
+  const actionProposeConfirmResp = await runHttpCase({
+    name: 'Assistant action propose (teacher, confirm flow)',
+    method: 'POST',
+    path: '/assistant/actions/assignment/propose',
+    token: context.tokens.teacher,
+    body: assistantActionCommonPayload,
+    expectStatus: [200, 201],
+    expect: (r) => ({
+      passed: Boolean(r.json?.actionId),
+      message: 'expect actionId in response',
+    }),
+  });
+  context.ids.assistantActionConfirmId =
+    actionProposeConfirmResp?.json?.actionId || null;
+
+  if (context.ids.assistantActionConfirmId) {
+    await runHttpCase({
+      name: 'Assistant action get without token (security check)',
+      method: 'GET',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}`,
+      expectStatus: 401,
+    });
+
+    await runHttpCase({
+      name: 'Assistant action get by owner',
+      method: 'GET',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}`,
+      token: context.tokens.teacher,
+      expectStatus: 200,
+    });
+
+    await runHttpCase({
+      name: 'Assistant action get by non-owner admin (security check)',
+      method: 'GET',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}`,
+      token: context.tokens.admin,
+      expectStatus: 404,
+    });
+
+    await runHttpCase({
+      name: 'Assistant action confirm without token (security check)',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}/confirm`,
+      expectStatus: 401,
+    });
+
+    await runHttpCase({
+      name: 'Assistant action confirm with student token (security check)',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}/confirm`,
+      token: context.tokens.student,
+      expectStatus: 403,
+    });
+
+    await runHttpCase({
+      name: 'Assistant action confirm by non-owner admin (security check)',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}/confirm`,
+      token: context.tokens.admin,
+      expectStatus: 404,
+    });
+
+    const confirmResp = await runHttpCase({
+      name: 'Assistant action confirm (owner)',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}/confirm`,
+      token: context.tokens.teacher,
+      expectStatus: [200, 201, 400],
+      expect: (r) => {
+        if (r.status === 400) {
+          const msg = String(r.json?.message || '');
+          return {
+            passed: msg.includes('信息不完整'),
+            message: 'expect 400 with 信息不完整 when resolve target is incomplete',
+          };
+        }
+        return {
+          passed: String(r.json?.status || '').toUpperCase() === 'CONFIRMED',
+          message: 'expect status=CONFIRMED',
+        };
+      },
+    });
+    context.ids.assistantActionAssignmentId =
+      confirmResp?.json?.assignmentId || null;
+    const confirmSucceeded = confirmResp?.status === 200 || confirmResp?.status === 201;
+    const expectedStatusAfterConfirm = confirmSucceeded ? 'CONFIRMED' : 'FAILED';
+
+    await runHttpCase({
+      name: 'Assistant action get after confirm',
+      method: 'GET',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}`,
+      token: context.tokens.teacher,
+      expectStatus: 200,
+      expect: (r) => ({
+        passed:
+          String(r.json?.status || '').toUpperCase() === expectedStatusAfterConfirm,
+        message: `expect status=${expectedStatusAfterConfirm} after confirm`,
+      }),
+    });
+
+    await runHttpCase({
+      name: 'Assistant action confirm idempotent',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}/confirm`,
+      token: context.tokens.teacher,
+      expectStatus: confirmSucceeded ? [200, 201] : 409,
+    });
+
+    await runHttpCase({
+      name: 'Assistant action cancel after confirm',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionConfirmId}/cancel`,
+      token: context.tokens.teacher,
+      expectStatus: [200, 201],
+      expect: (r) => ({
+        passed: (() => {
+          const status = String(r.json?.status || '').toUpperCase();
+          return confirmSucceeded ? status === 'CONFIRMED' : status === 'CANCELED';
+        })(),
+        message: confirmSucceeded
+          ? 'expect confirmed task remains CONFIRMED after cancel'
+          : 'expect failed task can be canceled',
+      }),
+    });
+  }
+
+  const assistantActionCancelPayload = {
+    originalText: `请再布置一道待取消的作业（E2E）`,
+    courseId: context.ids.courseMainId,
+    questionRef: context.questionExternal.short,
+    assignmentTitle: `E2E Assistant Action Cancel ${NOW_TAG}`,
+    description: 'E2E assistant action propose/cancel 自动化用例',
+    deadline: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+  const actionProposeCancelResp = await runHttpCase({
+    name: 'Assistant action propose (teacher, cancel flow)',
+    method: 'POST',
+    path: '/assistant/actions/assignment/propose',
+    token: context.tokens.teacher,
+    body: assistantActionCancelPayload,
+    expectStatus: [200, 201],
+    expect: (r) => ({
+      passed: Boolean(r.json?.actionId),
+      message: 'expect actionId in response',
+    }),
+  });
+  context.ids.assistantActionCancelId = actionProposeCancelResp?.json?.actionId || null;
+
+  if (context.ids.assistantActionCancelId) {
+    await runHttpCase({
+      name: 'Assistant action cancel without token (security check)',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionCancelId}/cancel`,
+      expectStatus: 401,
+    });
+
+    await runHttpCase({
+      name: 'Assistant action cancel by non-owner admin (security check)',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionCancelId}/cancel`,
+      token: context.tokens.admin,
+      expectStatus: 404,
+    });
+
+    await runHttpCase({
+      name: 'Assistant action cancel (owner)',
+      method: 'POST',
+      path: `/assistant/actions/${context.ids.assistantActionCancelId}/cancel`,
+      token: context.tokens.teacher,
+      expectStatus: [200, 201],
+      expect: (r) => ({
+        passed: String(r.json?.status || '').toUpperCase() === 'CANCELED',
+        message: 'expect status=CANCELED',
+      }),
+    });
+
+    await runHttpCase({
+      name: 'Assistant action get after cancel',
+      method: 'GET',
+      path: `/assistant/actions/${context.ids.assistantActionCancelId}`,
+      token: context.tokens.teacher,
+      expectStatus: 200,
+      expect: (r) => ({
+        passed: String(r.json?.status || '').toUpperCase() === 'CANCELED',
+        message: 'expect status=CANCELED after cancel',
+      }),
+    });
+  }
+
+  // ----------------------------
+  // 10) Security check aggregation
   // ----------------------------
   const securityFailed = report.cases.filter(
     (c) =>
@@ -1850,13 +2161,22 @@ async function main() {
     'node --check src/index.js',
     path.join(ROOT_DIR, 'assistant_service'),
   );
-  await runCommandCase('Build miniapp h5', 'npm run build:h5', path.join(ROOT_DIR, 'miniapp'));
+  await runCommandCase(
+    'Build miniapp mp-weixin',
+    'npm run build:mp-weixin',
+    path.join(ROOT_DIR, 'miniapp'),
+  );
   await runCommandCase('Server API smoke', 'npm run test:api', path.join(ROOT_DIR, 'server'), {
     env: buildServerSmokeEnv(),
     skip: SKIP_SERVER_API_SMOKE,
     skipReason:
       'SKIP_SERVER_API_SMOKE=true or FULL_SYSTEM_TEST_CONTAINER_MODE=true, skip server smoke',
   });
+
+  // ----------------------------
+  // 11) Route coverage
+  // ----------------------------
+  await buildRouteCoverage();
 
   // ----------------------------
   // finalize report
@@ -1877,6 +2197,10 @@ async function main() {
   mdLines.push(`- Total: ${report.summary.total}`);
   mdLines.push(`- Passed: ${report.summary.passed}`);
   mdLines.push(`- Failed: ${report.summary.failed}`);
+  if (report.routeCoverage) {
+    mdLines.push(`- Route Coverage: ${report.routeCoverage.covered}/${report.routeCoverage.docRoutes}`);
+    mdLines.push(`- Route Missing: ${report.routeCoverage.missing}`);
+  }
   mdLines.push('');
   mdLines.push('## Findings');
   if (!report.findings.length) {
@@ -1907,6 +2231,7 @@ async function main() {
   mdLines.push('## Artifacts');
   mdLines.push(`- JSON: ${REPORT_JSON}`);
   mdLines.push(`- Markdown: ${REPORT_MD}`);
+  mdLines.push(`- Route Coverage: ${ROUTE_COVERAGE_TXT}`);
 
   await fs.writeFile(REPORT_MD, mdLines.join('\n'), 'utf-8');
 
