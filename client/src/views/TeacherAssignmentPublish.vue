@@ -1,7 +1,7 @@
 <template>
   <TeacherLayout
     title="发布作业"
-    subtitle="题库选题 + 自定义题混合组卷"
+    subtitle="课本、试卷与自定义组卷"
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="教学面板"
@@ -77,7 +77,7 @@
             <div class="ai-assist-grid">
               <div class="ai-assist-card">
                 <div class="ai-assist-card-title">基础开关</div>
-                <div class="checkbox-stack">
+                <div class="checkbox-stack checkbox-stack--switches">
                   <label class="checkbox-item">
                     <input id="ai-enabled" v-model="aiEnabled" type="checkbox" />
                     启用 AI 批改
@@ -189,18 +189,18 @@
         <button
           type="button"
           class="source-tab"
-          :class="{ active: questionSourceMode === 'MIXED' }"
-          @click="questionSourceMode = 'MIXED'"
-        >
-          混合组卷
-        </button>
-        <button
-          type="button"
-          class="source-tab"
           :class="{ active: questionSourceMode === 'BANK' }"
           @click="questionSourceMode = 'BANK'"
         >
           从课本题库选题
+        </button>
+        <button
+          type="button"
+          class="source-tab"
+          :class="{ active: questionSourceMode === 'PAPER' }"
+          @click="questionSourceMode = 'PAPER'"
+        >
+          从试卷选题
         </button>
         <button
           type="button"
@@ -210,7 +210,7 @@
         >
           自定义题目
         </button>
-        <span class="helper-text source-tab-hint">课本筛选作为选题来源之一，可与自定义题混合发布</span>
+        <span class="helper-text source-tab-hint">请选择一种来源进行选题</span>
       </div>
 
       <div class="question-picker-layout">
@@ -234,7 +234,7 @@
 
         <div class="question-main-panel">
           <div
-            v-if="questionSourceMode !== 'CUSTOM'"
+            v-if="questionSourceMode === 'BANK'"
             class="question-main-card"
           >
             <div class="question-main-card-head">
@@ -354,7 +354,97 @@
           </div>
 
           <div
-            v-if="questionSourceMode !== 'BANK'"
+            v-if="questionSourceMode === 'PAPER'"
+            class="question-main-card"
+          >
+            <div class="question-main-card-head">
+              <div>
+                <div class="question-main-card-title">试卷筛选</div>
+                <div class="helper-text">从已保存试卷中勾选题目加入当前作业</div>
+              </div>
+              <div class="question-select-count">当前可选 {{ paperTemplateQuestionItems.length }} 题</div>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-row">
+                <div class="form-field">
+                  <label>试卷</label>
+                  <select
+                    v-model="selectedPaperTemplateId"
+                    :disabled="paperTemplateLoading || savedPaperTemplates.length === 0"
+                    @change="handlePaperTemplateChange"
+                  >
+                    <option value="">
+                      {{ savedPaperTemplates.length ? '请选择试卷' : '暂无已保存试卷' }}
+                    </option>
+                    <option v-for="paper in savedPaperTemplates" :key="paper.id" :value="paper.id">
+                      {{ paper.name }}（{{ paper.totalCount }}题）
+                    </option>
+                  </select>
+                </div>
+              </div>
+              <div class="question-select-actions">
+                <button
+                  class="primary-btn"
+                  type="button"
+                  :disabled="!paperTemplateQuestionItems.length"
+                  @click="selectAllPaperTemplateQuestions"
+                >
+                  全选当前试卷
+                </button>
+                <button
+                  class="primary-btn ghost"
+                  type="button"
+                  :disabled="!paperTemplateQuestionItems.length"
+                  @click="clearPaperTemplateSelection"
+                >
+                  清空当前试卷选择
+                </button>
+              </div>
+            </div>
+
+            <div class="qb-list" :class="{ 'qb-list-scroll': !expandQuestionList }" style="margin-top: 14px;">
+              <div
+                v-for="item in paperTemplateQuestionItems"
+                :key="item.key"
+                class="qb-item qb-question"
+                :class="{ active: isPaperTemplateItemChecked(item) }"
+              >
+                <div class="qb-item-title">
+                  <input
+                    type="checkbox"
+                    :disabled="item.disabled"
+                    :checked="isPaperTemplateItemChecked(item)"
+                    @change="togglePaperTemplateItem(item)"
+                  />
+                  <span class="qb-title-text">
+                    {{ item.title || `第 ${item.displayIndex} 题` }}
+                  </span>
+                  <span class="badge">{{ customTypeLabel(item.questionType) }}</span>
+                  <span
+                    v-if="item.previewHtml"
+                    class="qb-preview-inline"
+                    v-mathjax
+                    v-html="item.previewHtml"
+                  />
+                  <button
+                    v-if="item.source === 'bank' && item.bankQuestionId"
+                    class="qb-action qb-detail-btn"
+                    type="button"
+                    @click.stop="viewDetail(item.bankQuestionId)"
+                  >
+                    详情
+                  </button>
+                </div>
+              </div>
+              <div v-if="!paperTemplateQuestionItems.length" class="empty-box">
+                {{ paperTemplateEmptyText }}
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="questionSourceMode === 'CUSTOM'"
             class="question-main-card"
           >
             <div class="custom-builder">
@@ -373,7 +463,7 @@
                 </div>
               </div>
               <div v-if="!customQuestions.length" class="empty-box">
-                还没有自定义题目，可点击上方按钮添加并与题库题混合发布
+                还没有自定义题目，可点击上方按钮添加
               </div>
               <div v-else class="custom-list">
                 <div
@@ -549,6 +639,10 @@
               </div>
             </div>
           </div>
+
+          <div v-if="!questionSourceMode" class="question-main-card question-main-card--source-empty">
+            <div class="empty-box question-source-empty-box">请选择上方“课本/试卷/自定义”中的一种来源开始选题</div>
+          </div>
         </div>
       </div>
 
@@ -608,46 +702,11 @@
     </section>
 
     <section v-if="step === 3" class="panel glass">
-      <div class="panel-title">发布</div>
-      <div class="ai-estimate-card" :class="{ disabled: !aiEnabled }">
-        <div class="estimate-header">
-          <div class="estimate-title">AI 批改开销预估</div>
-          <span class="estimate-hint">仅为发布前估算，实际以提交与重试为准</span>
-        </div>
-        <div v-if="!aiEnabled" class="estimate-disabled-text">
-          当前未启用 AI 批改，不会产生 AI 批改成本。
-        </div>
-        <template v-else>
-          <div class="estimate-grid">
-            <div class="estimate-item">
-              <div class="estimate-label">预计批改任务</div>
-              <div class="estimate-value">{{ formatNumber(estimatedAiRuns) }}</div>
-              <div class="estimate-sub">学生数 × 题目数</div>
-            </div>
-            <div class="estimate-item">
-              <div class="estimate-label">预计输入 Token</div>
-              <div class="estimate-value">{{ formatNumber(estimatedInputTokens) }}</div>
-              <div class="estimate-sub">含题目、标准答案、评分细则、图片识别内容</div>
-            </div>
-            <div class="estimate-item">
-              <div class="estimate-label">预计输出 Token</div>
-              <div class="estimate-value">{{ formatNumber(estimatedOutputTokens) }}</div>
-              <div class="estimate-sub">含分项评分、总评、置信度与存疑原因</div>
-            </div>
-            <div class="estimate-item">
-              <div class="estimate-label">预计批改时长</div>
-              <div class="estimate-value">约 {{ estimatedMinutes }} 分钟</div>
-              <div class="estimate-sub">按单任务 {{ estimatedSecondsPerRun }} 秒估算</div>
-            </div>
-          </div>
-        <div class="estimate-foot">
-            阈值 {{ aiConfidenceThreshold.toFixed(2) }} ·
-            {{ handwritingRecognition ? '手写识别模式' : '标准识别模式' }} ·
-            {{ strictnessModeText }}（{{ strictnessDistributionLabel }}） ·
-            当前课程已有 {{ courseAssignmentCount }} 份作业
-          </div>
-        </template>
-      </div>
+      <div class="panel-title">作业整体预览</div>
+      <PaperPreviewList
+        :items="publishPreviewItems"
+        empty-text="请先在上一步选择题目后再预览"
+      />
       <div class="form-actions">
         <button
           class="primary-btn"
@@ -672,9 +731,16 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import TiptapInput from '../components/TiptapInput.vue'
+import PaperPreviewList from '../components/PaperPreviewList.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import { getCourseSummary, listCourses } from '../api/course'
-import { getQuestionBankStructure, listQuestionBank } from '../api/questionBank'
+import {
+  getQuestionBankPaper,
+  getQuestionBankQuestion,
+  getQuestionBankStructure,
+  listQuestionBank,
+  listQuestionBankPapers,
+} from '../api/questionBank'
 import {
   createAssignment,
   listTeacherAssignments,
@@ -682,6 +748,7 @@ import {
   replaceAssignmentQuestions,
 } from '../api/assignment'
 import { showAppToast } from '../composables/useAppToast'
+import { createBankPreviewItem, createCustomPreviewItem } from '../utils/paperPreview'
 
 const { profileName, profileAccount, refreshProfile } = useTeacherProfile()
 const router = useRouter()
@@ -707,7 +774,7 @@ const aiConfidenceThreshold = ref(0.75)
 const visibleAfterSubmit = ref(true)
 const allowViewAnswer = ref(false)
 const allowViewScore = ref(true)
-const handwritingRecognition = ref(false)
+const handwritingRecognition = ref(true)
 const plagiarismDetection = ref(true)
 const jumpStepDetection = ref(true)
 const stepConflictDetection = ref(true)
@@ -724,12 +791,16 @@ const isHydrating = ref(true)
 const questionWeights = ref({})
 const expandQuestionList = ref(false)
 const step = ref(1)
-const questionSourceMode = ref('MIXED')
+const questionSourceMode = ref('')
 
 const questionError = ref('')
 const submitError = ref('')
 const submitLoading = ref(false)
 const checkingStep1 = ref(false)
+const paperTemplateLoading = ref(false)
+const savedPaperTemplates = ref([])
+const selectedPaperTemplateId = ref('')
+const paperTemplateQuestionItems = ref([])
 
 const strictnessOptions = [
   {
@@ -977,34 +1048,289 @@ const questionTypeOutline = computed(() => {
     .filter((item) => item.count > 0)
 })
 
-const estimatedAiRuns = computed(() =>
-  aiEnabled.value ? courseStudentCount.value * selectedQuestionCount.value : 0,
-)
-
-const estimatedSecondsPerRun = computed(() =>
-  handwritingRecognition.value ? 2.2 : 1.6,
-)
-
-const estimatedInputPerRun = computed(() => {
-  const base = handwritingRecognition.value ? 1400 : 1100
-  const questionFactor = Math.max(selectedQuestionCount.value, 1) * 120
-  return base + questionFactor
+const paperTemplateEmptyText = computed(() => {
+  if (paperTemplateLoading.value) {
+    return '试卷加载中...'
+  }
+  if (!savedPaperTemplates.value.length) {
+    return '暂无已保存试卷'
+  }
+  if (!selectedPaperTemplateId.value) {
+    return '请选择试卷'
+  }
+  return '当前试卷暂无可选题目'
 })
 
-const estimatedOutputPerRun = computed(() => 220 + Math.max(selectedQuestionCount.value, 1) * 25)
+const normalizePaperTemplateMode = (value) => {
+  const mode = String(value || '').toUpperCase()
+  return mode === 'BANK' || mode === 'PAPER' || mode === 'CUSTOM' ? mode : ''
+}
 
-const estimatedInputTokens = computed(() => Math.round(estimatedAiRuns.value * estimatedInputPerRun.value))
-const estimatedOutputTokens = computed(() =>
-  Math.round(estimatedAiRuns.value * estimatedOutputPerRun.value),
-)
-const estimatedMinutes = computed(() =>
-  estimatedAiRuns.value <= 0
-    ? 0
-    : Math.max(1, Math.round((estimatedAiRuns.value * estimatedSecondsPerRun.value) / 60)),
-)
+const normalizePaperTemplateQuestionIds = (input) => {
+  if (!Array.isArray(input)) return []
+  const seen = new Set()
+  const result = []
+  for (const item of input) {
+    const id = String(item || '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    result.push(id)
+  }
+  return result
+}
 
-const formatNumber = (value) =>
-  Number(value || 0).toLocaleString('zh-CN')
+const refreshPaperTemplates = async (silent = false) => {
+  paperTemplateLoading.value = true
+  try {
+    const rows = await listQuestionBankPapers()
+    savedPaperTemplates.value = Array.isArray(rows) ? rows : []
+    if (!selectedPaperTemplateId.value && savedPaperTemplates.value.length > 0) {
+      selectedPaperTemplateId.value = savedPaperTemplates.value[0].id
+    } else if (
+      selectedPaperTemplateId.value &&
+      !savedPaperTemplates.value.some((item) => item.id === selectedPaperTemplateId.value)
+    ) {
+      selectedPaperTemplateId.value = ''
+    }
+  } catch (err) {
+    if (!silent) {
+      showAppToast(err instanceof Error ? err.message : '加载试卷模板失败', 'error')
+    }
+    savedPaperTemplates.value = []
+    selectedPaperTemplateId.value = ''
+  } finally {
+    paperTemplateLoading.value = false
+  }
+}
+
+const ensureQuestionBankResources = async () => {
+  if (textbooks.value.length && chapters.value.length && questions.value.length) {
+    return
+  }
+  const [structure, bankQuestions] = await Promise.all([
+    getQuestionBankStructure(),
+    listQuestionBank(),
+  ])
+  textbooks.value = structure.textbooks ?? []
+  chapters.value = structure.chapters ?? []
+  questions.value = bankQuestions ?? []
+}
+
+const normalizeTemplateCustomQuestion = (input) => {
+  if (!input || typeof input !== 'object') return null
+  const source = input
+  const questionType = String(source.questionType || '').toUpperCase()
+  if (!quickQuestionTypes.some((item) => item.value === questionType) && !['ESSAY', 'PROOF'].includes(questionType)) {
+    return null
+  }
+  return {
+    questionType,
+    title: String(source.title || ''),
+    prompt: String(source.prompt || ''),
+    defaultScore: Number(source.defaultScore) > 0 ? Number(source.defaultScore) : 10,
+    allowPartial: Boolean(source.allowPartial),
+    options: Array.isArray(source.options)
+      ? source.options
+          .map((item) => ({
+            id: String(item?.id || '').trim(),
+            text: String(item?.text || ''),
+          }))
+          .filter((item) => item.id)
+      : [],
+    correctOptionIds: Array.isArray(source.correctOptionIds)
+      ? source.correctOptionIds.map((item) => String(item || '')).filter(Boolean)
+      : [],
+    judgeAnswer: typeof source.judgeAnswer === 'boolean' ? source.judgeAnswer : null,
+    blankAnswers: Array.isArray(source.blankAnswers)
+      ? source.blankAnswers.map((item) => String(item || ''))
+      : [],
+    standardAnswerText: String(source.standardAnswerText || ''),
+  }
+}
+
+const loadPaperTemplateQuestions = async (paperId, silent = false) => {
+  if (!paperId) {
+    paperTemplateQuestionItems.value = []
+    return
+  }
+  paperTemplateLoading.value = true
+  try {
+    if (!questions.value.length) {
+      await ensureQuestionBankResources()
+    }
+    const detail = await getQuestionBankPaper(paperId)
+    const content = detail?.content ?? {}
+    const orderedIds = normalizePaperTemplateQuestionIds(content.selectedQuestionIds)
+    const selectedSet = new Set(orderedIds)
+    const orderedFromContent = normalizePaperTemplateQuestionIds(content.selectedQuestionOrder)
+    const normalizedOrder = orderedFromContent.filter((id) => selectedSet.has(id))
+    orderedIds.forEach((id) => {
+      if (!normalizedOrder.includes(id)) {
+        normalizedOrder.push(id)
+      }
+    })
+    const map = new Map(questionById.value)
+    const missingIds = normalizedOrder.filter((id) => !map.has(id))
+    if (missingIds.length) {
+      const fetchedRows = await Promise.all(
+        missingIds.map(async (id) => {
+          try {
+            return await getQuestionBankQuestion(id)
+          } catch {
+            return null
+          }
+        }),
+      )
+      fetchedRows.forEach((item) => {
+        if (item?.id) {
+          map.set(item.id, item)
+        }
+      })
+    }
+    const items = []
+    normalizedOrder.forEach((id, index) => {
+      const bank = map.get(id)
+      if (!bank) {
+        items.push({
+          key: `paper-bank-missing:${id}`,
+          source: 'bank',
+          bankQuestionId: id,
+          questionType: 'SHORT_ANSWER',
+          title: `题目缺失（${id}）`,
+          previewHtml: '该题无法加载，请检查题库可见性或题目是否被删除',
+          displayIndex: index + 1,
+          disabled: true,
+        })
+        return
+      }
+      const preview = createBankPreviewItem(bank, index + 1, id)
+      items.push({
+        key: `paper-bank:${id}`,
+        source: 'bank',
+        bankQuestionId: id,
+        questionType: preview.questionType,
+        title: preview.title,
+        previewHtml: preview.promptHtml,
+        displayIndex: index + 1,
+      })
+    })
+    if (Array.isArray(content.customQuestions)) {
+      content.customQuestions.forEach((raw, index) => {
+        const normalized = normalizeTemplateCustomQuestion(raw)
+        if (!normalized) return
+        const preview = createCustomPreviewItem(normalized, normalizedOrder.length + index + 1)
+        items.push({
+          key: `paper-custom:${paperId}:${index}`,
+          source: 'custom',
+          questionType: preview.questionType,
+          title: preview.title,
+          previewHtml: preview.promptHtml,
+          displayIndex: normalizedOrder.length + index + 1,
+          customQuestion: normalized,
+        })
+      })
+    }
+    paperTemplateQuestionItems.value = items
+    if (!silent) {
+      showAppToast(`已加载试卷：${detail.name}`, 'success')
+    }
+  } catch (err) {
+    paperTemplateQuestionItems.value = []
+    if (!silent) {
+      showAppToast(err instanceof Error ? err.message : '加载试卷失败', 'error')
+    }
+  } finally {
+    paperTemplateLoading.value = false
+  }
+}
+
+const handlePaperTemplateChange = async () => {
+  await loadPaperTemplateQuestions(selectedPaperTemplateId.value, true)
+}
+
+const isPaperTemplateItemChecked = (item) => {
+  if (item.disabled) return false
+  if (item.source === 'bank') {
+    return selectedQuestionIds.value.has(item.bankQuestionId)
+  }
+  return customQuestions.value.some((question) => question.paperOriginKey === item.key)
+}
+
+const appendCustomQuestionFromPaperItem = (item) => {
+  const normalized = normalizeTemplateCustomQuestion(item.customQuestion)
+  if (!normalized) return
+  const draft = createCustomQuestionDraft(normalized.questionType)
+  draft.title = normalized.title
+  draft.prompt = normalized.prompt
+  draft.defaultScore = normalized.defaultScore
+  draft.allowPartial = normalized.allowPartial
+  draft.options = normalized.options
+  draft.correctOptionIds = normalized.correctOptionIds
+  draft.judgeAnswer = normalized.judgeAnswer
+  draft.blankAnswers = normalized.blankAnswers
+  draft.standardAnswerText = normalized.standardAnswerText
+  draft.paperOriginKey = item.key
+  customQuestions.value = [...customQuestions.value, draft]
+}
+
+const togglePaperTemplateItem = (item) => {
+  if (item.disabled) return
+  if (item.source === 'bank') {
+    const id = item.bankQuestionId
+    if (!id) return
+    const next = new Set(selectedQuestionIds.value)
+    const order = [...selectedQuestionOrder.value]
+    if (next.has(id)) {
+      next.delete(id)
+      const index = order.indexOf(id)
+      if (index >= 0) order.splice(index, 1)
+    } else {
+      next.add(id)
+      if (!order.includes(id)) {
+        order.push(id)
+      }
+    }
+    selectedQuestionIds.value = next
+    selectedQuestionOrder.value = order
+    return
+  }
+
+  const exists = customQuestions.value.some((question) => question.paperOriginKey === item.key)
+  if (exists) {
+    customQuestions.value = customQuestions.value.filter((question) => question.paperOriginKey !== item.key)
+    return
+  }
+  appendCustomQuestionFromPaperItem(item)
+}
+
+const selectAllPaperTemplateQuestions = () => {
+  paperTemplateQuestionItems.value.forEach((item) => {
+    if (!isPaperTemplateItemChecked(item)) {
+      togglePaperTemplateItem(item)
+    }
+  })
+}
+
+const clearPaperTemplateSelection = () => {
+  const bankIds = new Set(
+    paperTemplateQuestionItems.value
+      .filter((item) => item.source === 'bank' && item.bankQuestionId)
+      .map((item) => item.bankQuestionId),
+  )
+  const customOriginKeys = new Set(
+    paperTemplateQuestionItems.value
+      .filter((item) => item.source === 'custom')
+      .map((item) => item.key),
+  )
+
+  const next = new Set(selectedQuestionIds.value)
+  bankIds.forEach((id) => next.delete(id))
+  selectedQuestionIds.value = next
+  selectedQuestionOrder.value = selectedQuestionOrder.value.filter((id) => !bankIds.has(id))
+  customQuestions.value = customQuestions.value.filter(
+    (item) => !customOriginKeys.has(item.paperOriginKey),
+  )
+}
 
 const STORAGE_KEY = 'teacher.assignment.publish.filters'
 const FORM_KEY = 'teacher.assignment.publish.form'
@@ -1114,19 +1440,19 @@ const hydrateForm = async () => {
     totalScore.value =
       typeof payload?.totalScore === 'number' ? payload.totalScore : totalScore.value
     step.value = payload?.step ?? step.value
-    questionSourceMode.value =
-      payload?.questionSourceMode === 'BANK' || payload?.questionSourceMode === 'CUSTOM'
-        ? payload.questionSourceMode
-        : 'MIXED'
+    questionSourceMode.value = normalizePaperTemplateMode(payload?.questionSourceMode)
 
-    const ids = Array.isArray(payload?.selectedQuestionIds)
-      ? payload.selectedQuestionIds
-      : []
-    const order = Array.isArray(payload?.selectedQuestionOrder)
-      ? payload.selectedQuestionOrder
-      : []
-    selectedQuestionIds.value = new Set(ids)
-    selectedQuestionOrder.value = order.length ? order : ids
+    const ids = normalizePaperTemplateQuestionIds(payload?.selectedQuestionIds)
+    const idsSet = new Set(ids)
+    const order = normalizePaperTemplateQuestionIds(payload?.selectedQuestionOrder)
+    const normalizedOrder = order.filter((id) => idsSet.has(id))
+    ids.forEach((id) => {
+      if (!normalizedOrder.includes(id)) {
+        normalizedOrder.push(id)
+      }
+    })
+    selectedQuestionIds.value = idsSet
+    selectedQuestionOrder.value = normalizedOrder
     questionWeights.value = payload?.questionWeights ?? {}
     expandQuestionList.value = payload?.expandQuestionList ?? false
     customQuestions.value = Array.isArray(payload?.customQuestions)
@@ -1138,6 +1464,7 @@ const hydrateForm = async () => {
       typeof payload?.customQuestionCounter === 'number' && payload.customQuestionCounter > 0
         ? payload.customQuestionCounter
         : customQuestions.value.length + 1
+    selectedPaperTemplateId.value = String(payload?.selectedPaperTemplateId ?? '')
 
     const stepFromQuery = Number(route.query.step ?? 0)
     if ([1, 2, 3].includes(stepFromQuery)) {
@@ -1178,16 +1505,33 @@ const persistForm = () => {
     customQuestionCounter: customQuestionCounter.value,
     questionWeights: questionWeights.value,
     expandQuestionList: expandQuestionList.value,
+    selectedPaperTemplateId: selectedPaperTemplateId.value,
   }
   sessionStorage.setItem(FORM_KEY, JSON.stringify(payload))
 }
 
 onMounted(async () => {
   await refreshProfile()
-  await fetchCourses()
+  await Promise.all([fetchCourses(), refreshPaperTemplates(true)])
   isHydrating.value = true
   await hydrateFilters()
   await hydrateForm()
+  if (selectedPaperTemplateId.value) {
+    await loadPaperTemplateQuestions(selectedPaperTemplateId.value, true)
+  }
+  const routePaperId = String(route.query.paperId ?? '').trim()
+  if (routePaperId) {
+    questionSourceMode.value = 'PAPER'
+    selectedPaperTemplateId.value = routePaperId
+    await loadPaperTemplateQuestions(routePaperId, true)
+    await router.replace({
+      query: {
+        ...route.query,
+        paperId: undefined,
+        from: undefined,
+      },
+    })
+  }
   isHydrating.value = false
 })
 
@@ -1202,7 +1546,7 @@ watch([selectedQuestionIds, selectedQuestionOrder, customQuestions], () => {
 
 watch(aiEnabled, (enabled) => {
   if (!enabled) {
-    handwritingRecognition.value = false
+    handwritingRecognition.value = true
   }
 })
 
@@ -1236,6 +1580,7 @@ watch(
     customQuestionCounter,
     questionWeights,
     expandQuestionList,
+    selectedPaperTemplateId,
   ],
   () => {
     if (isHydrating.value) return
@@ -1577,6 +1922,15 @@ const orderedPublishQuestions = computed(() => {
 })
 
 const totalSelectedQuestionCount = computed(() => orderedPublishQuestions.value.length)
+
+const publishPreviewItems = computed(() =>
+  orderedPublishQuestions.value.map((item, index) => {
+    if (item.source === 'bank') {
+      return createBankPreviewItem(item.raw, index + 1, String(item.key))
+    }
+    return createCustomPreviewItem(item.raw, index + 1, String(item.key))
+  }),
+)
 
 const isDescendantOf = (itemId, ancestorId) => {
   let current = filteredQuestionById.value.get(itemId)
@@ -2025,7 +2379,9 @@ const handlePublish = async () => {
     questionWeights.value = {}
     expandQuestionList.value = false
     step.value = 1
-    questionSourceMode.value = 'MIXED'
+    questionSourceMode.value = ''
+    selectedPaperTemplateId.value = ''
+    paperTemplateQuestionItems.value = []
   } catch (err) {
     submitError.value = err instanceof Error ? err.message : '发布失败'
     showAppToast(submitError.value, 'error')
@@ -2161,6 +2517,19 @@ const handlePublish = async () => {
   padding: 12px;
   display: grid;
   gap: 12px;
+}
+
+.question-main-card--source-empty {
+  min-height: 234px;
+  display: flex;
+}
+
+.question-source-empty-box {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .question-main-card-head {
@@ -2613,6 +2982,12 @@ const handlePublish = async () => {
   gap: 8px;
 }
 
+.checkbox-stack--switches {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 14px;
+  row-gap: 8px;
+}
+
 .checkbox-item {
   display: flex;
   align-items: center;
@@ -2752,6 +3127,10 @@ const handlePublish = async () => {
 
   .strictness-grid {
     grid-template-columns: 1fr;
+  }
+
+  .checkbox-stack--switches {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

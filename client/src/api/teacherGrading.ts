@@ -8,7 +8,13 @@ export type TeacherSubmissionItem = {
   aiStatus: string
   status: string
   aiConfidence?: number | null
+  aiTotalScore?: number | null
   aiIsUncertain?: boolean
+  finalScore?: number | null
+  assignmentScore?: number | null
+  questionMaxScore?: number | null
+  questionWeight?: number | null
+  assignmentTotalScore?: number | null
   scorePublished?: boolean
   contentText: string
   fileUrls: string[]

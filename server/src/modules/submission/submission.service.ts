@@ -14,6 +14,7 @@ import {
   QuestionType,
 } from '../assignment/entities/assignment-question.entity';
 import { CourseEntity } from '../assignment/entities/course.entity';
+import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { SubmissionEntity } from './entities/submission.entity';
 import {
@@ -56,6 +57,8 @@ export class SubmissionService {
     private readonly courseRepo: Repository<CourseEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+    @InjectRepository(AssignmentSnapshotEntity)
+    private readonly snapshotRepo: Repository<AssignmentSnapshotEntity>,
     private readonly aiGradingService: AiGradingService,
     private readonly storageService: StorageService,
   ) {}
@@ -528,6 +531,8 @@ export class SubmissionService {
     if (requester.role !== UserRole.ADMIN && course.teacherId !== requester.sub) {
       throw new BadRequestException('无权查看该作业的提交');
     }
+    const assignmentTotalScore = Number(assignment.totalScore ?? 0);
+    const questionScoreMeta = await this.resolveAssignmentQuestionScoreMeta(assignment);
 
     const rows = await this.dataSource.query(
       `
@@ -539,7 +544,10 @@ export class SubmissionService {
           v.ai_status AS "aiStatus",
           v.status AS "status",
           ai.result->>'confidence' AS "aiConfidence",
+          ai.result->>'totalScore' AS "aiTotalScore",
           ai.result->>'isUncertain' AS "aiIsUncertain",
+          sc.total_score AS "finalScore",
+          aws.total_score AS "assignmentScore",
           v.content_text AS "contentText",
           v.answer_payload AS "answerPayload",
           v.answer_format AS "answerFormat",
@@ -558,6 +566,9 @@ export class SubmissionService {
         LEFT JOIN scores sc
           ON sc.submission_version_id = v.id
           AND sc.is_final = true
+        LEFT JOIN assignment_weighted_scores aws
+          ON aws.assignment_id = s.assignment_id
+          AND aws.student_id = s.student_id
         LEFT JOIN LATERAL (
           SELECT ag.result
           FROM ai_gradings ag
@@ -583,10 +594,22 @@ export class SubmissionService {
           row.aiConfidence !== null && row.aiConfidence !== undefined
             ? Number(row.aiConfidence)
             : null,
+        aiTotalScore:
+          row.aiTotalScore !== null && row.aiTotalScore !== undefined
+            ? Number(row.aiTotalScore)
+            : null,
         aiIsUncertain:
           row.aiIsUncertain === true ||
           row.aiIsUncertain === 1 ||
           row.aiIsUncertain === 'true',
+        finalScore:
+          row.finalScore !== null && row.finalScore !== undefined
+            ? Number(row.finalScore)
+            : null,
+        assignmentScore:
+          row.assignmentScore !== null && row.assignmentScore !== undefined
+            ? Number(row.assignmentScore)
+            : null,
         isFinal: row.isFinal === true || row.isFinal === 1,
         contentText: row.contentText ?? '',
         answerPayload: row.answerPayload ?? null,
@@ -596,6 +619,9 @@ export class SubmissionService {
         ),
         submittedAt: row.submittedAt,
         scorePublished: row.scorePublished === true || row.scorePublished === 1,
+        questionMaxScore: questionScoreMeta.get(String(row.questionId ?? ''))?.maxScore ?? 10,
+        questionWeight: questionScoreMeta.get(String(row.questionId ?? ''))?.weight ?? 0,
+        assignmentTotalScore,
         student: {
           studentId: row.studentId,
           name: row.studentName ?? null,
@@ -974,5 +1000,65 @@ export class SubmissionService {
         temperature: 0.2,
       },
     });
+  }
+
+  private async resolveAssignmentQuestionScoreMeta(assignment: AssignmentEntity) {
+    const fallback = new Map<string, { maxScore: number; weight: number }>();
+    const selectedIds = assignment.selectedQuestionIds ?? [];
+    const fallbackWeight = selectedIds.length > 0 ? 100 / selectedIds.length : 0;
+    selectedIds.forEach((id) => {
+      fallback.set(String(id), { maxScore: 10, weight: fallbackWeight });
+    });
+    if (!assignment.currentSnapshotId) {
+      return fallback;
+    }
+    const snapshot = await this.snapshotRepo.findOne({
+      where: { id: assignment.currentSnapshotId },
+    });
+    if (!snapshot) {
+      return fallback;
+    }
+    const payload = snapshot.snapshot as {
+      questions?: Array<{
+        questionId?: string;
+        defaultScore?: number;
+        weight?: number;
+        rubric?: Array<{ maxScore?: number }>;
+      }>;
+    };
+    const questions = Array.isArray(payload.questions) ? payload.questions : [];
+    let weightedCount = 0;
+    let weightSum = 0;
+    for (const question of questions) {
+      if (!question?.questionId) continue;
+      const weight = Number(question.weight ?? 0);
+      if (Number.isFinite(weight) && weight > 0) {
+        weightedCount += 1;
+        weightSum += weight;
+      }
+    }
+    const defaultWeight = weightedCount === 0 && questions.length > 0 ? 100 / questions.length : 0;
+
+    for (const question of questions) {
+      const questionId = String(question?.questionId ?? '').trim();
+      if (!questionId) continue;
+      const rubric = Array.isArray(question?.rubric) ? question.rubric : [];
+      const rubricTotal = rubric.reduce((sum, item) => {
+        const max = Number(item?.maxScore ?? 0);
+        return sum + (Number.isFinite(max) && max > 0 ? max : 0);
+      }, 0);
+      const defaultScore = Number(question?.defaultScore ?? 0);
+      const maxScore = rubricTotal > 0 ? rubricTotal : defaultScore > 0 ? defaultScore : 10;
+      const explicitWeight = Number(question?.weight ?? 0);
+      const weight =
+        Number.isFinite(explicitWeight) && explicitWeight > 0
+          ? explicitWeight
+          : defaultWeight;
+      fallback.set(questionId, {
+        maxScore,
+        weight,
+      });
+    }
+    return fallback;
   }
 }

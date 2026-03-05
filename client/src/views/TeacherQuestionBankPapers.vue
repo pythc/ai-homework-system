@@ -29,7 +29,7 @@
         </div>
       </div>
       <div class="helper-text">
-        当前保存方式：后端存储（同账号跨设备可见）。
+        当前保存方式：后端存储（仅当前教师账号可见，跨设备可见）。
       </div>
       <div v-if="currentPaperId" class="helper-text">当前正在编辑：{{ currentPaperId }}</div>
     </section>
@@ -52,7 +52,8 @@
             </div>
           </div>
           <div class="saved-paper-actions">
-            <button class="qb-action" type="button" @click="loadPaper(paper.id)">载入</button>
+            <button class="qb-action" type="button" @click="viewPaper(paper.id)">查看</button>
+            <button class="qb-action" type="button" @click="goPublishWithPaper(paper.id)">去发布</button>
             <button class="qb-action danger" type="button" @click="removePaper(paper.id)">删除</button>
           </div>
         </div>
@@ -372,6 +373,9 @@
       </div>
 
       <div class="step-actions">
+        <button class="primary-btn ghost" type="button" @click="goPublishWithPaper()">
+          带当前组卷去发布
+        </button>
         <button class="primary-btn" type="button" @click="savePaper">保存试卷</button>
       </div>
     </section>
@@ -386,7 +390,6 @@ import TiptapInput from '../components/TiptapInput.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
 import {
   deleteQuestionBankPaper,
-  getQuestionBankPaper,
   getQuestionBankStructure,
   listQuestionBank,
   listQuestionBankPapers,
@@ -501,32 +504,6 @@ const createCustomQuestionDraft = (questionType: string): CustomQuestionDraft =>
     blankAnswers: questionType === 'FILL_BLANK' ? [''] : [],
     standardAnswerText: '',
   }
-}
-
-const sanitizeCustomQuestionDraft = (input: any): CustomQuestionDraft | null => {
-  if (!input || typeof input !== 'object') return null
-  const questionType = String(input.questionType || '').toUpperCase()
-  if (!customTypeLabels[questionType]) return null
-  const draft = createCustomQuestionDraft(questionType)
-  draft.title = String(input.title || '')
-  draft.prompt = String(input.prompt || '')
-  draft.defaultScore = Number(input.defaultScore) > 0 ? Number(input.defaultScore) : 10
-  draft.allowPartial = Boolean(input.allowPartial)
-  if (Array.isArray(input.options)) {
-    const options = input.options
-      .map((item: any) => ({ id: String(item?.id || '').trim(), text: String(item?.text || '') }))
-      .filter((item: any) => item.id)
-    if (options.length >= 2) draft.options = options
-  }
-  if (Array.isArray(input.correctOptionIds)) {
-    draft.correctOptionIds = input.correctOptionIds.map((item: any) => String(item)).filter(Boolean)
-  }
-  if (typeof input.judgeAnswer === 'boolean') draft.judgeAnswer = input.judgeAnswer
-  if (Array.isArray(input.blankAnswers) && input.blankAnswers.length) {
-    draft.blankAnswers = input.blankAnswers.map((item: any) => String(item ?? ''))
-  }
-  draft.standardAnswerText = String(input.standardAnswerText || '')
-  return draft
 }
 
 const addCustomQuestion = (questionType: string) => {
@@ -935,12 +912,23 @@ const fetchSavedPaperList = async () => {
   }
 }
 
-const savePaper = async () => {
+const savePaper = async (): Promise<string | null> => {
   const payload = buildPaperPayload()
-  if (!payload) return
+  if (!payload) return null
   try {
-    const saved = await saveQuestionBankPaper({
-      id: payload.id,
+    const savePayload: {
+      id?: string
+      name: string
+      content: {
+        questionSourceMode: SavedPaper['questionSourceMode']
+        selectedTextbookId: string
+        selectedParentChapterId: string
+        selectedChapterId: string
+        selectedQuestionIds: string[]
+        selectedQuestionOrder: string[]
+        customQuestions: CustomQuestionDraft[]
+      }
+    } = {
       name: payload.name,
       content: {
         questionSourceMode: payload.questionSourceMode,
@@ -951,51 +939,48 @@ const savePaper = async () => {
         selectedQuestionOrder: payload.selectedQuestionOrder,
         customQuestions: payload.customQuestions,
       },
+    }
+    if (currentPaperId.value) {
+      savePayload.id = currentPaperId.value
+    }
+
+    const saved = await saveQuestionBankPaper({
+      ...savePayload,
     })
     currentPaperId.value = saved.id
     await fetchSavedPaperList()
     showAppToast('试卷已保存', 'success')
+    return saved.id
   } catch (err: any) {
     showAppToast(err instanceof Error ? err.message : '保存试卷失败', 'error')
+    return null
   }
 }
 
-const loadPaper = async (paperId: string) => {
-  try {
-    const item = await getQuestionBankPaper(paperId)
-    const content = (item as any)?.content ?? {}
-    currentPaperId.value = item.id
-    paperName.value = item.name
-    questionSourceMode.value =
-      content.questionSourceMode === 'BANK' || content.questionSourceMode === 'CUSTOM'
-        ? content.questionSourceMode
-        : 'MIXED'
-    selectedTextbookId.value = String(content.selectedTextbookId ?? '')
-    selectedParentChapterId.value = String(content.selectedParentChapterId ?? '')
-    selectedChapterId.value = String(content.selectedChapterId ?? '')
-    selectedQuestionIds.value = new Set(
-      Array.isArray(content.selectedQuestionIds)
-        ? content.selectedQuestionIds.map((v: any) => String(v)).filter(Boolean)
-        : [],
-    )
-    selectedQuestionOrder.value = Array.isArray(content.selectedQuestionOrder)
-      ? content.selectedQuestionOrder.map((v: any) => String(v)).filter(Boolean)
-      : Array.from(selectedQuestionIds.value)
-    const restoredCustomQuestions: CustomQuestionDraft[] = []
-    if (Array.isArray(content.customQuestions)) {
-      for (const rawQuestion of content.customQuestions) {
-        const normalized = sanitizeCustomQuestionDraft(rawQuestion)
-        if (normalized) {
-          restoredCustomQuestions.push(normalized)
-        }
-      }
-    }
-    customQuestions.value = restoredCustomQuestions
-    customQuestionCounter.value = customQuestions.value.length + 1
-    showAppToast('试卷已载入', 'success')
-  } catch (err: any) {
-    showAppToast(err instanceof Error ? err.message : '载入试卷失败', 'error')
+const goPublishWithPaper = async (paperId?: string) => {
+  let targetPaperId = paperId || currentPaperId.value
+  if (!targetPaperId) {
+    targetPaperId = (await savePaper()) ?? ''
   }
+  if (!targetPaperId) return
+  router.push({
+    path: '/teacher/assignments/publish',
+    query: {
+      paperId: targetPaperId,
+      step: '2',
+      from: 'papers',
+    },
+  })
+}
+
+const viewPaper = (paperId: string) => {
+  router.push({
+    path: '/teacher/papers/preview',
+    query: {
+      paperId,
+      from: 'papers',
+    },
+  })
 }
 
 const removePaper = async (paperId: string) => {

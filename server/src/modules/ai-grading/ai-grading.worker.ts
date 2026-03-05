@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { AiGradingQueueService } from './ai-grading.queue';
@@ -31,6 +32,20 @@ type SnapshotQuestion = {
 type ParsedAiOutput = {
   result: Record<string, unknown>;
   extracted?: Record<string, unknown>;
+};
+
+type StudentIdentity = {
+  studentId: string;
+  name: string;
+  account: string;
+};
+
+type PlagiarismSuspect = {
+  submissionVersionId: string;
+  studentId: string;
+  name: string;
+  account: string;
+  similarity: number;
 };
 
 @Injectable()
@@ -196,6 +211,19 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
         modelVersion = result.modelVersion;
       }
 
+      this.applyScoreLeniency(parsed.result, {
+        gradingMode,
+        gradingStrictness: payload.options?.gradingStrictness,
+      });
+      this.normalizeReasonChannels(parsed.result);
+
+      await this.applyPlagiarismCheck({
+        enabled: payload.options?.plagiarismDetection !== false,
+        parsed,
+        submissionVersion,
+        question,
+      });
+
       await this.jobRepo.update(
         { id: job.id },
         { stage: AiJobStage.PARSE_OUTPUT, updatedAt: new Date() },
@@ -300,7 +328,10 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
           rubric: input.question.rubric ?? [],
       },
       options: {
-        returnStudentMarkdown: input.returnStudentMarkdown ?? false,
+        returnStudentMarkdown:
+          Boolean(input.returnStudentMarkdown) ||
+          Boolean(input.plagiarismDetection) ||
+          Boolean(input.handwritingRecognition),
         minConfidence: input.minConfidence ?? 0.75,
         handwritingRecognition: input.handwritingRecognition ?? false,
         plagiarismDetection: input.plagiarismDetection ?? true,
@@ -843,6 +874,210 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
     return value;
   }
 
+  private applyScoreLeniency(
+    result: Record<string, unknown>,
+    input: { gradingMode: 'AUTO_RULE' | 'AI_RUBRIC'; gradingStrictness?: string },
+  ) {
+    if (input.gradingMode !== 'AI_RUBRIC') {
+      return;
+    }
+    const strictness = String(input.gradingStrictness ?? 'BALANCED')
+      .trim()
+      .toUpperCase();
+    const defaultByStrictness =
+      strictness === 'LENIENT' ? 0.18 : strictness === 'STRICT' ? 0.04 : 0.1;
+    const configured = this.readNumberEnv(
+      'AI_GRADING_DEDUCTION_RELAX_RATIO',
+      defaultByStrictness,
+    );
+    const relaxRatio = this.clamp01(configured);
+    if (relaxRatio <= 0) {
+      return;
+    }
+    const items = Array.isArray(result.items) ? (result.items as Record<string, unknown>[]) : [];
+    if (!items.length) {
+      return;
+    }
+    let total = 0;
+    for (const item of items) {
+      const maxScore = Number(item.maxScore);
+      const score = Number(item.score);
+      if (!Number.isFinite(maxScore) || !Number.isFinite(score) || maxScore <= 0) {
+        if (Number.isFinite(score)) {
+          total += score;
+        }
+        continue;
+      }
+      const clampedScore = Math.max(0, Math.min(maxScore, score));
+      const deduction = maxScore - clampedScore;
+      const adjustedScore = Number(
+        Math.max(0, Math.min(maxScore, clampedScore + deduction * relaxRatio)).toFixed(2),
+      );
+      item.score = adjustedScore;
+      total += adjustedScore;
+    }
+    result.totalScore = Number(total.toFixed(2));
+  }
+
+  private normalizeReasonChannels(result: Record<string, unknown>) {
+    const rawReasons = Array.isArray(result.uncertaintyReasons)
+      ? (result.uncertaintyReasons as Array<{ code?: string; message?: string }>)
+      : [];
+    if (!rawReasons.length) {
+      return;
+    }
+
+    const kept: Array<{ code: string; message: string }> = [];
+    const migrated: Array<{ code: string; message: string }> = [];
+
+    for (const item of rawReasons) {
+      const normalized = this.normalizeReasonRecord(item);
+      if (!normalized) {
+        continue;
+      }
+      const channel = this.resolveReasonChannel(normalized.code, normalized.message);
+      if (channel === 'penalty') {
+        migrated.push(normalized);
+        continue;
+      }
+      kept.push(normalized);
+    }
+
+    if (migrated.length) {
+      this.appendPenaltyReasonsToItems(result, migrated);
+    }
+
+    result.uncertaintyReasons = kept;
+    const hasObjectionReasons = kept.some((reason) =>
+      this.isObjectionReason(reason.code, reason.message),
+    );
+    const hasUncertaintyReasons = kept.some(
+      (reason) => !this.isObjectionReason(reason.code, reason.message),
+    );
+    result.isUncertain = hasObjectionReasons || hasUncertaintyReasons;
+  }
+
+  private normalizeReasonRecord(item?: { code?: string; message?: string }) {
+    const rawCode = String(item?.code ?? '')
+      .trim()
+      .toUpperCase()
+      .replace(/[\s-]+/g, '_');
+    const code = this.normalizeReasonCode(rawCode);
+    const message = String(item?.message ?? '').trim();
+    if (!code && !message) {
+      return null;
+    }
+    return {
+      code: code || 'UNKNOWN',
+      message: message || '模型返回不确定原因',
+    };
+  }
+
+  private normalizeReasonCode(code: string) {
+    switch (code) {
+      case 'REQUIRED_STEP_MISSING':
+      case 'REQUIRED_STEPS_MISSING':
+      case 'MISSING_REQUIRED_STEP':
+      case 'MISSING_REQUIRED_STEPS':
+      case 'STEP_MISSING':
+      case 'STEP_MISSING_REQUIRED':
+        return 'MISSING_INFO';
+      default:
+        return code;
+    }
+  }
+
+  private resolveReasonChannel(code: string, message: string): 'penalty' | 'objection' | 'uncertainty' {
+    if (this.isObjectionReason(code, message)) {
+      return 'objection';
+    }
+    if (this.isPenaltyReason(code, message)) {
+      return 'penalty';
+    }
+    return 'uncertainty';
+  }
+
+  private isObjectionReason(code: string, message: string) {
+    const normalizedCode = this.normalizeReasonCode(String(code || '').toUpperCase());
+    if (normalizedCode === 'PLAGIARISM_RISK' || normalizedCode === 'NON_HANDWRITTEN') {
+      return true;
+    }
+    return /(抄袭|模板化作答|非手写|机打|印刷体|电子排版)/.test(message);
+  }
+
+  private isPenaltyReason(code: string, message: string) {
+    const normalizedCode = this.normalizeReasonCode(String(code || '').toUpperCase());
+    if (
+      normalizedCode === 'JUMP_STEP' ||
+      normalizedCode === 'STEP_CONFLICT' ||
+      normalizedCode === 'MISSING_INFO'
+    ) {
+      return true;
+    }
+    return /(跳步|步骤矛盾|矛盾点|缺少必要步骤|缺失必要步骤|必要步骤缺失|缺少关键步骤|跳过了?.*关键步骤)/.test(
+      message,
+    );
+  }
+
+  private appendPenaltyReasonsToItems(
+    result: Record<string, unknown>,
+    migratedReasons: Array<{ code: string; message: string }>,
+  ) {
+    const reasonText = migratedReasons
+      .map((item) => `${this.humanizeReasonCode(item.code)}：${item.message}`)
+      .join('；');
+    if (!reasonText) {
+      return;
+    }
+    const suffix = `扣分依据：${reasonText}`;
+    const items = Array.isArray(result.items) ? (result.items as Array<Record<string, unknown>>) : [];
+    if (items.length) {
+      let targetIndex = 0;
+      let maxDeduction = -1;
+      items.forEach((item, index) => {
+        const maxScore = Number(item.maxScore);
+        const score = Number(item.score);
+        if (!Number.isFinite(maxScore) || !Number.isFinite(score)) {
+          return;
+        }
+        const deduction = maxScore - score;
+        if (deduction > maxDeduction) {
+          maxDeduction = deduction;
+          targetIndex = index;
+        }
+      });
+      const target = items[targetIndex] ?? items[0];
+      const currentReason = String(target.reason ?? '').trim();
+      if (!currentReason.includes('扣分依据：')) {
+        target.reason = currentReason ? `${currentReason}；${suffix}` : suffix;
+      } else if (!currentReason.includes(reasonText)) {
+        target.reason = `${currentReason}；${reasonText}`;
+      }
+      return;
+    }
+    const comment = String(result.comment ?? '').trim();
+    if (!comment.includes('扣分依据：')) {
+      result.comment = comment ? `${comment}\n\n${suffix}` : suffix;
+    } else if (!comment.includes(reasonText)) {
+      result.comment = `${comment}\n${reasonText}`;
+    }
+  }
+
+  private humanizeReasonCode(code: string) {
+    switch (code) {
+      case 'JUMP_STEP':
+        return '跳步';
+      case 'STEP_CONFLICT':
+        return '步骤矛盾';
+      case 'MISSING_INFO':
+      case 'REQUIRED_STEP_MISSING':
+      case 'MISSING_REQUIRED_STEP':
+        return '缺少必要步骤';
+      default:
+        return code || '扣分原因';
+    }
+  }
+
   private parseModelOutput(raw: string): ParsedAiOutput {
     const trimmed = raw.trim();
     const direct = this.tryParseJson(trimmed);
@@ -904,6 +1139,663 @@ export class AiGradingWorkerService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return [value];
+  }
+
+  private async applyPlagiarismCheck(input: {
+    enabled: boolean;
+    parsed: ParsedAiOutput;
+    submissionVersion: SubmissionVersionEntity;
+    question: SnapshotQuestion;
+  }) {
+    if (!input.enabled) {
+      return;
+    }
+    if (!this.shouldRunPlagiarismCheck(input.question)) {
+      this.setPlagiarismCheckMeta(input.parsed.result, {
+        enabled: true,
+        flagged: false,
+        mode: 'text',
+        comparedCount: 0,
+        matchedCount: 0,
+        threshold: null,
+        topSimilarity: 0,
+        reason: '当前题型不参与抄袭比对',
+      });
+      return;
+    }
+
+    const minTextLength = Math.max(
+      8,
+      this.readNumberEnv('AI_PLAGIARISM_MIN_TEXT_LENGTH', 24),
+    );
+    const textThreshold = this.clamp01(
+      this.readNumberEnv('AI_PLAGIARISM_SIMILARITY_THRESHOLD', 0.88),
+    );
+    const imageThreshold = this.clamp01(
+      this.readNumberEnv('AI_PLAGIARISM_IMAGE_SIMILARITY_THRESHOLD', 1),
+    );
+    const compareLimit = Math.max(
+      20,
+      Math.floor(this.readNumberEnv('AI_PLAGIARISM_COMPARE_LIMIT', 200)),
+    );
+
+    const extractedMarkdown = this.extractStudentMarkdown(
+      input.parsed.extracted,
+    );
+    const baseTextRaw = this.extractComparableAnswerText(
+      input.submissionVersion.contentText,
+      input.submissionVersion.answerPayload,
+      extractedMarkdown,
+    );
+    const baseText = this.normalizeSimilarityText(baseTextRaw);
+    let mode: 'text' | 'image' = 'text';
+    let threshold = textThreshold;
+    let baseImageHashes: Set<string> | null = null;
+    if (baseText.length < minTextLength) {
+      mode = 'image';
+      threshold = imageThreshold;
+      baseImageHashes = await this.extractImageHashes(
+        input.submissionVersion.fileUrl,
+      );
+      if (!baseImageHashes.size) {
+        this.setPlagiarismCheckMeta(input.parsed.result, {
+          enabled: true,
+          flagged: false,
+          mode,
+          comparedCount: 0,
+          matchedCount: 0,
+          threshold,
+          topSimilarity: 0,
+          reason: '当前提交缺少可比对文本，且图片无法提取有效指纹',
+        });
+        return;
+      }
+    }
+
+    try {
+      const effectiveLimit =
+        mode === 'image' ? Math.min(compareLimit, 40) : compareLimit;
+      const rows = await this.submissionVersionRepo.query(
+        `
+          SELECT DISTINCT ON (sv.student_id)
+            sv.id,
+            sv.student_id AS "studentId",
+            u.name AS "studentName",
+            u.account AS "studentAccount",
+            sv.content_text AS "contentText",
+            sv.answer_payload AS "answerPayload",
+            sv.file_url AS "fileUrl",
+            ag.extracted->>'studentMarkdown' AS "studentMarkdown"
+          FROM submission_versions sv
+          LEFT JOIN users u ON u.id = sv.student_id
+          LEFT JOIN LATERAL (
+            SELECT extracted
+            FROM ai_gradings
+            WHERE submission_version_id = sv.id
+            ORDER BY created_at DESC
+            LIMIT 1
+          ) ag ON true
+          WHERE sv.assignment_id = $1
+            AND sv.question_id = $2
+            AND sv.id <> $3
+            AND sv.status <> 'INVALID'
+          ORDER BY sv.student_id, sv.submit_no DESC, sv.submitted_at DESC
+          LIMIT ${effectiveLimit}
+        `,
+        [
+          input.submissionVersion.assignmentId,
+          input.submissionVersion.questionId,
+          input.submissionVersion.id,
+        ],
+      );
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return;
+      }
+
+      let comparedCount = 0;
+      let matchedCount = 0;
+      let topSimilarity = 0;
+      const suspects: PlagiarismSuspect[] = [];
+
+      for (const row of rows) {
+        let similarity = 0;
+        if (mode === 'text') {
+          const candidateRaw = this.extractComparableAnswerText(
+            row?.contentText,
+            row?.answerPayload,
+            row?.studentMarkdown,
+          );
+          const candidate = this.normalizeSimilarityText(candidateRaw);
+          if (candidate.length < minTextLength) {
+            continue;
+          }
+          similarity = this.computeTextSimilarity(baseText, candidate);
+        } else {
+          const candidateHashes = await this.extractImageHashes(
+            String(row?.fileUrl ?? ''),
+          );
+          if (!candidateHashes.size || !baseImageHashes) {
+            continue;
+          }
+          similarity = this.computeSetSimilarity(baseImageHashes, candidateHashes);
+        }
+        comparedCount += 1;
+        if (similarity > topSimilarity) {
+          topSimilarity = similarity;
+        }
+        if (similarity >= threshold) {
+          matchedCount += 1;
+          suspects.push({
+            submissionVersionId: String(row?.id ?? ''),
+            studentId: String(row?.studentId ?? ''),
+            name: String(row?.studentName ?? '').trim(),
+            account: String(row?.studentAccount ?? '').trim(),
+            similarity: Number(similarity.toFixed(6)),
+          });
+        }
+      }
+
+      const rankedSuspects = suspects
+        .filter((item) => item.submissionVersionId && item.studentId)
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, 20);
+
+      if (!comparedCount) {
+        this.setPlagiarismCheckMeta(input.parsed.result, {
+          enabled: true,
+          flagged: false,
+          mode,
+          comparedCount: 0,
+          matchedCount: 0,
+          threshold,
+          topSimilarity: 0,
+          reason: '暂无可比对样本，抄袭检查未触发风险判定',
+          suspects: [],
+        });
+        return;
+      }
+
+      if (!matchedCount) {
+        this.setPlagiarismCheckMeta(input.parsed.result, {
+          enabled: true,
+          flagged: false,
+          mode,
+          comparedCount,
+          matchedCount: 0,
+          threshold,
+          topSimilarity,
+          reason: '已执行抄袭检查，未发现超过阈值的高相似作答',
+          suspects: [],
+        });
+        return;
+      }
+
+      const currentStudent =
+        (await this.loadStudentIdentity(input.submissionVersion.studentId)) ?? {
+          studentId: input.submissionVersion.studentId,
+          name: '',
+          account: '',
+        };
+      this.injectPlagiarismRisk(input.parsed.result, {
+        mode,
+        threshold,
+        topSimilarity,
+        matchedCount,
+        comparedCount,
+        suspects: rankedSuspects,
+        relatedStudent: currentStudent,
+      });
+      await this.markSuspectedPeersAsUncertain({
+        suspects: rankedSuspects,
+        mode,
+        threshold,
+        relatedStudent: currentStudent,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Plagiarism check skipped: ${message}`);
+    }
+  }
+
+  private setPlagiarismCheckMeta(
+    result: Record<string, unknown>,
+    input: {
+      enabled: boolean;
+      flagged: boolean;
+      mode: 'text' | 'image';
+      comparedCount: number;
+      matchedCount: number;
+      threshold: number | null;
+      topSimilarity: number;
+      reason?: string;
+      suspects?: Array<{
+        studentId: string;
+        name: string;
+        account: string;
+        similarity: number;
+      }>;
+    },
+  ) {
+    result.plagiarismCheck = {
+      enabled: input.enabled,
+      flagged: input.flagged,
+      mode: input.mode,
+      comparedCount: input.comparedCount,
+      matchedCount: input.matchedCount,
+      threshold:
+        input.threshold === null ? null : Number(input.threshold.toFixed(3)),
+      topSimilarity: Number(input.topSimilarity.toFixed(3)),
+      reason: input.reason ?? '',
+      suspects: input.suspects ?? [],
+    };
+  }
+
+  private shouldRunPlagiarismCheck(question: SnapshotQuestion) {
+    const type = String(question.questionType ?? QuestionType.SHORT_ANSWER).toUpperCase();
+    const objectiveTypes = new Set([
+      QuestionType.SINGLE_CHOICE,
+      QuestionType.MULTI_CHOICE,
+      QuestionType.JUDGE,
+      QuestionType.FILL_BLANK,
+    ]);
+    return !objectiveTypes.has(type as QuestionType);
+  }
+
+  private extractComparableAnswerText(
+    contentText?: string | null,
+    answerPayload?: Record<string, unknown> | null,
+    extractedStudentMarkdown?: string | null,
+  ) {
+    const plainText = String(contentText ?? '').trim();
+    const markdownText = String(extractedStudentMarkdown ?? '').trim();
+    let payloadText = '';
+    if (answerPayload && typeof answerPayload === 'object') {
+      const chunks: string[] = [];
+      this.collectPrimitiveValues(answerPayload, chunks, 0);
+      payloadText = chunks.join(' ').trim();
+    }
+    const best = [plainText, markdownText, payloadText].sort(
+      (a, b) => b.length - a.length,
+    )[0];
+    return best ? best.slice(0, 8000) : '';
+  }
+
+  private extractStudentMarkdown(
+    extracted?: Record<string, unknown> | null,
+  ) {
+    if (!extracted || typeof extracted !== 'object') {
+      return '';
+    }
+    const raw = (extracted as Record<string, unknown>).studentMarkdown;
+    return typeof raw === 'string' ? raw : '';
+  }
+
+  private collectPrimitiveValues(value: unknown, output: string[], depth: number) {
+    if (depth > 4 || output.length >= 300) {
+      return;
+    }
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) {
+        output.push(trimmed);
+      }
+      return;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      output.push(String(value));
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        this.collectPrimitiveValues(item, output, depth + 1);
+      }
+      return;
+    }
+    if (typeof value === 'object') {
+      for (const item of Object.values(value as Record<string, unknown>)) {
+        this.collectPrimitiveValues(item, output, depth + 1);
+      }
+    }
+  }
+
+  private normalizeSimilarityText(input: string) {
+    return String(input || '')
+      .toLowerCase()
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/[^\p{L}\p{N}]+/gu, '')
+      .slice(0, 12000);
+  }
+
+  private computeTextSimilarity(textA: string, textB: string) {
+    if (!textA || !textB) {
+      return 0;
+    }
+    if (textA === textB) {
+      return 1;
+    }
+    const ngramN = textA.length < 80 || textB.length < 80 ? 2 : 3;
+    const gramsA = this.buildNgramSet(textA, ngramN);
+    const gramsB = this.buildNgramSet(textB, ngramN);
+    if (!gramsA.size || !gramsB.size) {
+      return 0;
+    }
+    let intersection = 0;
+    for (const gram of gramsA) {
+      if (gramsB.has(gram)) {
+        intersection += 1;
+      }
+    }
+    const union = gramsA.size + gramsB.size - intersection;
+    if (union <= 0) {
+      return 0;
+    }
+    return intersection / union;
+  }
+
+  private computeSetSimilarity(setA: Set<string>, setB: Set<string>) {
+    if (!setA.size || !setB.size) {
+      return 0;
+    }
+    let intersection = 0;
+    for (const value of setA) {
+      if (setB.has(value)) {
+        intersection += 1;
+      }
+    }
+    const union = setA.size + setB.size - intersection;
+    if (union <= 0) {
+      return 0;
+    }
+    return intersection / union;
+  }
+
+  private buildNgramSet(text: string, n: number) {
+    const gramLength = Math.max(1, Math.floor(n));
+    if (text.length <= gramLength) {
+      return new Set([text]);
+    }
+    const grams = new Set<string>();
+    for (let i = 0; i <= text.length - gramLength; i += 1) {
+      grams.add(text.slice(i, i + gramLength));
+    }
+    return grams;
+  }
+
+  private injectPlagiarismRisk(
+    result: Record<string, unknown>,
+    stats: {
+      mode: 'text' | 'image';
+      threshold: number;
+      topSimilarity: number;
+      matchedCount: number;
+      comparedCount: number;
+      suspects: PlagiarismSuspect[];
+      relatedStudent?: StudentIdentity;
+    },
+  ) {
+    const suspectLabel = this.buildSuspectSummary(stats.suspects);
+    const reasonMessage = `检测到疑似抄袭：与 ${suspectLabel} 的同题作答高度相似（基于${stats.mode === 'image' ? '图片指纹' : '文本比对'}，最高 ${(stats.topSimilarity * 100).toFixed(1)}%）`;
+    const reasons = Array.isArray(result.uncertaintyReasons)
+      ? (result.uncertaintyReasons as Array<{ code?: string; message?: string }>)
+      : [];
+    const hasPlagiarismReason = reasons.some(
+      (item) => String(item?.code || '').toUpperCase() === 'PLAGIARISM_RISK',
+    );
+    if (!hasPlagiarismReason) {
+      reasons.push({
+        code: 'PLAGIARISM_RISK',
+        message: reasonMessage,
+      });
+    }
+    result.uncertaintyReasons = reasons;
+    result.isUncertain = true;
+
+    const currentConfidence = Number(result.confidence);
+    if (Number.isFinite(currentConfidence)) {
+      result.confidence = Number(Math.min(currentConfidence, 0.6).toFixed(3));
+    }
+
+    const suffix = `存在疑似抄袭风险（${stats.mode === 'image' ? '图片指纹' : '文本'}比对 ${stats.comparedCount} 份作答，命中 ${stats.matchedCount} 份，最高相似度 ${(stats.topSimilarity * 100).toFixed(1)}%，疑似对象：${suspectLabel}），建议教师复核。`;
+    const currentComment = String(result.comment ?? '').trim();
+    result.comment = currentComment.includes('疑似抄袭风险')
+      ? currentComment
+      : currentComment
+        ? `${currentComment}\n\n${suffix}`
+        : suffix;
+    this.setPlagiarismCheckMeta(result, {
+      enabled: true,
+      flagged: true,
+      mode: stats.mode,
+      comparedCount: stats.comparedCount,
+      matchedCount: stats.matchedCount,
+      threshold: stats.threshold,
+      topSimilarity: stats.topSimilarity,
+      reason: '命中抄袭风险阈值',
+      suspects: stats.suspects.map((item) => ({
+        studentId: item.studentId,
+        name: item.name,
+        account: item.account,
+        similarity: item.similarity,
+      })),
+    });
+  }
+
+  private buildSuspectSummary(suspects: PlagiarismSuspect[]) {
+    if (!suspects.length) {
+      return '其他同学';
+    }
+    const labels = suspects
+      .slice(0, 3)
+      .map((item) => this.formatStudentIdentity(item))
+      .filter(Boolean);
+    if (!labels.length) {
+      return `${suspects.length}名同学`;
+    }
+    if (suspects.length > 3) {
+      return `${labels.join('、')} 等${suspects.length}人`;
+    }
+    return labels.join('、');
+  }
+
+  private formatStudentIdentity(input: {
+    name?: string | null;
+    account?: string | null;
+    studentId?: string | null;
+  }) {
+    const name = String(input.name ?? '').trim();
+    const account = String(input.account ?? '').trim();
+    const studentId = String(input.studentId ?? '').trim();
+    const idPart = account || studentId;
+    if (name && idPart) {
+      return `${name}（${idPart}）`;
+    }
+    return name || idPart || '未知学生';
+  }
+
+  private async loadStudentIdentity(studentId: string): Promise<StudentIdentity | null> {
+    if (!studentId) {
+      return null;
+    }
+    const rows = await this.submissionVersionRepo.query(
+      `
+        SELECT u.id AS "studentId", u.name AS "name", u.account AS "account"
+        FROM users u
+        WHERE u.id = $1
+        LIMIT 1
+      `,
+      [studentId],
+    );
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row?.studentId) {
+      return null;
+    }
+    return {
+      studentId: String(row.studentId),
+      name: String(row.name ?? '').trim(),
+      account: String(row.account ?? '').trim(),
+    };
+  }
+
+  private async markSuspectedPeersAsUncertain(input: {
+    suspects: PlagiarismSuspect[];
+    mode: 'text' | 'image';
+    threshold: number;
+    relatedStudent: StudentIdentity;
+  }) {
+    const targetVersionIds = Array.from(
+      new Set(input.suspects.map((item) => item.submissionVersionId).filter(Boolean)),
+    );
+    if (!targetVersionIds.length) {
+      return;
+    }
+
+    const gradingRows = await this.gradingRepo.query(
+      `
+        SELECT DISTINCT ON (ag.submission_version_id)
+          ag.id,
+          ag.submission_version_id AS "submissionVersionId",
+          ag.result
+        FROM ai_gradings ag
+        WHERE ag.submission_version_id = ANY($1::uuid[])
+        ORDER BY ag.submission_version_id, ag.created_at DESC
+      `,
+      [targetVersionIds],
+    );
+
+    const gradingBySubmissionVersionId = new Map<string, any>();
+    if (Array.isArray(gradingRows)) {
+      gradingRows.forEach((row) => {
+        gradingBySubmissionVersionId.set(String(row?.submissionVersionId ?? ''), row);
+      });
+    }
+
+    for (const suspect of input.suspects) {
+      const gradingRow = gradingBySubmissionVersionId.get(suspect.submissionVersionId);
+      if (!gradingRow?.id) {
+        continue;
+      }
+      const rawResult =
+        gradingRow.result && typeof gradingRow.result === 'object'
+          ? (gradingRow.result as Record<string, unknown>)
+          : {};
+      const nextResult: Record<string, unknown> = {
+        ...rawResult,
+      };
+      this.markPeerResultAsPlagiarismRisk(nextResult, {
+        mode: input.mode,
+        threshold: input.threshold,
+        similarity: suspect.similarity,
+        relatedStudent: input.relatedStudent,
+      });
+      await this.gradingRepo.update(
+        { id: String(gradingRow.id) },
+        {
+          result: nextResult,
+          updatedAt: new Date(),
+        },
+      );
+    }
+  }
+
+  private markPeerResultAsPlagiarismRisk(
+    result: Record<string, unknown>,
+    input: {
+      mode: 'text' | 'image';
+      threshold: number;
+      similarity: number;
+      relatedStudent: StudentIdentity;
+    },
+  ) {
+    const relatedLabel = this.formatStudentIdentity(input.relatedStudent);
+    const reasonMessage = `检测到与 ${relatedLabel} 的同题作答高度相似（基于${input.mode === 'image' ? '图片指纹' : '文本比对'}，相似度 ${(input.similarity * 100).toFixed(1)}%）`;
+
+    const reasons = Array.isArray(result.uncertaintyReasons)
+      ? (result.uncertaintyReasons as Array<{ code?: string; message?: string }>)
+      : [];
+    const plagiarismReason = reasons.find(
+      (item) => String(item?.code || '').toUpperCase() === 'PLAGIARISM_RISK',
+    );
+    if (plagiarismReason) {
+      const existing = String(plagiarismReason.message ?? '');
+      if (!existing.includes(relatedLabel)) {
+        plagiarismReason.message = existing
+          ? `${existing}；关联对象：${relatedLabel}`
+          : reasonMessage;
+      }
+    } else {
+      reasons.push({
+        code: 'PLAGIARISM_RISK',
+        message: reasonMessage,
+      });
+    }
+    result.uncertaintyReasons = reasons;
+    result.isUncertain = true;
+
+    const currentConfidence = Number(result.confidence);
+    if (Number.isFinite(currentConfidence)) {
+      result.confidence = Number(Math.min(currentConfidence, 0.6).toFixed(3));
+    }
+
+    const suffix = `存在疑似抄袭风险，关联对象：${relatedLabel}（相似度 ${(input.similarity * 100).toFixed(1)}%），建议教师复核。`;
+    const currentComment = String(result.comment ?? '').trim();
+    result.comment = currentComment.includes(relatedLabel)
+      ? currentComment
+      : currentComment
+        ? `${currentComment}\n\n${suffix}`
+        : suffix;
+
+    this.setPlagiarismCheckMeta(result, {
+      enabled: true,
+      flagged: true,
+      mode: input.mode,
+      comparedCount: 1,
+      matchedCount: 1,
+      threshold: input.threshold,
+      topSimilarity: input.similarity,
+      reason: '命中抄袭风险阈值',
+      suspects: [
+        {
+          studentId: input.relatedStudent.studentId,
+          name: input.relatedStudent.name,
+          account: input.relatedStudent.account,
+          similarity: Number(input.similarity.toFixed(6)),
+        },
+      ],
+    });
+  }
+
+  private async extractImageHashes(fileUrlValue: string): Promise<Set<string>> {
+    const refs = this.parseFileUrls(fileUrlValue).slice(0, 4);
+    if (!refs.length) {
+      return new Set();
+    }
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-plag-img-'));
+    const hashes = new Set<string>();
+    try {
+      for (const ref of refs) {
+        try {
+          const materialized = await this.storageService.materializeForProcessing(
+            ref,
+            tempDir,
+          );
+          if (!materialized) {
+            continue;
+          }
+          const buffer = await fs.readFile(materialized.filePath);
+          const digest = createHash('sha256').update(buffer).digest('hex');
+          hashes.add(digest);
+        } catch {
+          continue;
+        }
+      }
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+    return hashes;
   }
 
   private async collectImagePaths(value: string, tempDir: string): Promise<string[]> {

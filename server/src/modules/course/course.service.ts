@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { DataSource, In, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { CourseEntity, CourseStatus } from '../assignment/entities/course.entity';
@@ -688,6 +689,7 @@ export class CourseService {
       const passwordHash = await bcrypt.hash('123456', 10);
       targetStudent = await this.userRepo.save(
         this.userRepo.create({
+          id: randomUUID(),
           schoolId: course.schoolId,
           accountType: AccountType.USERNAME,
           account,

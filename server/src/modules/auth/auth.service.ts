@@ -73,7 +73,6 @@ export class AuthService {
             }
           : {
               schoolId: dto.schoolId,
-              accountType: dto.accountType,
               account: dto.account,
             },
     });

@@ -72,7 +72,7 @@
             <div class="ai-assist-grid">
               <div class="ai-assist-card">
                 <div class="ai-assist-card-title">基础开关</div>
-                <div class="checkbox-stack">
+                <div class="checkbox-stack checkbox-stack--switches">
                   <label class="checkbox-item">
                     <input v-model="aiEnabled" type="checkbox" />
                     启用 AI 批改
@@ -263,7 +263,7 @@ const visibleAfterSubmit = ref(true)
 const allowViewAnswer = ref(false)
 const allowViewScore = ref(true)
 const aiEnabled = ref(true)
-const handwritingRecognition = ref(false)
+const handwritingRecognition = ref(true)
 const plagiarismDetection = ref(true)
 const jumpStepDetection = ref(true)
 const stepConflictDetection = ref(true)
@@ -364,7 +364,7 @@ const fetchConfig = async () => {
     allowViewAnswer.value = assignment.allowViewAnswer === true
     allowViewScore.value = assignment.allowViewScore !== false
     aiEnabled.value = assignment.aiEnabled !== false
-    handwritingRecognition.value = assignment.handwritingRecognition === true
+    handwritingRecognition.value = assignment.handwritingRecognition !== false
     plagiarismDetection.value = assignment.plagiarismDetection !== false
     jumpStepDetection.value = assignment.jumpStepDetection !== false
     stepConflictDetection.value = assignment.stepConflictDetection !== false
@@ -640,6 +640,12 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.checkbox-stack--switches {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 14px;
+  row-gap: 8px;
+}
+
 .checkbox-item {
   display: flex;
   align-items: center;
@@ -808,6 +814,10 @@ onMounted(async () => {
 
   .strictness-grid {
     grid-template-columns: 1fr;
+  }
+
+  .checkbox-stack--switches {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .section-title-row {

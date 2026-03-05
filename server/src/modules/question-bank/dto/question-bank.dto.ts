@@ -91,6 +91,7 @@ export interface QuestionBankUpdateDto {
 
 export interface QuestionBankPaperContentDto {
   questionSourceMode?: 'MIXED' | 'BANK' | 'CUSTOM';
+  selectedCourseId?: string;
   selectedTextbookId?: string;
   selectedParentChapterId?: string;
   selectedChapterId?: string;

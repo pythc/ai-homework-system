@@ -70,18 +70,23 @@
         <div
           v-for="item in pagedSubmissions"
           :key="item.studentId"
-          class="submission-row"
+          class="submission-row clickable"
+          role="button"
+          tabindex="0"
+          @click="goGrading(item.submissionVersionId, item.studentId)"
+          @keydown.enter.prevent="goGrading(item.submissionVersionId, item.studentId)"
+          @keydown.space.prevent="goGrading(item.submissionVersionId, item.studentId)"
         >
           <div class="submission-main">
             <div class="submission-name">
-              {{ item.student.name || item.student.account || '学生' }}
-            </div>
-            <div class="submission-meta">
-              学号 {{ formatStudentAccount(item.student) }}
+              {{ formatStudentDisplay(item.student) }}
             </div>
             <div class="submission-meta">
               提交 {{ formatTime(item.submittedAt) }}
             </div>
+          </div>
+          <div class="submission-score-simple">
+            {{ scoreLabel(item) }}
           </div>
           <div
             class="submission-status"
@@ -89,9 +94,6 @@
           >
             {{ item.isFinal ? '已确认' : item.hasObjection ? '有异议' : '待确认' }}
           </div>
-          <button class="task-action ghost" @click="goGrading(item.submissionVersionId, item.studentId)">
-            批改
-          </button>
         </div>
         <div v-if="!filteredSubmissions.length" class="task-empty">
           {{ loadError || '暂无提交' }}
@@ -167,6 +169,12 @@ const formatStudentAccount = (student?: { account?: string | null; studentId?: s
   return '-'
 }
 
+const formatStudentDisplay = (student?: { name?: string | null; account?: string | null; studentId?: string }) => {
+  const name = student?.name?.trim() || student?.account || '学生'
+  const account = formatStudentAccount(student)
+  return `${name}（${account}）`
+}
+
 const mergedSubmissions = computed(() => {
   const map = new Map<
     string,
@@ -174,6 +182,9 @@ const mergedSubmissions = computed(() => {
         studentId: string
         student: any
         submittedAt?: string
+        score: number | null
+        aiScore: number | null
+        assignmentTotalScore: number | null
         isFinal: boolean
         hasObjection: boolean
         submissionVersionId: string
@@ -188,6 +199,18 @@ const mergedSubmissions = computed(() => {
         studentId,
         student: item.student,
         submittedAt: item.submittedAt,
+        score:
+          typeof item.assignmentScore === 'number' && Number.isFinite(item.assignmentScore)
+            ? Number(item.assignmentScore)
+            : null,
+        aiScore:
+          typeof item.aiTotalScore === 'number' && Number.isFinite(item.aiTotalScore)
+            ? Number(item.aiTotalScore)
+            : null,
+        assignmentTotalScore:
+          typeof item.assignmentTotalScore === 'number' && Number.isFinite(item.assignmentTotalScore)
+            ? Number(item.assignmentTotalScore)
+            : null,
         isFinal: Boolean(item.isFinal ?? item.status === 'FINAL'),
         hasObjection: Boolean(item.aiIsUncertain),
         submissionVersionId: item.submissionVersionId,
@@ -210,9 +233,83 @@ const mergedSubmissions = computed(() => {
     if (Boolean(item.aiIsUncertain)) {
       group.hasObjection = true
     }
+    if (group.score === null) {
+      const assignmentScore =
+        typeof item.assignmentScore === 'number' && Number.isFinite(item.assignmentScore)
+          ? Number(item.assignmentScore)
+          : null
+      if (assignmentScore !== null) {
+        group.score = assignmentScore
+      }
+    }
   })
-  return Array.from(map.values())
+  return Array.from(map.values()).map((group) => {
+    const assignmentTotal =
+      typeof group.assignmentTotalScore === 'number' && Number.isFinite(group.assignmentTotalScore)
+        ? group.assignmentTotalScore
+        : 0
+    const toProjectedScore = (field: 'aiTotalScore' | 'finalScore') => {
+      if (assignmentTotal <= 0) return null
+      let hasSample = false
+      const total = group.items.reduce((sum: number, item: any) => {
+        const raw = Number(item?.[field])
+        const maxScore = Number(item?.questionMaxScore)
+        const weight = Number(item?.questionWeight)
+        if (
+          !Number.isFinite(raw) ||
+          !Number.isFinite(maxScore) ||
+          !Number.isFinite(weight) ||
+          maxScore <= 0 ||
+          weight <= 0
+        ) {
+          return sum
+        }
+        hasSample = true
+        const clamped = Math.max(0, Math.min(raw, maxScore))
+        return sum + (clamped / maxScore) * (weight / 100) * assignmentTotal
+      }, 0)
+      return hasSample ? Number(total.toFixed(2)) : null
+    }
+    const projectedAi = toProjectedScore('aiTotalScore')
+    if (projectedAi !== null) {
+      group.aiScore = projectedAi
+    }
+    if (typeof group.score === 'number' && Number.isFinite(group.score)) {
+      return group
+    }
+    if (!group.isFinal) {
+      return group
+    }
+    const projectedFinal = toProjectedScore('finalScore')
+    return {
+      ...group,
+      score: projectedFinal,
+    }
+  })
 })
+
+const scoreLabel = (item: {
+  isFinal: boolean
+  score: number | null
+  aiScore: number | null
+  assignmentTotalScore: number | null
+}) => {
+  const formatScoreValue = (value: number) => {
+    const rounded = Math.round(value * 10) / 10
+    return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)
+  }
+  const denominator =
+    typeof item.assignmentTotalScore === 'number' && Number.isFinite(item.assignmentTotalScore)
+      ? item.assignmentTotalScore
+      : 10
+  const denominatorText = formatScoreValue(denominator)
+  if (item.isFinal) {
+    if (typeof item.score !== 'number' || !Number.isFinite(item.score)) return `-/${denominatorText}分`
+    return `${formatScoreValue(item.score)}/${denominatorText}分`
+  }
+  if (typeof item.aiScore !== 'number' || !Number.isFinite(item.aiScore)) return `-/${denominatorText}分`
+  return `${formatScoreValue(item.aiScore)}/${denominatorText}分`
+}
 
 const filteredSubmissions = computed(() => {
   if (statusFilter.value === 'MISSING') return []
@@ -282,22 +379,30 @@ const loadData = async () => {
     loadError.value = '缺少作业 ID'
     return
   }
+  loadError.value = ''
   try {
     const response = await listSubmissionsByAssignment(assignmentId.value)
     submissions.value = response?.items ?? []
   } catch (err) {
+    submissions.value = []
     loadError.value = err instanceof Error ? err.message : '加载提交失败'
   }
 }
 
 const loadMissing = async () => {
   if (!assignmentId.value) return
+  missingError.value = ''
   try {
     const response = await listMissingByAssignment(assignmentId.value)
     missingStudents.value = response?.items ?? []
   } catch (err) {
+    missingStudents.value = []
     missingError.value = err instanceof Error ? err.message : '加载未提交失败'
   }
+}
+
+const loadAll = async () => {
+  await Promise.all([loadData(), loadMissing()])
 }
 
 watch([statusFilter, searchText], () => {
@@ -312,8 +417,15 @@ watch(statusFilter, async (value) => {
 
 onMounted(async () => {
   await refreshProfile()
-  await loadData()
+  await loadAll()
 })
+
+watch(
+  assignmentId,
+  async () => {
+    await loadAll()
+  },
+)
 </script>
 
 <style scoped>
@@ -391,6 +503,25 @@ onMounted(async () => {
   padding: 12px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.6);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.submission-row.clickable {
+  cursor: pointer;
+}
+
+.submission-row.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 24px rgba(57, 78, 126, 0.14);
+}
+
+.submission-row.clickable:active {
+  transform: translateY(0);
+}
+
+.submission-row.clickable:focus-visible {
+  outline: 2px solid rgba(95, 148, 255, 0.7);
+  outline-offset: 2px;
 }
 
 .submission-name {
@@ -410,6 +541,14 @@ onMounted(async () => {
   border-radius: 999px;
 }
 
+.submission-score-simple {
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 800;
+  color: rgba(26, 29, 51, 0.9);
+  white-space: nowrap;
+}
+
 .submission-status.pending {
   background: rgba(255, 196, 154, 0.35);
   color: #9a4a12;
@@ -423,12 +562,6 @@ onMounted(async () => {
 .submission-status.objection {
   background: rgba(244, 67, 54, 0.18);
   color: #b42318;
-}
-
-.task-action.ghost {
-  background: rgba(255, 255, 255, 0.7);
-  color: rgba(26, 29, 51, 0.8);
-  box-shadow: none;
 }
 
 .paging {
@@ -469,8 +602,12 @@ onMounted(async () => {
   }
 
   .submission-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr auto auto;
     align-items: flex-start;
+  }
+
+  .submission-score-simple {
+    font-size: 18px;
   }
 }
 </style>
