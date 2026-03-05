@@ -5,7 +5,7 @@ import { AppModule } from './app.module';
 import { AuthAppModule } from './auth-app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
-import * as bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { AccountType, UserEntity, UserRole, UserStatus } from './modules/auth/entities/user.entity';
 import { json, urlencoded } from 'express';

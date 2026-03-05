@@ -13,7 +13,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'crypto';
 import ExcelJS from 'exceljs';
 import { DataSource, Repository } from 'typeorm';
-import * as bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcrypt';
 import * as jwt from 'jsonwebtoken';
 import { AuthSessionEntity } from './entities/auth-session.entity';
 import { AccountType, UserEntity, UserRole, UserStatus } from './entities/user.entity';
@@ -28,6 +28,7 @@ export class AuthService {
     'AUTH_LOGIN_MAX_INFLIGHT',
     25,
   );
+  private readonly loginTraceMs = this.readNumberEnv('AUTH_LOGIN_TRACE_MS', 250);
   private loginInFlight = 0;
 
   constructor(
@@ -64,55 +65,100 @@ export class AuthService {
     dto: LoginRequestDto,
     meta: { ip?: string; userAgent?: string; deviceId?: string },
   ) {
-    const user = await this.userRepo.findOne({
-      where:
-        dto.accountType === AccountType.EMAIL
-          ? {
-              schoolId: dto.schoolId,
-              email: dto.account,
-            }
-          : {
-              schoolId: dto.schoolId,
-              accountType: dto.accountType,
-              account: dto.account,
-            },
-    });
-    if (!user) {
-      throw new UnauthorizedException('账号或密码错误');
-    }
-    if (user.status !== UserStatus.ACTIVE) {
-      throw new ForbiddenException('账号已禁用');
-    }
-
-    const isMatch = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!isMatch) {
-      throw new UnauthorizedException('账号或密码错误');
-    }
-
-    const accessToken = this.signAccessToken(user);
-    const sessionId = randomUUID();
-    const refreshToken = this.signRefreshToken(user.id, sessionId);
-    const refreshTokenHash = this.hashToken(refreshToken);
-    const refreshTtlSeconds = this.getRefreshTtlSeconds();
-    const expiresAt = new Date(Date.now() + refreshTtlSeconds * 1000);
-
-    const session = this.sessionRepo.create({
-      id: sessionId,
-      userId: user.id,
-      refreshTokenHash,
-      deviceId: meta.deviceId,
-      userAgent: meta.userAgent,
-      ip: meta.ip,
-      expiresAt,
-    });
-    await this.sessionRepo.save(session);
-
-    return {
-      accessToken,
-      refreshToken,
-      expiresIn: this.getAccessTtlSeconds(),
-      user,
+    const loginStart = this.nowNs();
+    const timings = {
+      userLookupMs: 0,
+      passwordCompareMs: 0,
+      sessionSaveMs: 0,
     };
+    let stage = 'start';
+    let status: 'ok' | 'unauthorized' | 'forbidden' | 'error' = 'ok';
+    let userFound = false;
+
+    try {
+      const userLookupStart = this.nowNs();
+      const user = await this.userRepo.findOne({
+        where:
+          dto.accountType === AccountType.EMAIL
+            ? {
+                schoolId: dto.schoolId,
+                email: dto.account,
+              }
+            : {
+                schoolId: dto.schoolId,
+                accountType: dto.accountType,
+                account: dto.account,
+              },
+      });
+      timings.userLookupMs = this.nsToMs(this.nowNs() - userLookupStart);
+      stage = 'user_lookup';
+      if (!user) {
+        status = 'unauthorized';
+        throw new UnauthorizedException('账号或密码错误');
+      }
+      if (user.status !== UserStatus.ACTIVE) {
+        status = 'forbidden';
+        throw new ForbiddenException('账号已禁用');
+      }
+      userFound = true;
+
+      const passwordCompareStart = this.nowNs();
+      const isMatch = await bcrypt.compare(dto.password, user.passwordHash);
+      timings.passwordCompareMs = this.nsToMs(
+        this.nowNs() - passwordCompareStart,
+      );
+      stage = 'password_compare';
+      if (!isMatch) {
+        status = 'unauthorized';
+        throw new UnauthorizedException('账号或密码错误');
+      }
+
+      const accessToken = this.signAccessToken(user);
+      const sessionId = randomUUID();
+      const refreshToken = this.signRefreshToken(user.id, sessionId);
+      const refreshTokenHash = this.hashToken(refreshToken);
+      const refreshTtlSeconds = this.getRefreshTtlSeconds();
+      const expiresAt = new Date(Date.now() + refreshTtlSeconds * 1000);
+
+      const session = this.sessionRepo.create({
+        id: sessionId,
+        userId: user.id,
+        refreshTokenHash,
+        deviceId: meta.deviceId,
+        userAgent: meta.userAgent,
+        ip: meta.ip,
+        expiresAt,
+      });
+      const sessionSaveStart = this.nowNs();
+      await this.sessionRepo.save(session);
+      timings.sessionSaveMs = this.nsToMs(this.nowNs() - sessionSaveStart);
+      stage = 'session_save';
+
+      return {
+        accessToken,
+        refreshToken,
+        expiresIn: this.getAccessTtlSeconds(),
+        user,
+      };
+    } catch (error) {
+      if (status === 'ok') {
+        if (error instanceof UnauthorizedException) {
+          status = 'unauthorized';
+        } else if (error instanceof ForbiddenException) {
+          status = 'forbidden';
+        } else {
+          status = 'error';
+        }
+      }
+      throw error;
+    } finally {
+      const totalMs = this.nsToMs(this.nowNs() - loginStart);
+      if (totalMs >= this.loginTraceMs) {
+        this.logger.warn(
+          `Slow login: total=${totalMs.toFixed(1)}ms userLookup=${timings.userLookupMs.toFixed(1)}ms passwordCompare=${timings.passwordCompareMs.toFixed(1)}ms sessionSave=${timings.sessionSaveMs.toFixed(1)}ms stage=${stage} status=${status} userFound=${userFound} schoolId=${dto.schoolId} accountType=${dto.accountType}`,
+        );
+      }
+    }
   }
 
   async register(dto: RegisterRequestDto) {
@@ -656,6 +702,14 @@ export class AuthService {
   private readNumberEnv(name: string, fallback: number): number {
     const value = Number(process.env[name]);
     return Number.isFinite(value) && value > 0 ? value : fallback;
+  }
+
+  private nowNs(): bigint {
+    return process.hrtime.bigint();
+  }
+
+  private nsToMs(durationNs: bigint): number {
+    return Number(durationNs) / 1_000_000;
   }
 
   async hashPassword(password: string): Promise<string> {
