@@ -6,12 +6,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { DataSource, LessThan, Repository } from 'typeorm';
 import { TriggerAiGradingDto } from './dto/trigger-ai-grading.dto';
 import { AiGradingQueueService } from './ai-grading.queue';
 import { AiGradingEntity } from './entities/ai-grading.entity';
 import { AiJobEntity, AiJobStage, AiJobStatus } from './entities/ai-job.entity';
-import { AiStatus, SubmissionVersionEntity } from '../submission/entities/submission-version.entity';
+import {
+  AiStatus,
+  SubmissionStatus,
+  SubmissionVersionEntity,
+} from '../submission/entities/submission-version.entity';
 import {
   AssignmentAiGradingStrictness,
   AssignmentEntity,
@@ -41,6 +45,7 @@ export class AiGradingService {
     @InjectRepository(CourseEntity)
     private readonly courseRepo: Repository<CourseEntity>,
     private readonly billingService: BillingService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async createGradingJob(
@@ -155,6 +160,7 @@ export class AiGradingService {
 
     try {
       const saved = await this.jobRepo.save(job);
+      await this.resetSubmissionConfirmationForRerun(submissionVersion);
       await this.queue.enqueue(saved.id, normalizedDto);
       return {
         job: {
@@ -389,6 +395,53 @@ export class AiGradingService {
     if (value < 0) return 0;
     if (value > 1) return 1;
     return Number(value.toFixed(3));
+  }
+
+  private async resetSubmissionConfirmationForRerun(
+    submissionVersion: SubmissionVersionEntity,
+  ) {
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `
+          DELETE FROM scores
+          WHERE submission_version_id = $1
+        `,
+        [submissionVersion.id],
+      );
+      await manager.query(
+        `
+          DELETE FROM ai_gradings
+          WHERE submission_version_id = $1
+        `,
+        [submissionVersion.id],
+      );
+      await manager.query(
+        `
+          UPDATE submissions
+          SET score_published = false, updated_at = now()
+          WHERE id = $1
+        `,
+        [submissionVersion.submissionId],
+      );
+      await manager.query(
+        `
+          DELETE FROM assignment_weighted_scores
+          WHERE assignment_id = $1
+            AND student_id = $2
+        `,
+        [submissionVersion.assignmentId, submissionVersion.studentId],
+      );
+      await manager.query(
+        `
+          UPDATE submission_versions
+          SET ai_status = $2,
+              status = $3,
+              updated_at = now()
+          WHERE id = $1
+        `,
+        [submissionVersion.id, AiStatus.PENDING, SubmissionStatus.AI_GRADING],
+      );
+    });
   }
 
   private normalizeCustomGuidance(value?: string | null) {

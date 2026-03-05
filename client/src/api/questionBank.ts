@@ -119,6 +119,7 @@ export type QuestionBankPaperSummary = {
 
 export type QuestionBankPaperContent = {
   questionSourceMode?: 'MIXED' | 'BANK' | 'CUSTOM'
+  selectedCourseId?: string
   selectedTextbookId?: string
   selectedParentChapterId?: string
   selectedChapterId?: string

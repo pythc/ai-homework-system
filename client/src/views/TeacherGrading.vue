@@ -18,34 +18,12 @@
 
     <section class="panel glass">
       <div class="panel-title panel-title-row">
-        <div>
-          学生提交详情
-          <span class="badge" v-if="selectedStudent">
-            {{ selectedStudent.name || selectedStudent.account || '学生' }}
-          </span>
-        </div>
+        <div>学生提交详情</div>
         <button class="ghost-action" @click="backToList">返回提交列表</button>
       </div>
 
       <div v-if="loadError" class="task-empty">{{ loadError }}</div>
       <div v-else-if="selectedStudentId" class="detail-body">
-        <div class="question-tabs">
-          <div class="question-tabs-header">
-            <div class="question-tabs-title">作业题号</div>
-            <div class="question-tabs-list">
-              <button
-                v-for="question in questions"
-                :key="question.questionId"
-                class="question-tab"
-                :class="{ active: question.questionId === selectedQuestionId }"
-                @click="selectQuestion(question.questionId)"
-              >
-                第 {{ question.questionIndex }} 题
-              </button>
-            </div>
-          </div>
-        </div>
-
         <div class="batch-toolbar">
           <div class="batch-meta">
             当前题目已勾选 <strong>{{ batchSelectedCount }}</strong> 人
@@ -81,6 +59,23 @@
           </div>
         </div>
 
+        <div class="question-tabs">
+          <div class="question-tabs-header">
+            <div class="question-tabs-title">作业题号</div>
+            <div class="question-tabs-list">
+              <button
+                v-for="question in questions"
+                :key="question.questionId"
+                class="question-tab"
+                :class="{ active: question.questionId === selectedQuestionId }"
+                @click="selectQuestion(question.questionId)"
+              >
+                第 {{ question.questionIndex }} 题
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div class="grading-layout">
           <aside class="student-panel">
             <div class="student-title">学生列表</div>
@@ -108,19 +103,26 @@
                     @click="selectStudent(student.studentId)"
                   >
                     <div class="student-row">
-                      <input
-                        class="student-check"
-                        type="checkbox"
-                        :checked="batchSelectedStudentIds.has(student.studentId)"
-                        :disabled="!hasSubmissionForCurrentQuestion(student.studentId)"
-                        @click.stop
-                        @change="toggleBatchStudent(student.studentId)"
-                      />
-                      <span class="student-name">{{ student.name || '学生' }}</span>
-                      <span class="student-sub">{{ formatStudentAccount(student) }}</span>
-                      <span class="student-tag" :class="student.statusTone">
-                        {{ student.statusLabel }}
-                      </span>
+                      <div class="student-row-left">
+                        <input
+                          class="student-check"
+                          type="checkbox"
+                          :checked="batchSelectedStudentIds.has(student.studentId)"
+                          :disabled="!hasSubmissionForCurrentQuestion(student.studentId)"
+                          @click.stop
+                          @change="toggleBatchStudent(student.studentId)"
+                        />
+                        <div class="student-identity">
+                          <span class="student-name">{{ student.name || '学生' }}</span>
+                          <span class="student-sub">{{ formatStudentAccount(student) }}</span>
+                        </div>
+                      </div>
+                      <div class="student-row-right">
+                        <span class="student-score">{{ getStudentScoreLabel(student.studentId) }}</span>
+                        <span class="student-tag" :class="student.statusTone">
+                          {{ student.statusLabel }}
+                        </span>
+                      </div>
                     </div>
                   </button>
                 </div>
@@ -198,7 +200,6 @@
                   <span class="ai-summary-hint">点击展开查看详情</span>
                   <span class="ai-summary-status">状态：{{ aiPanel.statusLabel }}</span>
                 </summary>
-                <div class="ai-status">状态：{{ aiPanel.statusLabel }}</div>
                 <div v-if="aiPanel.error" class="ai-error">{{ aiPanel.error }}</div>
                 <div v-if="aiPanel.result" class="ai-result">
                   <div class="ai-summary">
@@ -246,7 +247,7 @@
                     v-if="aiPanel.result?.result?.uncertaintyReasons?.length"
                     class="ai-uncertainty-list"
                   >
-                    <div class="ai-uncertainty-title">不确定原因</div>
+                    <div class="ai-uncertainty-title">{{ uncertaintyReasonTitle }}</div>
                     <ul>
                       <li
                         v-for="(reason, idx) in aiPanel.result?.result?.uncertaintyReasons"
@@ -321,10 +322,10 @@
                     <button
                       class="task-action ghost"
                       type="button"
-                      :disabled="rerunLoading || !selectedSubmission"
+                      :disabled="currentRerunLoading || !selectedSubmission"
                       @click="rerunCurrentAi"
                     >
-                      {{ rerunLoading ? '重试中...' : 'AI 重新批改' }}
+                      {{ currentRerunLoading ? '重试中...' : 'AI 重新批改' }}
                     </button>
                     <button
                       class="task-action"
@@ -335,7 +336,7 @@
                       {{ saving ? '确认中...' : '确认修改' }}
                     </button>
                   </div>
-                  <div v-if="rerunError" class="ai-error">{{ rerunError }}</div>
+                  <div v-if="currentRerunError" class="ai-error">{{ currentRerunError }}</div>
                   <div v-if="saveError" class="ai-error">{{ saveError }}</div>
                 </div>
               </div>
@@ -349,7 +350,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import { useTeacherProfile } from '../composables/useTeacherProfile'
@@ -391,10 +392,13 @@ const batchLoading = ref(false)
 const batchMode = ref<'rerun' | 'adopt' | null>(null)
 const openGroups = ref<Record<string, boolean>>({
   graded: true,
+  running: true,
   pending: true,
   objection: true,
   missing: false,
 })
+const statusRefreshTimer = ref<ReturnType<typeof setInterval> | null>(null)
+const statusRefreshing = ref(false)
 
 const students = computed(() => {
   const map = new Map<string, { studentId: string; name?: string | null; account?: string | null }>()
@@ -467,14 +471,13 @@ const currentQuestion = computed(() => {
   )
 })
 
-const selectedStudent = computed(() =>
-  students.value.find((student) => student.studentId === selectedStudentId.value) || null,
-)
-
 const submissionStatusLabel = computed(() => {
   if (!selectedSubmission.value) return '未提交'
   const isFinal = Boolean(selectedSubmission.value.isFinal ?? selectedSubmission.value.status === 'FINAL')
   if (isFinal) return '已确认'
+  if (['PENDING', 'RUNNING'].includes(String(selectedSubmission.value.aiStatus ?? '').toUpperCase())) {
+    return '批改中'
+  }
   if (selectedSubmission.value.aiIsUncertain) return '有异议'
   return '待确认'
 })
@@ -483,6 +486,9 @@ const submissionStatusTone = computed(() => {
   if (!selectedSubmission.value) return 'missing'
   const isFinal = Boolean(selectedSubmission.value.isFinal ?? selectedSubmission.value.status === 'FINAL')
   if (isFinal) return 'graded'
+  if (['PENDING', 'RUNNING'].includes(String(selectedSubmission.value.aiStatus ?? '').toUpperCase())) {
+    return 'running'
+  }
   if (selectedSubmission.value.aiIsUncertain) return 'objection'
   return 'pending'
 })
@@ -495,6 +501,15 @@ const studentsWithStatus = computed(() =>
     const existing = allSubmissions.filter(Boolean)
     if (!existing.length) {
       return { ...student, statusLabel: '未提交', statusTone: 'missing' }
+    }
+    const hasRunning = existing.some((submission) => {
+      const isFinal = Boolean(submission.isFinal ?? submission.status === 'FINAL')
+      if (isFinal) return false
+      const aiStatus = String(submission.aiStatus ?? '').toUpperCase()
+      return aiStatus === 'PENDING' || aiStatus === 'RUNNING'
+    })
+    if (hasRunning) {
+      return { ...student, statusLabel: '批改中', statusTone: 'running' }
     }
     const allFinal =
       questions.value.length > 0 &&
@@ -526,6 +541,7 @@ const studentsWithStatus = computed(() =>
 const groupedStudents = computed(() => {
   const groups = [
     { key: 'graded', title: '已确认', items: [] as typeof studentsWithStatus.value },
+    { key: 'running', title: '批改中', items: [] as typeof studentsWithStatus.value },
     { key: 'pending', title: '待确认', items: [] as typeof studentsWithStatus.value },
     { key: 'objection', title: '有异议', items: [] as typeof studentsWithStatus.value },
     { key: 'missing', title: '未提交', items: [] as typeof studentsWithStatus.value },
@@ -538,6 +554,15 @@ const groupedStudents = computed(() => {
 })
 
 const batchSelectedCount = computed(() => batchSelectedStudentIds.value.size)
+
+const hasRunningSubmissions = computed(() =>
+  submissions.value.some((item) => {
+    const isFinal = Boolean(item?.isFinal ?? item?.status === 'FINAL')
+    if (isFinal) return false
+    const aiStatus = String(item?.aiStatus ?? '').toUpperCase()
+    return aiStatus === 'PENDING' || aiStatus === 'RUNNING'
+  }),
+)
 
 const getSubmissionByStudentAndQuestion = (studentId: string, questionId: string) =>
   submissionByKey.value.get(`${studentId}::${questionId}`) || null
@@ -584,6 +609,21 @@ const highRiskReasons = computed(
     ) ?? [],
 )
 
+const objectionReasonCodes = new Set(['PLAGIARISM_RISK', 'NON_HANDWRITTEN'])
+const uncertaintyReasonTitle = computed(() => {
+  const reasons = aiPanel.value.result?.result?.uncertaintyReasons ?? []
+  if (!reasons.length) return '不确定原因'
+  const hasObjection = reasons.some((item) =>
+    objectionReasonCodes.has(String(item.code ?? '').toUpperCase()),
+  )
+  const hasOther = reasons.some(
+    (item) => !objectionReasonCodes.has(String(item.code ?? '').toUpperCase()),
+  )
+  if (hasObjection && !hasOther) return '有异议原因'
+  if (hasObjection && hasOther) return '有异议与不确定原因'
+  return '不确定原因'
+})
+
 const aiPanel = ref<{
   statusLabel: string
   error: string
@@ -600,14 +640,30 @@ const commentEditorOpen = ref(true)
 const finalCommentInputRef = ref<HTMLTextAreaElement | null>(null)
 const totalScoreInput = ref(0)
 const saving = ref(false)
-const rerunLoading = ref(false)
-const rerunError = ref('')
+const rerunLoadingBySubmission = ref<Record<string, boolean>>({})
+const rerunErrorBySubmission = ref<Record<string, string>>({})
 const saveError = ref('')
 const editingOverride = ref(false)
 const baselineScore = ref(0)
 const baselineComment = ref('')
 
 const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
+
+const currentSubmissionVersionId = computed(
+  () => selectedSubmission.value?.submissionVersionId ?? '',
+)
+
+const currentRerunLoading = computed(() => {
+  const submissionId = currentSubmissionVersionId.value
+  if (!submissionId) return false
+  return Boolean(rerunLoadingBySubmission.value[submissionId])
+})
+
+const currentRerunError = computed(() => {
+  const submissionId = currentSubmissionVersionId.value
+  if (!submissionId) return ''
+  return rerunErrorBySubmission.value[submissionId] ?? ''
+})
 
 const resolveFileUrl = (url: string) => {
   if (!url) return url
@@ -718,6 +774,47 @@ const formatStudentAccount = (student?: { account?: string | null; studentId?: s
   return '-'
 }
 
+const formatScoreNumber = (value?: number | null) => {
+  if (!Number.isFinite(Number(value))) return '-'
+  const normalized = Number(value)
+  const rounded = Math.round(normalized * 100) / 100
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-9) return String(Math.round(rounded))
+  return String(rounded)
+}
+
+const resolveQuestionMaxScore = (question?: AssignmentSnapshotQuestion | null) => {
+  if (!question) return 10
+  const rubricTotal = Array.isArray(question.rubric)
+    ? question.rubric.reduce((sum, item) => sum + Math.max(0, Number(item?.maxScore ?? 0)), 0)
+    : 0
+  if (rubricTotal > 0) return rubricTotal
+  const defaultScore = Number(question.defaultScore ?? 0)
+  if (defaultScore > 0) return defaultScore
+  const schema = (question.questionSchema ?? {}) as Record<string, unknown>
+  const schemaMax = Number(schema.maxScore ?? schema.score ?? 0)
+  if (Number.isFinite(schemaMax) && schemaMax > 0) return schemaMax
+  return 10
+}
+
+const getStudentScoreLabel = (studentId: string) => {
+  const questionId = selectedQuestionId.value
+  if (!questionId) return '--/--分'
+  const submission = submissionByKey.value.get(`${studentId}::${questionId}`)
+  const maxScore = Number(
+    submission?.questionMaxScore ??
+      resolveQuestionMaxScore(
+        questions.value.find((item) => item.questionId === questionId) ?? currentQuestion.value,
+      ),
+  )
+  const safeMaxScore = Number.isFinite(maxScore) && maxScore > 0 ? maxScore : 10
+  const rawScore =
+    submission?.finalScore ?? submission?.aiTotalScore ?? submission?.totalScore ?? null
+  if (!Number.isFinite(Number(rawScore))) {
+    return `-/${formatScoreNumber(safeMaxScore)}分`
+  }
+  return `${formatScoreNumber(Number(rawScore))}/${formatScoreNumber(safeMaxScore)}分`
+}
+
 const totalScore = computed(() => Number(totalScoreInput.value) || 0)
 const maxTotalScore = computed(() =>
   gradingItems.value.reduce((sum, item) => sum + (Number(item.maxScore) || 0), 0),
@@ -815,52 +912,111 @@ const loadFinalForSubmission = async (submissionId: string, questionId: string) 
   }
 }
 
-const pollAiResult = async (submissionId: string) => {
+const resetManualDraftFromQuestion = (questionId: string) => {
+  gradingItems.value = buildGradingItems(questionMap.value[questionId], null)
+  finalComment.value = ''
+  syncCommentEditorMode()
+  totalScoreInput.value = gradingItems.value.reduce(
+    (sum, item) => sum + (Number(item.score) || 0),
+    0,
+  )
+  clampTotalScore()
+  baselineScore.value = Number(totalScoreInput.value) || 0
+  baselineComment.value = finalComment.value || ''
+}
+
+type AiPollOutcome = {
+  statusLabel: string
+  error: string
+  result: AiGradingResult | null
+}
+
+const applyAiPanelForSubmission = (
+  submissionId: string,
+  panel: { statusLabel: string; error: string; result: AiGradingResult | null },
+) => {
+  if (selectedSubmission.value?.submissionVersionId !== submissionId) {
+    return
+  }
+  aiPanel.value = panel
+}
+
+const pollAiResult = async (submissionId: string): Promise<AiPollOutcome> => {
   const maxAttempts = 30
   const delayMs = 2000
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       const job = await getAiJobStatus(submissionId)
       if (job.status === 'FAILED') {
-        aiPanel.value = {
+        const failed = {
           statusLabel: '失败',
           error: job.error ?? 'AI 批改失败',
           result: null,
         }
-        return
+        applyAiPanelForSubmission(submissionId, failed)
+        return failed
       }
       if (job.status === 'SUCCEEDED') {
         const result = await getAiGradingResult(submissionId)
-        aiPanel.value = {
+        const success = {
           statusLabel: '完成',
           error: '',
           result,
         }
-        return
+        applyAiPanelForSubmission(submissionId, success)
+        return success
       }
-      aiPanel.value = {
-        ...aiPanel.value,
+      applyAiPanelForSubmission(submissionId, {
         statusLabel: job.status === 'RUNNING' ? '批改中' : '排队中',
-      }
+        error: '',
+        result: null,
+      })
     } catch (err) {
-      aiPanel.value = {
+      const failed = {
         statusLabel: '失败',
         error: err instanceof Error ? err.message : 'AI 批改失败',
         result: null,
       }
-      return
+      applyAiPanelForSubmission(submissionId, failed)
+      return failed
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs))
   }
-  aiPanel.value = {
+  const timeout = {
     statusLabel: '超时',
     error: 'AI 批改超时，请稍后重试',
     result: null,
   }
+  applyAiPanelForSubmission(submissionId, timeout)
+  return timeout
 }
 
 const loadAiForSubmission = async (submissionId: string, questionId: string) => {
   aiPanel.value = { statusLabel: '加载中', error: '', result: null }
+  try {
+    const job = await getAiJobStatus(submissionId)
+    if (job.status === 'RUNNING' || job.status === 'QUEUED') {
+      aiPanel.value = {
+        statusLabel: job.status === 'RUNNING' ? '批改中' : '排队中',
+        error: '',
+        result: null,
+      }
+      resetManualDraftFromQuestion(questionId)
+      void pollAiResult(submissionId)
+      return
+    }
+    if (job.status === 'FAILED') {
+      aiPanel.value = {
+        statusLabel: '失败',
+        error: job.error ?? 'AI 批改失败',
+        result: null,
+      }
+      resetManualDraftFromQuestion(questionId)
+      return
+    }
+  } catch {
+    // Ignore status lookup failure and fallback to result lookup.
+  }
   try {
     const result = await getAiGradingResult(submissionId)
     aiPanel.value = { statusLabel: '完成', error: '', result }
@@ -896,9 +1052,31 @@ const loadAiForSubmission = async (submissionId: string, questionId: string) => 
 const loadAiStatusOnly = async (submissionId: string) => {
   aiPanel.value = { statusLabel: '加载中', error: '', result: null }
   try {
+    const job = await getAiJobStatus(submissionId)
+    if (job.status === 'RUNNING' || job.status === 'QUEUED') {
+      aiPanel.value = {
+        statusLabel: job.status === 'RUNNING' ? '批改中' : '排队中',
+        error: '',
+        result: null,
+      }
+      void pollAiResult(submissionId)
+      return
+    }
+    if (job.status === 'FAILED') {
+      aiPanel.value = {
+        statusLabel: '失败',
+        error: job.error ?? 'AI 批改失败',
+        result: null,
+      }
+      return
+    }
+  } catch {
+    // Fallback to result lookup.
+  }
+  try {
     const result = await getAiGradingResult(submissionId)
     aiPanel.value = { statusLabel: '完成', error: '', result }
-  } catch (err) {
+  } catch {
     aiPanel.value = {
       statusLabel: '排队中',
       error: '',
@@ -908,36 +1086,58 @@ const loadAiStatusOnly = async (submissionId: string) => {
   }
 }
 
+const setRerunLoading = (submissionId: string, loading: boolean) => {
+  rerunLoadingBySubmission.value = {
+    ...rerunLoadingBySubmission.value,
+    [submissionId]: loading,
+  }
+}
+
+const setRerunError = (submissionId: string, error: string) => {
+  rerunErrorBySubmission.value = {
+    ...rerunErrorBySubmission.value,
+    [submissionId]: error,
+  }
+}
+
 const rerunCurrentAi = async () => {
   const submission = selectedSubmission.value
   if (!submission?.submissionVersionId) return
-  rerunLoading.value = true
-  rerunError.value = ''
+  const submissionId = submission.submissionVersionId
+  setRerunLoading(submissionId, true)
+  setRerunError(submissionId, '')
   try {
-    await runAiGrading(submission.submissionVersionId, {
+    await runAiGrading(submissionId, {
       snapshotPolicy: 'LATEST_PUBLISHED',
     })
+    submission.isFinal = false
+    submission.status = 'AI_GRADING'
+    submission.scorePublished = false
     submission.aiStatus = 'PENDING'
     submission.aiIsUncertain = false
-    aiPanel.value = { statusLabel: '排队中', error: '', result: null }
-    await pollAiResult(submission.submissionVersionId)
-    if (aiPanel.value.result) {
+    resetManualDraftFromQuestion(submission.questionId)
+    applyAiPanelForSubmission(submissionId, { statusLabel: '排队中', error: '', result: null })
+    const pollResult = await pollAiResult(submissionId)
+    if (pollResult.result) {
       submission.aiStatus = 'SUCCESS'
+      submission.status = 'AI_FINISHED'
       submission.aiConfidence =
-        typeof aiPanel.value.result.result?.confidence === 'number'
-          ? aiPanel.value.result.result.confidence
+        typeof pollResult.result.result?.confidence === 'number'
+          ? pollResult.result.result.confidence
           : null
-      submission.aiIsUncertain = Boolean(aiPanel.value.result.result?.isUncertain)
+      submission.aiIsUncertain = Boolean(pollResult.result.result?.isUncertain)
       showAppToast('AI 重新批改完成', 'success')
-    } else if (aiPanel.value.error) {
+    } else if (pollResult.error) {
       submission.aiStatus = 'FAILED'
       showAppToast('AI 重新批改失败', 'error')
     }
+    await loadData()
   } catch (err) {
-    rerunError.value = err instanceof Error ? err.message : '重新批改失败'
-    showAppToast(rerunError.value || 'AI 重新批改失败', 'error')
+    const message = err instanceof Error ? err.message : '重新批改失败'
+    setRerunError(submissionId, message)
+    showAppToast(message || 'AI 重新批改失败', 'error')
   } finally {
-    rerunLoading.value = false
+    setRerunLoading(submissionId, false)
   }
 }
 
@@ -976,6 +1176,9 @@ const rerunBatchAi = async () => {
         success += 1
         const target = targets[index]
         if (target) {
+          target.submission.isFinal = false
+          target.submission.status = 'AI_GRADING'
+          target.submission.scorePublished = false
           target.submission.aiStatus = 'PENDING'
           target.submission.aiIsUncertain = false
         }
@@ -994,6 +1197,7 @@ const rerunBatchAi = async () => {
     ) {
       await loadAiStatusOnly(selectedSubmission.value.submissionVersionId)
     }
+    await loadData()
   } catch (err) {
     showAppToast(err instanceof Error ? err.message : '批量重试失败', 'error')
   } finally {
@@ -1131,6 +1335,7 @@ const submitGrading = async (forceAiAdopt: boolean) => {
     } else {
       showAppToast(forceAiAdopt ? '已采用AI评语并确认修改' : '已确认修改', 'success')
     }
+    await loadData()
   } catch (err) {
     saveError.value = err instanceof Error ? err.message : '保存失败'
     showAppToast(saveError.value || '保存失败', 'error')
@@ -1163,8 +1368,10 @@ const backToList = () => {
 watch(
   () => selectedSubmission.value,
   async (submission) => {
-    rerunError.value = ''
     if (submission) {
+      if (!rerunErrorBySubmission.value[submission.submissionVersionId]) {
+        setRerunError(submission.submissionVersionId, '')
+      }
       if (submission.isFinal && !editingOverride.value) {
         await loadFinalForSubmission(submission.submissionVersionId, submission.questionId)
         await loadAiStatusOnly(submission.submissionVersionId)
@@ -1215,7 +1422,7 @@ const loadData = async () => {
 
   try {
     const response = await listSubmissionsByAssignment(assignmentId.value)
-    submissions.value = response?.items ?? []
+    mergeSubmissionRows(response?.items ?? [])
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : '加载提交失败'
   }
@@ -1255,6 +1462,48 @@ const loadData = async () => {
   }
 }
 
+const mergeSubmissionRows = (nextRows: any[]) => {
+  const previousByVersionId = new Map<string, any>()
+  submissions.value.forEach((item) => {
+    if (item?.submissionVersionId) {
+      previousByVersionId.set(String(item.submissionVersionId), item)
+    }
+  })
+  submissions.value = (nextRows ?? []).map((row) => {
+    const key = String(row?.submissionVersionId ?? '')
+    const existing = previousByVersionId.get(key)
+    if (!existing) return row
+    Object.assign(existing, row)
+    return existing
+  })
+}
+
+const refreshSubmissionStatuses = async () => {
+  if (!assignmentId.value || statusRefreshing.value) return
+  statusRefreshing.value = true
+  try {
+    const response = await listSubmissionsByAssignment(assignmentId.value)
+    mergeSubmissionRows(response?.items ?? [])
+  } catch {
+    // ignore background refresh errors
+  } finally {
+    statusRefreshing.value = false
+  }
+}
+
+const startStatusRefresh = () => {
+  if (statusRefreshTimer.value) return
+  statusRefreshTimer.value = setInterval(() => {
+    void refreshSubmissionStatuses()
+  }, 3000)
+}
+
+const stopStatusRefresh = () => {
+  if (!statusRefreshTimer.value) return
+  clearInterval(statusRefreshTimer.value)
+  statusRefreshTimer.value = null
+}
+
 onMounted(async () => {
   await refreshProfile()
   await loadData()
@@ -1262,6 +1511,22 @@ onMounted(async () => {
 
 watch([assignmentId, submissionVersionId], async () => {
   await loadData()
+})
+
+watch(
+  () => hasRunningSubmissions.value,
+  (running) => {
+    if (running) {
+      startStatusRefresh()
+    } else {
+      stopStatusRefresh()
+    }
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  stopStatusRefresh()
 })
 </script>
 
@@ -1282,6 +1547,7 @@ watch([assignmentId, submissionVersionId], async () => {
   padding: 12px 14px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(120, 170, 235, 0.3);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
@@ -1356,6 +1622,7 @@ watch([assignmentId, submissionVersionId], async () => {
   padding: 12px 14px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(120, 170, 235, 0.3);
 }
 
 .batch-meta {
@@ -1372,7 +1639,7 @@ watch([assignmentId, submissionVersionId], async () => {
 
 .grading-layout {
   display: grid;
-  grid-template-columns: 160px minmax(0, 1fr) minmax(0, 280px);
+  grid-template-columns: 320px minmax(0, 1fr) minmax(0, 280px);
   gap: 16px;
   align-items: stretch;
 }
@@ -1381,6 +1648,7 @@ watch([assignmentId, submissionVersionId], async () => {
   padding: 14px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(120, 170, 235, 0.3);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
   display: flex;
   flex-direction: column;
@@ -1429,6 +1697,7 @@ watch([assignmentId, submissionVersionId], async () => {
   gap: 8px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(120, 170, 235, 0.25);
   padding: 8px;
 }
 
@@ -1519,8 +1788,29 @@ watch([assignmentId, submissionVersionId], async () => {
 .student-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.student-row-left {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.student-identity {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.student-row-right {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .student-check {
@@ -1542,6 +1832,17 @@ watch([assignmentId, submissionVersionId], async () => {
   color: rgba(255, 255, 255, 0.85);
 }
 
+.student-score {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(26, 29, 51, 0.82);
+  line-height: 1;
+}
+
+.student-item.active .student-score {
+  color: rgba(255, 255, 255, 0.92);
+}
+
 .student-tag {
   font-size: 11px;
   padding: 2px 8px;
@@ -1552,6 +1853,11 @@ watch([assignmentId, submissionVersionId], async () => {
 .student-tag.pending {
   background: rgba(255, 196, 154, 0.32);
   color: #9a4a12;
+}
+
+.student-tag.running {
+  background: rgba(96, 170, 255, 0.24);
+  color: #2557b6;
 }
 
 .student-tag.graded {
@@ -1572,6 +1878,11 @@ watch([assignmentId, submissionVersionId], async () => {
 .detail-status.pending {
   background: rgba(255, 196, 154, 0.35);
   color: #9a4a12;
+}
+
+.detail-status.running {
+  background: rgba(96, 170, 255, 0.24);
+  color: #2557b6;
 }
 
 .detail-status.graded {
@@ -1601,6 +1912,7 @@ watch([assignmentId, submissionVersionId], async () => {
   padding: 14px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(120, 170, 235, 0.3);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
   min-width: 0;
   overflow: visible;
@@ -1679,11 +1991,6 @@ watch([assignmentId, submissionVersionId], async () => {
   object-fit: contain;
   border-radius: 10px;
   background: #ffffff;
-}
-
-.ai-status {
-  font-size: 12px;
-  color: rgba(26, 29, 51, 0.6);
 }
 
 .ai-details {
@@ -1977,7 +2284,7 @@ watch([assignmentId, submissionVersionId], async () => {
 
 @media (max-width: 1500px) {
   .grading-layout {
-    grid-template-columns: 160px 1fr;
+    grid-template-columns: 320px 1fr;
   }
 
   .grading-panel {
@@ -1987,7 +2294,7 @@ watch([assignmentId, submissionVersionId], async () => {
 
 @media (max-width: 1200px) {
   .grading-layout {
-    grid-template-columns: 160px 1fr;
+    grid-template-columns: 320px 1fr;
   }
 
   .grading-panel {

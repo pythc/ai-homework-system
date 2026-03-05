@@ -32,6 +32,7 @@ import TeacherQuestionBankChapterChildren from '../views/TeacherQuestionBankChap
 import TeacherQuestionBankQuestions from '../views/TeacherQuestionBankQuestions.vue'
 import TeacherQuestionBankQuestionDetail from '../views/TeacherQuestionBankQuestionDetail.vue'
 import TeacherQuestionBankPapers from '../views/TeacherQuestionBankPapers.vue'
+import TeacherPaperPreview from '../views/TeacherPaperPreview.vue'
 import AdminDashboard from '../views/AdminDashboard.vue'
 import AdminQuestionBank from '../views/AdminQuestionBank.vue'
 import AdminClassImport from '../views/AdminClassImport.vue'
@@ -148,6 +149,10 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/teacher/question-bank/papers',
     component: TeacherQuestionBankPapers,
+  },
+  {
+    path: '/teacher/papers/preview',
+    component: TeacherPaperPreview,
   },
   {
     path: '/teacher/question-bank/courses/:courseId/textbooks',

@@ -7,6 +7,7 @@ import { SubmissionEntity } from './entities/submission.entity';
 import { SubmissionVersionEntity } from './entities/submission-version.entity';
 import { AssignmentEntity } from '../assignment/entities/assignment.entity';
 import { AssignmentQuestionEntity } from '../assignment/entities/assignment-question.entity';
+import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
 import { CourseEntity } from '../assignment/entities/course.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { AuthModule } from '../auth/auth.module';
@@ -25,6 +26,7 @@ import { AiGradingModule } from '../ai-grading/ai-grading.module';
       SubmissionVersionEntity,
       AssignmentEntity,
       AssignmentQuestionEntity,
+      AssignmentSnapshotEntity,
       CourseEntity,
       UserEntity,
     ]),

@@ -91,7 +91,8 @@ export class QuestionBankController {
   }
 
   @Get('papers')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async listPapers(
     @Req() req: { user?: { sub?: string; schoolId?: string } },
   ) {
@@ -104,7 +105,8 @@ export class QuestionBankController {
   }
 
   @Get('papers/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async getPaper(
     @Param('id') id: string,
     @Req() req: { user?: { sub?: string; schoolId?: string } },
@@ -118,7 +120,8 @@ export class QuestionBankController {
   }
 
   @Post('papers')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async savePaper(
     @Body() body: SaveQuestionBankPaperDto,
     @Req() req: { user?: { sub?: string; schoolId?: string } },
@@ -132,7 +135,8 @@ export class QuestionBankController {
   }
 
   @Delete('papers/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   async deletePaper(
     @Param('id') id: string,
     @Req() req: { user?: { sub?: string; schoolId?: string } },

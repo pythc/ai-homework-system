@@ -56,10 +56,11 @@ const PLAY_INTERVAL_MS = 15_000
 const TIP_DURATION_MS = 3_800
 const TIP_MESSAGES = [
   '有困难就找我~',
-  '作业不会做？我来帮你~',
+  '做题没思路？我来帮你~',
   '要不要我帮你理清思路？',
   '学习卡住了，点我就行~',
   '遇到问题随时喊我~',
+  '我挡住按钮？拖动我试试~',
 ]
 
 interface QuickAction {

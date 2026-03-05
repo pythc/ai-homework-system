@@ -31,7 +31,7 @@
           <div class="course-main">
             <div class="course-title">{{ course.name }}</div>
             <div class="course-sub">
-              <span>作业 {{ course.total }} 份</span>
+              <span class="status-inline total">作业 {{ course.total }} 份</span>
               <span class="sub-split">·</span>
               <span class="status-inline pending">待确认 {{ course.pending }} 份</span>
               <span class="sub-split">·</span>
@@ -179,6 +179,11 @@ onMounted(async () => {
 .status-inline.pending {
   color: #de8a2b;
   background: rgba(222, 138, 43, 0.15);
+}
+
+.status-inline.total {
+  color: rgba(26, 29, 51, 0.72);
+  background: rgba(142, 158, 190, 0.16);
 }
 
 .course-enter {

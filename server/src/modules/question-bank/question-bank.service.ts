@@ -230,7 +230,7 @@ export class QuestionBankService {
     if (!name) {
       throw new BadRequestException('试卷名称不能为空');
     }
-    const content = this.normalizePaperContent(payload?.content);
+    const content = await this.normalizePaperContent(payload?.content, schoolId);
 
     let entity: QuestionBankPaperEntity | null = null;
     if (payload?.id) {
@@ -905,32 +905,178 @@ export class QuestionBankService {
     };
   }
 
-  private normalizePaperContent(input: unknown) {
-    const source = input && typeof input === 'object' && !Array.isArray(input)
-      ? (input as Record<string, unknown>)
-      : {};
+  private async normalizePaperContent(input: unknown, schoolId: string) {
+    const source =
+      input && typeof input === 'object' && !Array.isArray(input)
+        ? (input as Record<string, unknown>)
+        : {};
     const modeRaw = String(source.questionSourceMode ?? 'MIXED').toUpperCase();
     const questionSourceMode =
       modeRaw === 'BANK' || modeRaw === 'CUSTOM' ? modeRaw : 'MIXED';
-    const selectedQuestionIds = Array.isArray(source.selectedQuestionIds)
-      ? source.selectedQuestionIds.map((item) => String(item)).filter(Boolean)
-      : [];
-    const selectedQuestionOrder = Array.isArray(source.selectedQuestionOrder)
-      ? source.selectedQuestionOrder.map((item) => String(item)).filter(Boolean)
-      : selectedQuestionIds;
-    const customQuestions = Array.isArray(source.customQuestions)
-      ? source.customQuestions
-      : [];
+    const selectedQuestionIds = this.normalizeUniqueStringArray(
+      source.selectedQuestionIds,
+    );
+    if (selectedQuestionIds.some((id) => !this.isUuid(id))) {
+      throw new BadRequestException('试卷题目 ID 格式不合法');
+    }
+    await this.assertPaperQuestionIdsAccessible(selectedQuestionIds, schoolId);
+
+    const selectedSet = new Set(selectedQuestionIds);
+    const rawOrder = this.normalizeUniqueStringArray(source.selectedQuestionOrder);
+    const selectedQuestionOrder = rawOrder.filter((id) => selectedSet.has(id));
+    for (const id of selectedQuestionIds) {
+      if (!selectedQuestionOrder.includes(id)) {
+        selectedQuestionOrder.push(id);
+      }
+    }
+
+    const customQuestions = this.normalizePaperCustomQuestions(
+      source.customQuestions,
+    );
+    if (!selectedQuestionIds.length && !customQuestions.length) {
+      throw new BadRequestException('试卷至少包含一道题目');
+    }
 
     return {
       questionSourceMode,
-      selectedTextbookId: String(source.selectedTextbookId ?? ''),
-      selectedParentChapterId: String(source.selectedParentChapterId ?? ''),
-      selectedChapterId: String(source.selectedChapterId ?? ''),
+      selectedCourseId: this.normalizeOptionalString(source.selectedCourseId, 64),
+      selectedTextbookId: this.normalizeOptionalString(source.selectedTextbookId, 64),
+      selectedParentChapterId: this.normalizeOptionalString(
+        source.selectedParentChapterId,
+        64,
+      ),
+      selectedChapterId: this.normalizeOptionalString(source.selectedChapterId, 64),
       selectedQuestionIds,
       selectedQuestionOrder,
       customQuestions,
     } as Record<string, unknown>;
+  }
+
+  private normalizeOptionalString(input: unknown, maxLength = 255) {
+    const value = String(input ?? '').trim();
+    return value.length > maxLength ? value.slice(0, maxLength) : value;
+  }
+
+  private normalizeUniqueStringArray(input: unknown) {
+    if (!Array.isArray(input)) {
+      return [] as string[];
+    }
+    const seen = new Set<string>();
+    const output: string[] = [];
+    for (const item of input) {
+      const value = String(item ?? '').trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      output.push(value);
+    }
+    return output;
+  }
+
+  private async assertPaperQuestionIdsAccessible(
+    questionIds: string[],
+    schoolId: string,
+  ) {
+    if (!questionIds.length) return;
+    const rows = await this.dataSource.query(
+      `
+        SELECT DISTINCT q.id, q.node_type AS "nodeType"
+        FROM assignment_questions q
+        INNER JOIN chapters c ON c.id = q.chapter_id
+        INNER JOIN question_bank_textbook_schools s ON s.textbook_id = c.textbook_id
+        WHERE s.school_id = $1
+          AND q.id = ANY($2::uuid[])
+          AND q.status = 'ACTIVE'
+      `,
+      [schoolId, questionIds],
+    );
+    const byId = new Map<string, string>(
+      rows.map((item: { id: string; nodeType: string }) => [
+        item.id,
+        String(item.nodeType ?? '').toUpperCase(),
+      ]),
+    );
+    const missing = questionIds.filter((id) => !byId.has(id));
+    if (missing.length > 0) {
+      throw new BadRequestException(`试卷包含不可访问题目: ${missing[0]}`);
+    }
+    const nonLeaf = questionIds.filter((id) => byId.get(id) !== 'LEAF');
+    if (nonLeaf.length > 0) {
+      throw new BadRequestException('试卷仅允许保存题库叶子题目');
+    }
+  }
+
+  private normalizePaperCustomQuestions(input: unknown) {
+    if (!Array.isArray(input)) {
+      return [] as Array<Record<string, unknown>>;
+    }
+    const normalized: Array<Record<string, unknown>> = [];
+    const maxCustomQuestions = 200;
+    const allowedTypes = new Set<string>(Object.values(QuestionType));
+    for (const [index, item] of input.entries()) {
+      if (normalized.length >= maxCustomQuestions) {
+        break;
+      }
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        continue;
+      }
+      const source = item as Record<string, unknown>;
+      const typeRaw = String(source.questionType ?? '').toUpperCase();
+      const questionType = allowedTypes.has(typeRaw)
+        ? typeRaw
+        : QuestionType.SHORT_ANSWER;
+      const options = this.normalizePaperOptions(source.options);
+      const correctOptionIds = this.normalizeUniqueStringArray(
+        source.correctOptionIds,
+      );
+      const blankAnswers = this.normalizeUniqueStringArray(source.blankAnswers);
+      const scoreRaw = Number(source.defaultScore);
+      const defaultScore =
+        Number.isFinite(scoreRaw) && scoreRaw > 0
+          ? Number(scoreRaw.toFixed(2))
+          : 10;
+      normalized.push({
+        tempId:
+          this.normalizeOptionalString(source.tempId, 128) ||
+          `paper-temp-${index + 1}`,
+        questionType,
+        title: this.normalizeOptionalString(source.title, 200),
+        prompt: this.normalizeOptionalString(source.prompt, 20000),
+        defaultScore,
+        allowPartial: Boolean(source.allowPartial),
+        options,
+        correctOptionIds,
+        judgeAnswer:
+          typeof source.judgeAnswer === 'boolean' ? source.judgeAnswer : null,
+        blankAnswers,
+        standardAnswerText: this.normalizeOptionalString(
+          source.standardAnswerText,
+          20000,
+        ),
+      });
+    }
+    return normalized;
+  }
+
+  private normalizePaperOptions(input: unknown) {
+    if (!Array.isArray(input)) {
+      return [] as Array<{ id: string; text: string }>;
+    }
+    const normalized: Array<{ id: string; text: string }> = [];
+    const seen = new Set<string>();
+    for (const item of input) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        continue;
+      }
+      const source = item as Record<string, unknown>;
+      const id = this.normalizeOptionalString(source.id, 32);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      normalized.push({
+        id,
+        text: this.normalizeOptionalString(source.text, 5000),
+      });
+    }
+    return normalized;
   }
 
   private toPaperSummary(item: QuestionBankPaperEntity) {

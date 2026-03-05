@@ -1,0 +1,7 @@
+services:
+  web:
+    # 开启 HTTPS 监听，需先在 .env 中配置可解析的域名 SITE_HOSTS
+    # 示例：
+    # SITE_HOSTS=example.com, www.example.com
+    ports:
+      - "443:443"

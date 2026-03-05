@@ -239,7 +239,6 @@ const handleImport = async () => {
 .panel {
   border-radius: 24px;
   padding: 16px;
-  margin-bottom: 10px;
 }
 
 .panel-head {
