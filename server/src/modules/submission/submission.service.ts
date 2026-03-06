@@ -21,6 +21,7 @@ import {
   SubmissionVersionEntity,
   AiStatus,
 } from './entities/submission-version.entity';
+import { SubmissionDraftEntity } from './entities/submission-draft.entity';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { AiGradingService } from '../ai-grading/ai-grading.service';
 import { SnapshotPolicy } from '../ai-grading/dto/trigger-ai-grading.dto';
@@ -41,6 +42,14 @@ type SubmissionAnswerDraft = {
   answerFormat: string | null;
 };
 
+type SubmissionDraftItem = {
+  questionId: string;
+  contentText: string;
+  answerPayload: Record<string, unknown> | null;
+  answerFormat: string | null;
+  fileRefs: string[];
+};
+
 @Injectable()
 export class SubmissionService {
   constructor(
@@ -49,6 +58,8 @@ export class SubmissionService {
     private readonly submissionRepo: Repository<SubmissionEntity>,
     @InjectRepository(SubmissionVersionEntity)
     private readonly versionRepo: Repository<SubmissionVersionEntity>,
+    @InjectRepository(SubmissionDraftEntity)
+    private readonly draftRepo: Repository<SubmissionDraftEntity>,
     @InjectRepository(AssignmentEntity)
     private readonly assignmentRepo: Repository<AssignmentEntity>,
     @InjectRepository(AssignmentQuestionEntity)
@@ -205,6 +216,7 @@ export class SubmissionService {
     studentId: string,
     assignmentId: string,
     answers: SubmissionAnswerInput[],
+    draftFileRefsByQuestion: Record<string, string[]> = {},
   ) {
     const assignment = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
@@ -317,6 +329,43 @@ export class SubmissionService {
       throw new BadRequestException('作业题目必须为叶子题');
     }
     const questionById = new Map(questionRows.map((item) => [item.id, item]));
+    const allowedDraftRefsByQuestion = new Map<string, string[]>();
+    if (
+      draftFileRefsByQuestion &&
+      typeof draftFileRefsByQuestion === 'object' &&
+      !Array.isArray(draftFileRefsByQuestion)
+    ) {
+      const existingDraft = await this.draftRepo.findOne({
+        where: { assignmentId, studentId },
+      });
+      const draftItems = this.parseDraftItems(existingDraft?.draftPayload);
+      const draftRefMap = new Map(
+        draftItems.map((item) => [item.questionId, new Set(item.fileRefs)]),
+      );
+      for (const [questionId, refsRaw] of Object.entries(draftFileRefsByQuestion)) {
+        if (!requiredSet.has(questionId)) {
+          throw new BadRequestException('draftFileRefsByQuestion 存在不属于作业的题目');
+        }
+        if (!Array.isArray(refsRaw)) {
+          throw new BadRequestException('draftFileRefsByQuestion 字段格式错误');
+        }
+        const allowed = draftRefMap.get(questionId) ?? new Set<string>();
+        const refs = refsRaw
+          .map((item) => String(item).trim())
+          .filter((item) => item.length > 0);
+        refs.forEach((ref) => {
+          if (!allowed.has(ref)) {
+            throw new BadRequestException('草稿图片引用无效，请重新暂存后再提交');
+          }
+        });
+        if (refs.length > 4) {
+          throw new BadRequestException('每题最多上传4张图片');
+        }
+        if (refs.length > 0) {
+          allowedDraftRefsByQuestion.set(questionId, refs);
+        }
+      }
+    }
 
     const normalizedAnswers = new Map<string, SubmissionAnswerDraft>();
     for (const questionId of requiredIds) {
@@ -326,10 +375,11 @@ export class SubmissionService {
         throw new BadRequestException('作业题目与提交答案不匹配');
       }
       const questionFiles = filesByQuestion.get(questionId) ?? [];
+      const draftRefs = allowedDraftRefsByQuestion.get(questionId) ?? [];
       const normalized = this.normalizeAnswerDraftForQuestion(
         question,
         answer,
-        questionFiles.map((file) => file.path),
+        [...questionFiles.map((file) => file.path), ...draftRefs],
       );
       normalizedAnswers.set(questionId, normalized);
     }
@@ -432,7 +482,10 @@ export class SubmissionService {
           if (!answerDraft) {
             throw new BadRequestException('题目答案缺失');
           }
-          const fileUrls = savedByQuestion.get(questionId) ?? [];
+          const fileUrls = [
+            ...(allowedDraftRefsByQuestion.get(questionId) ?? []),
+            ...(savedByQuestion.get(questionId) ?? []),
+          ];
 
           const version = versionRepo.create({
             courseId: assignment.courseId,
@@ -487,13 +540,33 @@ export class SubmissionService {
       );
     }
 
+    const draft = await this.draftRepo.findOne({
+      where: { assignmentId, studentId },
+    });
+    if (draft) {
+      const draftItems = this.parseDraftItems(draft.draftPayload);
+      const selectedDraftRefs = new Set(
+        Array.from(allowedDraftRefsByQuestion.values()).flat(),
+      );
+      const staleDraftRefs = draftItems
+        .flatMap((item) => item.fileRefs)
+        .filter((ref) => !selectedDraftRefs.has(ref));
+      if (staleDraftRefs.length > 0) {
+        await this.storageService.deleteMany(Array.from(new Set(staleDraftRefs)));
+      }
+      await this.draftRepo.delete({ id: draft.id });
+    }
+
     const responseItems = await Promise.all(
       results.map(async (item) => ({
         questionId: item.questionId,
         submissionVersionId: item.submissionVersionId,
         submissionId: item.submissionId,
         fileUrls: await this.toPublicFileUrls(
-          savedByQuestion.get(item.questionId) ?? [],
+          [
+            ...(allowedDraftRefsByQuestion.get(item.questionId) ?? []),
+            ...(savedByQuestion.get(item.questionId) ?? []),
+          ],
         ),
         aiStatus: item.aiStatus,
       })),
@@ -769,6 +842,380 @@ export class SubmissionService {
       })),
     );
     return { items };
+  }
+
+  async getSubmissionDraft(assignmentId: string, studentId: string) {
+    await this.ensureStudentDraftAccess(assignmentId, studentId);
+    const draft = await this.draftRepo.findOne({
+      where: { assignmentId, studentId },
+    });
+    if (!draft) {
+      return {
+        assignmentId,
+        updatedAt: null,
+        items: [],
+      };
+    }
+    const items = this.parseDraftItems(draft.draftPayload);
+    const responseItems = await Promise.all(
+      items.map(async (item) => ({
+        questionId: item.questionId,
+        contentText: item.contentText,
+        answerPayload: item.answerPayload,
+        answerFormat: item.answerFormat,
+        fileRefs: item.fileRefs,
+        fileUrls: await this.toPublicFileUrls(item.fileRefs),
+      })),
+    );
+    return {
+      assignmentId,
+      updatedAt: draft.updatedAt,
+      items: responseItems,
+    };
+  }
+
+  async clearSubmissionDraft(assignmentId: string, studentId: string) {
+    await this.ensureStudentDraftAccess(assignmentId, studentId);
+    const draft = await this.draftRepo.findOne({
+      where: { assignmentId, studentId },
+    });
+    if (!draft) {
+      return { assignmentId, cleared: true };
+    }
+    const items = this.parseDraftItems(draft.draftPayload);
+    const refs = items.flatMap((item) => item.fileRefs).filter(Boolean);
+    if (refs.length > 0) {
+      await this.storageService.deleteMany(Array.from(new Set(refs)));
+    }
+    await this.draftRepo.delete({ id: draft.id });
+    return { assignmentId, cleared: true };
+  }
+
+  async saveSubmissionDraft(
+    files: Express.Multer.File[],
+    studentId: string,
+    assignmentId: string,
+    answers: SubmissionAnswerInput[],
+    draftFileRefsByQuestion: Record<string, string[]> = {},
+  ) {
+    const assignment = await this.ensureStudentDraftAccess(assignmentId, studentId);
+    const selectedIds = assignment.selectedQuestionIds ?? [];
+    const selectedSet = new Set(selectedIds);
+
+    const answerMap = new Map<string, SubmissionAnswerInput>();
+    for (const answer of answers ?? []) {
+      if (!answer?.questionId || typeof answer.questionId !== 'string') {
+        throw new BadRequestException('answers.questionId 不能为空');
+      }
+      if (answerMap.has(answer.questionId)) {
+        throw new BadRequestException(`题目重复: ${answer.questionId}`);
+      }
+      if (!selectedSet.has(answer.questionId)) {
+        throw new BadRequestException('存在不属于作业的题目');
+      }
+      const contentText =
+        typeof answer.contentText === 'string' ? answer.contentText : '';
+      if (contentText.trim().length > 1000) {
+        throw new BadRequestException('文本内容不能超过1000字');
+      }
+      answerMap.set(answer.questionId, {
+        questionId: answer.questionId,
+        contentText,
+        answerPayload: answer.answerPayload,
+        answerFormat:
+          typeof answer.answerFormat === 'string'
+            ? answer.answerFormat.trim() || undefined
+            : undefined,
+      });
+    }
+
+    const questionRows = await this.questionRepo.find({
+      where: { id: In(selectedIds) },
+    });
+    const questionById = new Map(questionRows.map((item) => [item.id, item]));
+
+    const filesByQuestion = new Map<string, Express.Multer.File[]>();
+    for (const file of files ?? []) {
+      if (!file.originalname || !file.path || file.size === 0) {
+        throw new BadRequestException('请上传有效的文件');
+      }
+      if (!file.mimetype?.startsWith('image/')) {
+        throw new BadRequestException('只允许上传图片文件');
+      }
+      const match = /^files\[(.+)]$/.exec(file.fieldname || '');
+      if (!match) {
+        throw new BadRequestException('文件字段需使用 files[questionId]');
+      }
+      const questionId = match[1];
+      if (!selectedSet.has(questionId)) {
+        throw new BadRequestException('文件题目不属于该作业');
+      }
+      const list = filesByQuestion.get(questionId) ?? [];
+      list.push(file);
+      if (list.length > 4) {
+        throw new BadRequestException('每题最多上传4张图片');
+      }
+      filesByQuestion.set(questionId, list);
+    }
+
+    const existingDraft = await this.draftRepo.findOne({
+      where: { assignmentId, studentId },
+    });
+    const existingItems = this.parseDraftItems(existingDraft?.draftPayload);
+    const existingByQuestion = new Map(
+      existingItems.map((item) => [item.questionId, item]),
+    );
+    const requestedRefsByQuestion = new Map<string, string[]>();
+    if (
+      draftFileRefsByQuestion &&
+      typeof draftFileRefsByQuestion === 'object' &&
+      !Array.isArray(draftFileRefsByQuestion)
+    ) {
+      for (const [questionId, refsRaw] of Object.entries(draftFileRefsByQuestion)) {
+        if (!selectedSet.has(questionId)) {
+          throw new BadRequestException('draftFileRefsByQuestion 存在不属于作业的题目');
+        }
+        if (!Array.isArray(refsRaw)) {
+          throw new BadRequestException('draftFileRefsByQuestion 字段格式错误');
+        }
+        const refs = Array.from(
+          new Set(
+            refsRaw
+              .map((item) => String(item).trim())
+              .filter((item) => item.length > 0),
+          ),
+        );
+        if (refs.length > 4) {
+          throw new BadRequestException('每题最多上传4张图片');
+        }
+        requestedRefsByQuestion.set(questionId, refs);
+      }
+    }
+
+    const questionIdSet = new Set<string>([
+      ...Array.from(existingByQuestion.keys()),
+      ...Array.from(answerMap.keys()),
+      ...Array.from(filesByQuestion.keys()),
+    ]);
+
+    const newlySavedRefs: string[] = [];
+    const refsToDelete = new Set<string>();
+    const nextItems: SubmissionDraftItem[] = [];
+
+    try {
+      for (const questionId of questionIdSet) {
+        const question = questionById.get(questionId);
+        const existing = existingByQuestion.get(questionId);
+        if (!question) {
+          existing?.fileRefs.forEach((ref) => refsToDelete.add(ref));
+          continue;
+        }
+
+        const uploaded = filesByQuestion.get(questionId) ?? [];
+        const baseAnswer = answerMap.get(questionId) ?? {
+          questionId,
+          contentText: existing?.contentText ?? '',
+          answerPayload: existing?.answerPayload ?? undefined,
+          answerFormat: existing?.answerFormat ?? undefined,
+        };
+
+        const existingRefs = existing?.fileRefs ?? [];
+        const requestedRefs = requestedRefsByQuestion.has(questionId)
+          ? requestedRefsByQuestion.get(questionId) ?? []
+          : existingRefs;
+        const existingSet = new Set(existingRefs);
+        requestedRefs.forEach((ref) => {
+          if (!existingSet.has(ref)) {
+            throw new BadRequestException('草稿图片引用无效，请刷新后重试');
+          }
+        });
+        existingRefs
+          .filter((ref) => !requestedRefs.includes(ref))
+          .forEach((ref) => refsToDelete.add(ref));
+
+        const savedRefs: string[] = [...requestedRefs];
+        for (const file of uploaded) {
+          const ref = await this.storageService.persistUploadedFile(file.path, {
+            prefix: `drafts/${assignmentId}/${studentId}/${questionId}`,
+            originalName: file.originalname,
+            contentType: file.mimetype,
+          });
+          savedRefs.push(ref);
+          newlySavedRefs.push(ref);
+        }
+
+        if (savedRefs.length > 4) {
+          throw new BadRequestException('每题最多上传4张图片');
+        }
+
+        const normalized = this.normalizeDraftAnswerForQuestion(
+          question,
+          baseAnswer,
+          savedRefs,
+        );
+        if (!normalized) {
+          savedRefs.forEach((ref) => refsToDelete.add(ref));
+          continue;
+        }
+
+        nextItems.push({
+          questionId,
+          contentText: normalized.contentText,
+          answerPayload: normalized.answerPayload,
+          answerFormat: normalized.answerFormat,
+          fileRefs: savedRefs,
+        });
+      }
+
+      if (nextItems.length === 0) {
+        if (existingDraft) {
+          await this.draftRepo.delete({ id: existingDraft.id });
+        }
+      } else {
+        const payload = { items: nextItems };
+        if (existingDraft) {
+          existingDraft.draftPayload = payload;
+          existingDraft.updatedAt = new Date();
+          await this.draftRepo.save(existingDraft);
+        } else {
+          const draft = this.draftRepo.create({
+            assignmentId,
+            studentId,
+            draftPayload: payload,
+          });
+          await this.draftRepo.save(draft);
+        }
+      }
+    } catch (error) {
+      if (newlySavedRefs.length > 0) {
+        await this.storageService.deleteMany(newlySavedRefs);
+      }
+      throw error;
+    }
+
+    if (refsToDelete.size > 0) {
+      const stillUsed = new Set(nextItems.flatMap((item) => item.fileRefs));
+      const stale = Array.from(refsToDelete).filter((ref) => !stillUsed.has(ref));
+      if (stale.length > 0) {
+        await this.storageService.deleteMany(stale);
+      }
+    }
+
+    return this.getSubmissionDraft(assignmentId, studentId);
+  }
+
+  private async ensureStudentDraftAccess(
+    assignmentId: string,
+    studentId: string,
+  ): Promise<AssignmentEntity> {
+    const assignment = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('作业不存在');
+    }
+    const course = await this.courseRepo.findOne({
+      where: { id: assignment.courseId },
+    });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    const student = await this.userRepo.findOne({
+      where: { id: studentId },
+      select: ['id', 'schoolId'],
+    });
+    if (!student) {
+      throw new NotFoundException('学生不存在');
+    }
+    if (student.schoolId !== course.schoolId) {
+      throw new BadRequestException('无权访问该作业');
+    }
+    const enrolled = await this.dataSource.query(
+      `
+        SELECT 1
+        FROM course_students
+        WHERE course_id = $1
+          AND student_id = $2
+          AND status = 'ENROLLED'
+        LIMIT 1
+      `,
+      [course.id, studentId],
+    );
+    if (!enrolled.length) {
+      throw new BadRequestException('无权访问该作业');
+    }
+    return assignment;
+  }
+
+  private parseDraftItems(payload: unknown): SubmissionDraftItem[] {
+    const root = this.isRecord(payload) ? payload : {};
+    const raw = Array.isArray(root.items) ? root.items : [];
+    return raw
+      .filter((item) => this.isRecord(item) && typeof item.questionId === 'string')
+      .map((item) => {
+        const fileRefs = Array.isArray(item.fileRefs)
+          ? item.fileRefs
+              .map((ref) => String(ref).trim())
+              .filter((ref) => ref.length > 0)
+          : [];
+        return {
+          questionId: String(item.questionId),
+          contentText: typeof item.contentText === 'string' ? item.contentText : '',
+          answerPayload: this.isRecord(item.answerPayload)
+            ? (item.answerPayload as Record<string, unknown>)
+            : null,
+          answerFormat:
+            typeof item.answerFormat === 'string' && item.answerFormat.trim()
+              ? item.answerFormat.trim().slice(0, 32)
+              : null,
+          fileRefs,
+        };
+      });
+  }
+
+  private normalizeDraftAnswerForQuestion(
+    question: AssignmentQuestionEntity,
+    answer: SubmissionAnswerInput,
+    fileRefs: string[],
+  ): SubmissionAnswerDraft | null {
+    const contentText =
+      typeof answer.contentText === 'string' ? answer.contentText.trim() : '';
+    const rawFormat =
+      typeof answer.answerFormat === 'string' ? answer.answerFormat.trim() : '';
+    const answerFormat = rawFormat ? rawFormat.slice(0, 32) : null;
+
+    if (this.isObjectiveQuestionType(question.questionType)) {
+      if (fileRefs.length > 0) {
+        throw new BadRequestException('客观题不支持上传图片');
+      }
+      const normalizedPayload = this.normalizeObjectiveAnswerPayload(
+        question.questionType,
+        answer.answerPayload,
+        contentText,
+      );
+      if (!normalizedPayload) {
+        return null;
+      }
+      return {
+        questionId: answer.questionId,
+        contentText,
+        answerPayload: normalizedPayload,
+        answerFormat: answerFormat ?? 'STRUCTURED',
+      };
+    }
+
+    const payload = this.isRecord(answer.answerPayload)
+      ? (answer.answerPayload as Record<string, unknown>)
+      : null;
+    if (!contentText && fileRefs.length === 0 && !payload) {
+      return null;
+    }
+    return {
+      questionId: answer.questionId,
+      contentText,
+      answerPayload: payload,
+      answerFormat: answerFormat ?? (payload ? 'STRUCTURED' : 'RICH_TEXT'),
+    };
   }
 
   private normalizeAnswerDraftForQuestion(

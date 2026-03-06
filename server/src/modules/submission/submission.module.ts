@@ -5,6 +5,7 @@ import { SubmissionController } from './submission.controller';
 import { SubmissionService } from './submission.service';
 import { SubmissionEntity } from './entities/submission.entity';
 import { SubmissionVersionEntity } from './entities/submission-version.entity';
+import { SubmissionDraftEntity } from './entities/submission-draft.entity';
 import { AssignmentEntity } from '../assignment/entities/assignment.entity';
 import { AssignmentQuestionEntity } from '../assignment/entities/assignment-question.entity';
 import { AssignmentSnapshotEntity } from '../assignment/entities/assignment-snapshot.entity';
@@ -24,6 +25,7 @@ import { AiGradingModule } from '../ai-grading/ai-grading.module';
     TypeOrmModule.forFeature([
       SubmissionEntity,
       SubmissionVersionEntity,
+      SubmissionDraftEntity,
       AssignmentEntity,
       AssignmentQuestionEntity,
       AssignmentSnapshotEntity,

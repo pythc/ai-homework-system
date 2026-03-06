@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import {
   BadRequestException,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -61,6 +62,34 @@ export class SubmissionController {
     );
   }
 
+  @Get('draft/:assignmentId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
+  async getDraftByAssignment(
+    @Param('assignmentId') assignmentId: string,
+    @Req() req: { user?: { sub?: string } },
+  ) {
+    const studentId = req.user?.sub;
+    if (!studentId) {
+      throw new BadRequestException('缺少学生身份信息');
+    }
+    return this.submissionService.getSubmissionDraft(assignmentId, studentId);
+  }
+
+  @Delete('draft/:assignmentId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
+  async clearDraftByAssignment(
+    @Param('assignmentId') assignmentId: string,
+    @Req() req: { user?: { sub?: string } },
+  ) {
+    const studentId = req.user?.sub;
+    if (!studentId) {
+      throw new BadRequestException('缺少学生身份信息');
+    }
+    return this.submissionService.clearSubmissionDraft(assignmentId, studentId);
+  }
+
   @Get(':submissionVersionId')
   @UseGuards(JwtAuthGuard)
   async getSubmission(
@@ -80,6 +109,7 @@ export class SubmissionController {
     @Req() req: { user?: { sub?: string } },
     @Body('assignmentId') assignmentId: string,
     @Body('answers') answersRaw: string,
+    @Body('draftFileRefsByQuestion') draftFileRefsRaw?: string,
   ) {
     if (!assignmentId) {
       throw new BadRequestException('缺少assignmentId');
@@ -94,10 +124,20 @@ export class SubmissionController {
       answerPayload?: Record<string, unknown>;
       answerFormat?: string;
     }> = [];
+    let draftFileRefsByQuestion: Record<string, string[]> = {};
     try {
       answers = JSON.parse(answersRaw);
     } catch (error) {
       throw new BadRequestException('answers 必须是 JSON 数组');
+    }
+    if (draftFileRefsRaw) {
+      try {
+        const parsed = JSON.parse(draftFileRefsRaw);
+        draftFileRefsByQuestion =
+          parsed && typeof parsed === 'object' ? parsed : {};
+      } catch (error) {
+        throw new BadRequestException('draftFileRefsByQuestion 必须是 JSON 对象');
+      }
     }
     if (!Array.isArray(answers)) {
       throw new BadRequestException('answers 必须是数组');
@@ -111,6 +151,61 @@ export class SubmissionController {
       studentId,
       assignmentId,
       answers,
+      draftFileRefsByQuestion,
+    );
+  }
+
+  @Post('draft')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
+  @UseInterceptors(AnyFilesInterceptor())
+  async saveDraft(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Req() req: { user?: { sub?: string } },
+    @Body('assignmentId') assignmentId: string,
+    @Body('answers') answersRaw = '[]',
+    @Body('draftFileRefsByQuestion') draftFileRefsRaw?: string,
+  ) {
+    if (!assignmentId) {
+      throw new BadRequestException('缺少assignmentId');
+    }
+    const safeFiles = files ?? [];
+    let answers: Array<{
+      questionId: string;
+      contentText?: string;
+      answerPayload?: Record<string, unknown>;
+      answerFormat?: string;
+    }> = [];
+    try {
+      answers = JSON.parse(answersRaw || '[]');
+    } catch (error) {
+      throw new BadRequestException('answers 必须是 JSON 数组');
+    }
+    let draftFileRefsByQuestion: Record<string, string[]> = {};
+    if (draftFileRefsRaw) {
+      try {
+        const parsed = JSON.parse(draftFileRefsRaw);
+        draftFileRefsByQuestion =
+          parsed && typeof parsed === 'object' ? parsed : {};
+      } catch (error) {
+        throw new BadRequestException(
+          'draftFileRefsByQuestion 必须是 JSON 对象',
+        );
+      }
+    }
+    if (!Array.isArray(answers)) {
+      throw new BadRequestException('answers 必须是数组');
+    }
+    const studentId = req.user?.sub;
+    if (!studentId) {
+      throw new BadRequestException('缺少学生身份信息');
+    }
+    return this.submissionService.saveSubmissionDraft(
+      safeFiles,
+      studentId,
+      assignmentId,
+      answers,
+      draftFileRefsByQuestion,
     );
   }
 

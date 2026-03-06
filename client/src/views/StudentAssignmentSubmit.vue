@@ -9,8 +9,14 @@
     <section class="panel glass">
       <div class="panel-title panel-title-row">
         <div>作业提交</div>
-        <button class="ghost-action" type="button" @click="goBack">返回作业库</button>
+        <div class="panel-title-actions">
+          <button class="ghost-action" type="button" :disabled="submitting || isFinalized" @click="saveDraftManually">
+            暂存作业
+          </button>
+          <button class="ghost-action" type="button" @click="goBack">返回作业库</button>
+        </div>
       </div>
+      <div v-if="draftStatusText" class="draft-status">{{ draftStatusText }}</div>
       <div v-if="loading" class="task-empty">加载题目中...</div>
       <div v-else class="submit-layout">
         <aside class="question-sidebar">
@@ -392,6 +398,15 @@
             >
               {{ isFinalized ? '已评分不可再提交' : submitting ? '提交中...' : '提交作业' }}
             </button>
+            <button
+              v-if="hasDraftData"
+              class="ghost-action draft-clear-btn"
+              type="button"
+              :disabled="submitting || isFinalized"
+              @click="clearDraft(true)"
+            >
+              清空暂存
+            </button>
             <div v-if="error" class="submit-error">{{ error }}</div>
             <div v-if="isFinalized" class="submit-lock">老师已确认最终成绩，无法再次提交。</div>
           </div>
@@ -432,7 +447,13 @@ import {
 import StudentLayout from '../components/StudentLayout.vue'
 import type { AssignmentSnapshotQuestion, QuestionType } from '../api/assignment'
 import { getAssignmentSnapshot } from '../api/assignment'
-import { listLatestSubmissions, uploadSubmission } from '../api/submission'
+import {
+  clearSubmissionDraft,
+  getSubmissionDraft,
+  listLatestSubmissions,
+  saveSubmissionDraft as saveSubmissionDraftApi,
+  uploadSubmission,
+} from '../api/submission'
 import { API_BASE_URL } from '../api/http'
 import { showAppToast } from '../composables/useAppToast'
 import { useStudentProfile } from '../composables/useStudentProfile'
@@ -472,6 +493,11 @@ type SubmittedItem = {
   answerFormat?: string | null
 }
 
+type DraftRemoteFile = {
+  ref: string
+  url: string
+}
+
 const questions = ref<SubmitQuestion[]>([])
 const currentIndex = ref(0)
 const answers = ref<Record<string, string>>({})
@@ -484,6 +510,15 @@ const isFinalized = ref(false)
 const assignmentId = computed(() => String(route.params.assignmentId ?? ''))
 const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
 const currentQuestion = computed(() => questions.value[currentIndex.value] ?? null)
+const latestSubmissionUpdatedAt = ref(0)
+const hasDraftData = ref(false)
+const draftUpdatedAt = ref(0)
+const isRestoringDraft = ref(false)
+const draftReady = ref(false)
+const draftHasImages = ref(false)
+let draftAutoSaveTimer: ReturnType<typeof setTimeout> | null = null
+const draftRemoteFilesByQuestion = ref<Record<string, DraftRemoteFile[]>>({})
+let lastSavedDraftSignature = ''
 
 const goBack = () => {
   router.push('/student/assignments')
@@ -539,6 +574,167 @@ const stripHtml = (text: string) =>
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+
+const formatDraftTime = (timestamp: number) => {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return ''
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+const draftStatusText = computed(() => {
+  if (!hasDraftData.value) return ''
+  const timeText = formatDraftTime(draftUpdatedAt.value)
+  const imageHint = draftHasImages.value ? '，含图片' : ''
+  if (!timeText) return `已检测到暂存草稿（含文字/客观题${imageHint}）`
+  return `草稿已暂存：${timeText}（含文字/客观题${imageHint}）`
+})
+
+const parseServerTimestamp = (value: unknown) => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const time = new Date(value).getTime()
+    return Number.isFinite(time) ? time : 0
+  }
+  if (value instanceof Date) {
+    const time = value.getTime()
+    return Number.isFinite(time) ? time : 0
+  }
+  return 0
+}
+
+const buildDraftFileRefsByQuestion = () => {
+  const refsByQuestion: Record<string, string[]> = {}
+  Object.entries(draftRemoteFilesByQuestion.value).forEach(([questionId, files]) => {
+    const refs = Array.from(
+      new Set(
+        files
+          .map((file) => String(file.ref || '').trim())
+          .filter((ref) => ref.length > 0),
+      ),
+    )
+    if (refs.length > 0) {
+      refsByQuestion[questionId] = refs
+    }
+  })
+  return refsByQuestion
+}
+
+const clearLocalPendingFiles = () => {
+  Object.values(previewUrls.value).forEach((items) => {
+    items.forEach((url) => URL.revokeObjectURL(url))
+  })
+  previewUrls.value = {}
+  filesByQuestion.value = {}
+}
+
+const buildLocalFileSignature = () =>
+  questions.value
+    .map((question) => {
+      const files = filesByQuestion.value[question.questionId] ?? []
+      const part = files
+        .map((file) => `${file.name}:${file.size}:${file.type}:${file.lastModified}`)
+        .join('|')
+      return `${question.questionId}=>${part}`
+    })
+    .join('||')
+
+const buildRemoteFileSignature = () =>
+  questions.value
+    .map((question) => {
+      const refs = (draftRemoteFilesByQuestion.value[question.questionId] ?? [])
+        .map((item) => item.ref)
+        .join('|')
+      return `${question.questionId}=>${refs}`
+    })
+    .join('||')
+
+const buildDraftSignature = (
+  textAnswers: Record<string, string>,
+  objectivePayloads: Record<string, ObjectiveAnswerPayload>,
+  draftFileRefsByQuestion: Record<string, string[]>,
+) =>
+  JSON.stringify({
+    textAnswers,
+    objectivePayloads,
+    draftFileRefsByQuestion,
+    localFileSignature: buildLocalFileSignature(),
+    remoteFileSignature: buildRemoteFileSignature(),
+  })
+
+const applyDraftFromServer = (
+  draft: {
+    updatedAt?: string | null
+    items?: Array<{
+      questionId?: string
+      contentText?: string
+      answerPayload?: Record<string, unknown> | null
+      fileRefs?: string[]
+      fileUrls?: string[]
+    }>
+  },
+  options: { restoreAnswers: boolean },
+) => {
+  const rawItems = Array.isArray(draft.items) ? draft.items : []
+  const questionMap = new Map(questions.value.map((question) => [question.questionId, question]))
+  const nextRemoteFiles: Record<string, DraftRemoteFile[]> = {}
+  let restoredCount = 0
+
+  rawItems.forEach((item) => {
+    const questionId = String(item.questionId || '')
+    if (!questionId) return
+    const question = questionMap.get(questionId)
+    if (!question) return
+
+    const refs = Array.isArray(item.fileRefs)
+      ? item.fileRefs
+        .map((ref) => String(ref).trim())
+        .filter((ref) => ref.length > 0)
+      : []
+    const urls = Array.isArray(item.fileUrls)
+      ? item.fileUrls.map((url) => resolveFileUrl(String(url || '')))
+      : []
+    if (refs.length > 0) {
+      nextRemoteFiles[questionId] = refs.map((ref, index) => ({
+        ref,
+        url: urls[index] || resolveFileUrl(ref),
+      }))
+    }
+
+    if (!options.restoreAnswers) return
+    if (isObjectiveQuestion(question)) {
+      objectiveAnswers.value[questionId] = normalizeObjectivePayloadFromAny(
+        question,
+        item.answerPayload,
+        item.contentText ?? '',
+      )
+      restoredCount += 1
+      return
+    }
+    const text = String(item.contentText ?? '')
+    if (text.trim()) {
+      answers.value[questionId] = text
+      restoredCount += 1
+    }
+  })
+
+  draftRemoteFilesByQuestion.value = nextRemoteFiles
+  hasDraftData.value = rawItems.length > 0
+  draftUpdatedAt.value = parseServerTimestamp(draft.updatedAt)
+  draftHasImages.value =
+    Object.values(nextRemoteFiles).reduce((sum, files) => sum + files.length, 0) > 0 ||
+    Object.values(filesByQuestion.value).some((files) => files.length > 0)
+
+  return {
+    restoredCount,
+    restoredImageCount: Object.values(nextRemoteFiles).reduce(
+      (sum, files) => sum + files.length,
+      0,
+    ),
+  }
+}
 
 const resolveFileUrl = (url: string) => {
   if (!url) return url
@@ -612,6 +808,30 @@ const parseBooleanValue = (value: unknown): boolean | null => {
   return null
 }
 
+const inferJudgeOptionBoolean = (
+  rawValue: unknown,
+  optionId: string,
+  optionText: string,
+  optionIndex: number,
+): boolean | null => {
+  const parsedRaw = parseBooleanValue(rawValue)
+  if (parsedRaw !== null) return parsedRaw
+
+  const id = optionId.trim().toUpperCase()
+  if (['A', 'T', 'Y', '1'].includes(id)) return true
+  if (['B', 'F', 'N', '0'].includes(id)) return false
+
+  const text = optionText.replace(/\s+/g, '')
+  const trueWords = ['对', '正确', '是', '真', '√', 'yes', 'true']
+  const falseWords = ['错', '错误', '否', '假', '×', 'no', 'false']
+  if (trueWords.some((word) => text.toLowerCase() === word || text.includes(word))) return true
+  if (falseWords.some((word) => text.toLowerCase() === word || text.includes(word))) return false
+
+  if (optionIndex === 0) return true
+  if (optionIndex === 1) return false
+  return null
+}
+
 const splitAnswerTokens = (value: string) =>
   value
     .split(/[\n,，;；、]/g)
@@ -621,13 +841,17 @@ const splitAnswerTokens = (value: string) =>
 const getQuestionOptions = (question: SubmitQuestion): QuestionOption[] => {
   const schema = isRecord(question.questionSchema) ? question.questionSchema : {}
   const raw = Array.isArray(schema.options) ? schema.options : []
+  const type = objectiveTypeOf(question)
   const mapped = raw
     .map((item, index) => {
       if (!isRecord(item)) return null
       const id = String(item.id ?? index + 1).trim()
       if (!id) return null
       const text = String(item.text ?? id).trim() || id
-      const parsedBool = parseBooleanValue(item.value)
+      const parsedBool =
+        type === 'JUDGE'
+          ? inferJudgeOptionBoolean(item.value, id, text, index)
+          : parseBooleanValue(item.value)
       return {
         id,
         text,
@@ -927,6 +1151,239 @@ const formatSubmittedObjective = (question: SubmitQuestion, submitted?: Submitte
   return submitted.contentText || '未提交答案'
 }
 
+const hasObjectiveDraftValue = (payload: ObjectiveAnswerPayload) => {
+  if (!isRecord(payload)) return false
+  if (typeof payload.selectedOptionId === 'string' && payload.selectedOptionId.trim()) return true
+  if (
+    Array.isArray(payload.selectedOptionIds) &&
+    payload.selectedOptionIds.some((item) => String(item).trim().length > 0)
+  ) {
+    return true
+  }
+  if (parseBooleanValue(payload.value) !== null) return true
+  if (parseBooleanValue(payload.answer) !== null) return true
+  if (
+    Array.isArray(payload.blanks) &&
+    payload.blanks.some((item) => String(item ?? '').trim().length > 0)
+  ) {
+    return true
+  }
+  return false
+}
+
+const buildDraftPayload = () => {
+  const textAnswers: Record<string, string> = {}
+  const objectivePayloads: Record<string, ObjectiveAnswerPayload> = {}
+  let hasAnyContent = false
+
+  questions.value.forEach((question) => {
+    if (isObjectiveQuestion(question)) {
+      const payload = buildObjectiveAnswer(question)
+      if (hasObjectiveDraftValue(payload)) {
+        objectivePayloads[question.questionId] = payload
+        hasAnyContent = true
+      }
+      return
+    }
+
+    const html = answers.value[question.questionId] ?? ''
+    if (stripHtml(html)) {
+      textAnswers[question.questionId] = html
+      hasAnyContent = true
+    }
+  })
+
+  const localImageCount = questions.value.reduce((sum, question) => {
+    return sum + (filesByQuestion.value[question.questionId]?.length ?? 0)
+  }, 0)
+  const draftFileRefsByQuestion = buildDraftFileRefsByQuestion()
+  const remoteImageCount = Object.values(draftFileRefsByQuestion).reduce(
+    (sum, refs) => sum + refs.length,
+    0,
+  )
+
+  return {
+    textAnswers,
+    objectivePayloads,
+    hasAnyContent,
+    localImageCount,
+    remoteImageCount,
+    draftFileRefsByQuestion,
+  }
+}
+
+const buildDraftAnswerInputs = (
+  textAnswers: Record<string, string>,
+  objectivePayloads: Record<string, ObjectiveAnswerPayload>,
+  draftFileRefsByQuestion: Record<string, string[]>,
+) => {
+  return questions.value.flatMap((question) => {
+    const questionId = question.questionId
+    const hasLocalFiles = (filesByQuestion.value[questionId]?.length ?? 0) > 0
+    const hasRemoteFiles = (draftFileRefsByQuestion[questionId]?.length ?? 0) > 0
+
+    if (isObjectiveQuestion(question)) {
+      const payload = objectivePayloads[questionId]
+      const hasPayload = Boolean(payload && hasObjectiveDraftValue(payload))
+      if (!hasPayload && !hasLocalFiles && !hasRemoteFiles) {
+        return []
+      }
+      const objectivePayload = hasPayload ? (payload as ObjectiveAnswerPayload) : undefined
+      return [{
+        questionId,
+        contentText: objectivePayload ? objectiveAnswerToText(question, objectivePayload) : '',
+        answerPayload: objectivePayload,
+        answerFormat: hasPayload ? 'STRUCTURED' : undefined,
+      }]
+    }
+
+    const html = textAnswers[questionId] ?? ''
+    const hasText = stripHtml(html).length > 0
+    if (!hasText && !hasLocalFiles && !hasRemoteFiles) {
+      return []
+    }
+    return [{
+      questionId,
+      contentText: html,
+    }]
+  })
+}
+
+const clearDraft = async (notify = false) => {
+  if (!assignmentId.value) return
+  await clearSubmissionDraft(assignmentId.value).catch(() => undefined)
+  hasDraftData.value = false
+  draftUpdatedAt.value = 0
+  draftRemoteFilesByQuestion.value = {}
+  const { textAnswers, objectivePayloads, draftFileRefsByQuestion } = buildDraftPayload()
+  lastSavedDraftSignature = buildDraftSignature(
+    textAnswers,
+    objectivePayloads,
+    draftFileRefsByQuestion,
+  )
+  draftHasImages.value = Object.values(filesByQuestion.value).some((files) => files.length > 0)
+  if (notify) {
+    showAppToast('已清空暂存草稿', 'success')
+  }
+}
+
+const saveDraft = async (mode: 'auto' | 'manual' = 'manual') => {
+  if (!assignmentId.value || isFinalized.value) return
+  const {
+    textAnswers,
+    objectivePayloads,
+    hasAnyContent,
+    localImageCount,
+    remoteImageCount,
+    draftFileRefsByQuestion,
+  } = buildDraftPayload()
+  const draftAnswers = buildDraftAnswerInputs(
+    textAnswers,
+    objectivePayloads,
+    draftFileRefsByQuestion,
+  )
+
+  if (!hasAnyContent && localImageCount === 0 && remoteImageCount === 0) {
+    if (mode === 'manual') {
+      showAppToast('暂无可暂存内容', 'error')
+    }
+    if (!hasDraftData.value) return
+    await clearDraft(false)
+    return
+  }
+
+  const signature = buildDraftSignature(
+    textAnswers,
+    objectivePayloads,
+    draftFileRefsByQuestion,
+  )
+  if (signature === lastSavedDraftSignature) {
+    return
+  }
+
+  try {
+    const draft = await saveSubmissionDraftApi({
+      assignmentId: assignmentId.value,
+      answers: draftAnswers,
+      filesByQuestion: filesByQuestion.value,
+      draftFileRefsByQuestion,
+    })
+    clearLocalPendingFiles()
+    applyDraftFromServer(draft ?? {}, { restoreAnswers: false })
+    lastSavedDraftSignature = buildDraftSignature(
+      textAnswers,
+      objectivePayloads,
+      buildDraftFileRefsByQuestion(),
+    )
+    if (mode === 'manual') {
+      showAppToast('草稿已暂存（含图片）', 'success')
+    }
+  } catch {
+    if (mode === 'manual') {
+      showAppToast('暂存失败，请稍后重试', 'error')
+    }
+  }
+}
+
+const restoreDraftFromServer = async () => {
+  if (!assignmentId.value || !questions.value.length || isFinalized.value) return
+  isRestoringDraft.value = true
+  try {
+    const draft = await getSubmissionDraft(assignmentId.value)
+    const draftUpdatedAtTs = parseServerTimestamp(draft?.updatedAt)
+    if (
+      latestSubmissionUpdatedAt.value > 0 &&
+      draftUpdatedAtTs > 0 &&
+      draftUpdatedAtTs <= latestSubmissionUpdatedAt.value
+    ) {
+      await clearSubmissionDraft(assignmentId.value).catch(() => undefined)
+      hasDraftData.value = false
+      draftUpdatedAt.value = 0
+      draftRemoteFilesByQuestion.value = {}
+      draftHasImages.value = Object.values(filesByQuestion.value).some((files) => files.length > 0)
+      return
+    }
+
+    const { restoredCount, restoredImageCount } = applyDraftFromServer(draft ?? {}, {
+      restoreAnswers: true,
+    })
+    if (restoredCount > 0 || restoredImageCount > 0) {
+      syncEditorFromCurrentQuestion()
+      showAppToast('已恢复暂存草稿（含图片）', 'success')
+    }
+    const {
+      textAnswers,
+      objectivePayloads,
+      draftFileRefsByQuestion,
+    } = buildDraftPayload()
+    lastSavedDraftSignature = buildDraftSignature(
+      textAnswers,
+      objectivePayloads,
+      draftFileRefsByQuestion,
+    )
+  } catch {
+    // ignore
+  } finally {
+    isRestoringDraft.value = false
+  }
+}
+
+const saveDraftManually = async () => {
+  await saveDraft('manual')
+}
+
+const scheduleAutoSaveDraft = () => {
+  if (!draftReady.value || isRestoringDraft.value || loading.value || submitting.value || isFinalized.value) {
+    return
+  }
+  if (draftAutoSaveTimer) {
+    clearTimeout(draftAutoSaveTimer)
+  }
+  draftAutoSaveTimer = setTimeout(() => {
+    void saveDraft('auto')
+  }, 800)
+}
+
 const loadSnapshot = async () => {
   if (!assignmentId.value) {
     error.value = '缺少作业信息'
@@ -981,9 +1438,14 @@ const loadLatestSubmissions = async () => {
   try {
     const response = await listLatestSubmissions(assignmentId.value)
     const items = response?.items ?? []
+    latestSubmissionUpdatedAt.value = 0
     isFinalized.value = items.some((item) => item.isFinal)
     const questionMap = new Map(questions.value.map((question) => [question.questionId, question]))
     items.forEach((item) => {
+      const submittedAt = new Date(String(item.submittedAt ?? '')).getTime()
+      if (Number.isFinite(submittedAt)) {
+        latestSubmissionUpdatedAt.value = Math.max(latestSubmissionUpdatedAt.value, submittedAt)
+      }
       const question = questionMap.get(item.questionId)
       const answerPayload = isRecord(item.answerPayload) ? item.answerPayload : null
       submittedMap.value[item.questionId] = {
@@ -1028,15 +1490,17 @@ const mergeImageFiles = (
   const imageFiles = incomingFiles.filter((file) => file.type.startsWith('image/'))
   if (imageFiles.length === 0) return
 
-  const existing = filesByQuestion.value[questionId] ?? []
-  const remain = Math.max(0, 4 - existing.length)
+  const existingLocal = filesByQuestion.value[questionId] ?? []
+  const existingRemote = draftRemoteFilesByQuestion.value[questionId] ?? []
+  const remain = Math.max(0, 4 - existingLocal.length - existingRemote.length)
   if (remain === 0) {
     showAppToast('图片最多提交4张', 'error')
     return
   }
 
   const accepted = imageFiles.slice(0, remain)
-  resetQuestionFiles(questionId, [...existing, ...accepted])
+  resetQuestionFiles(questionId, [...existingLocal, ...accepted])
+  draftHasImages.value = true
   if (imageFiles.length > remain) {
     showAppToast('图片最多提交4张', 'error')
   } else {
@@ -1134,20 +1598,44 @@ const onEditorDrop = (event: DragEvent) => {
 }
 
 const getFileCount = (questionId: string) =>
-  filesByQuestion.value[questionId]?.length ?? 0
+  (filesByQuestion.value[questionId]?.length ?? 0) +
+  (draftRemoteFilesByQuestion.value[questionId]?.length ?? 0)
 
 const getSelectedPreviews = (questionId: string) =>
-  previewUrls.value[questionId] ?? []
+  [
+    ...(draftRemoteFilesByQuestion.value[questionId] ?? []).map((item) => item.url),
+    ...(previewUrls.value[questionId] ?? []),
+  ]
 
 const removeSelectedFile = (questionId: string, index: number) => {
+  const remoteFiles = [...(draftRemoteFilesByQuestion.value[questionId] ?? [])]
+  if (index < remoteFiles.length) {
+    remoteFiles.splice(index, 1)
+    const next = { ...draftRemoteFilesByQuestion.value }
+    if (remoteFiles.length > 0) {
+      next[questionId] = remoteFiles
+    } else {
+      delete next[questionId]
+    }
+    draftRemoteFilesByQuestion.value = next
+    draftHasImages.value =
+      Object.values(next).some((files) => files.length > 0) ||
+      Object.values(filesByQuestion.value).some((files) => files.length > 0)
+    return
+  }
+
+  const localIndex = index - remoteFiles.length
   const files = filesByQuestion.value[questionId] ?? []
   const urls = previewUrls.value[questionId] ?? []
-  const removed = urls[index]
+  const removed = urls[localIndex]
   if (removed) URL.revokeObjectURL(removed)
-  files.splice(index, 1)
-  urls.splice(index, 1)
+  files.splice(localIndex, 1)
+  urls.splice(localIndex, 1)
   filesByQuestion.value[questionId] = [...files]
   previewUrls.value[questionId] = [...urls]
+  draftHasImages.value =
+    Object.values(draftRemoteFilesByQuestion.value).some((items) => items.length > 0) ||
+    Object.values(filesByQuestion.value).some((items) => items.length > 0)
 }
 
 const prevQuestion = () => {
@@ -1277,6 +1765,10 @@ watch(isFinalized, (locked) => {
   editor.value?.setEditable(!locked)
 })
 
+watch([answers, objectiveAnswers, filesByQuestion, draftRemoteFilesByQuestion], () => {
+  scheduleAutoSaveDraft()
+}, { deep: true })
+
 const validateObjectiveQuestion = (question: SubmitQuestion) => {
   const payload = buildObjectiveAnswer(question)
   const type = objectiveTypeOf(question)
@@ -1320,11 +1812,13 @@ const validate = () => {
     }
     const html = answers.value[question.questionId] ?? ''
     const text = stripHtml(html)
-    const files = filesByQuestion.value[question.questionId] ?? []
-    if (!text && files.length === 0) {
+    const localFiles = filesByQuestion.value[question.questionId] ?? []
+    const remoteFiles = draftRemoteFilesByQuestion.value[question.questionId] ?? []
+    const totalFiles = localFiles.length + remoteFiles.length
+    if (!text && totalFiles === 0) {
       return `第 ${question.questionIndex} 题需要文字或图片`
     }
-    if (files.length > 4) {
+    if (totalFiles > 4) {
       return `第 ${question.questionIndex} 题最多 4 张图片`
     }
   }
@@ -1362,6 +1856,7 @@ const submit = async () => {
       assignmentId: assignmentId.value,
       answers: payloadAnswers,
       filesByQuestion: filesByQuestion.value,
+      draftFileRefsByQuestion: buildDraftFileRefsByQuestion(),
     })
     const items = response?.data?.items ?? []
     const payloadAnswerMap = new Map(payloadAnswers.map((answer) => [answer.questionId, answer]))
@@ -1375,8 +1870,9 @@ const submit = async () => {
         answerFormat: typeof answer?.answerFormat === 'string' ? answer.answerFormat : null,
       }
     })
-    previewUrls.value = {}
-    filesByQuestion.value = {}
+    clearLocalPendingFiles()
+    draftRemoteFilesByQuestion.value = {}
+    await clearDraft(false)
     showAppToast('已提交', 'success')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '提交失败'
@@ -1389,9 +1885,15 @@ onMounted(async () => {
   await refreshProfile()
   await loadSnapshot()
   await loadLatestSubmissions()
+  await restoreDraftFromServer()
+  draftReady.value = true
 })
 
 onBeforeUnmount(() => {
+  if (draftAutoSaveTimer) {
+    clearTimeout(draftAutoSaveTimer)
+    draftAutoSaveTimer = null
+  }
   dragDepth.value = 0
   dragActive.value = false
   Object.values(previewUrls.value).forEach((items) => {
@@ -1409,6 +1911,18 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.panel-title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.draft-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(26, 29, 51, 0.56);
+}
+
 .ghost-action {
   border: none;
   background: rgba(255, 255, 255, 0.7);
@@ -1417,6 +1931,11 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: rgba(26, 29, 51, 0.7);
   cursor: pointer;
+}
+
+.ghost-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .submit-layout {
@@ -1829,6 +2348,10 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.draft-clear-btn {
+  white-space: nowrap;
 }
 
 .submit-actions .task-action.is-locked,

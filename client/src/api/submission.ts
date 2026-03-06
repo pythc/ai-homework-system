@@ -28,10 +28,17 @@ export async function uploadSubmission(params: {
   assignmentId: string
   answers: SubmissionAnswerInput[]
   filesByQuestion: Record<string, File[]>
+  draftFileRefsByQuestion?: Record<string, string[]>
 }) {
   const formData = new FormData()
   formData.append('assignmentId', params.assignmentId)
   formData.append('answers', JSON.stringify(params.answers))
+  if (params.draftFileRefsByQuestion) {
+    formData.append(
+      'draftFileRefsByQuestion',
+      JSON.stringify(params.draftFileRefsByQuestion),
+    )
+  }
 
   Object.entries(params.filesByQuestion).forEach(([questionId, files]) => {
     files.forEach((file) => {
@@ -88,4 +95,60 @@ export async function listLatestSubmissions(assignmentId: string) {
     `/submissions/latest/${assignmentId}`,
     { method: 'GET' },
   )
+}
+
+export type DraftSubmissionItem = {
+  questionId: string
+  contentText: string
+  answerPayload?: Record<string, unknown> | null
+  answerFormat?: string | null
+  fileRefs?: string[]
+  fileUrls?: string[]
+}
+
+export type SubmissionDraftResponse = {
+  assignmentId: string
+  updatedAt?: string | null
+  items: DraftSubmissionItem[]
+}
+
+export async function getSubmissionDraft(assignmentId: string) {
+  return httpRequest<SubmissionDraftResponse>(`/submissions/draft/${assignmentId}`, {
+    method: 'GET',
+  })
+}
+
+export async function clearSubmissionDraft(assignmentId: string) {
+  return httpRequest<{ assignmentId: string; cleared: boolean }>(
+    `/submissions/draft/${assignmentId}`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function saveSubmissionDraft(params: {
+  assignmentId: string
+  answers: SubmissionAnswerInput[]
+  filesByQuestion: Record<string, File[]>
+  draftFileRefsByQuestion?: Record<string, string[]>
+}) {
+  const formData = new FormData()
+  formData.append('assignmentId', params.assignmentId)
+  formData.append('answers', JSON.stringify(params.answers))
+  if (params.draftFileRefsByQuestion) {
+    formData.append(
+      'draftFileRefsByQuestion',
+      JSON.stringify(params.draftFileRefsByQuestion),
+    )
+  }
+
+  Object.entries(params.filesByQuestion).forEach(([questionId, files]) => {
+    files.forEach((file) => {
+      formData.append(`files[${questionId}]`, file)
+    })
+  })
+
+  return httpRequest<SubmissionDraftResponse>('/submissions/draft', {
+    method: 'POST',
+    body: formData,
+  })
 }
