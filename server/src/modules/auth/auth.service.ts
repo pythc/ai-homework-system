@@ -65,24 +65,15 @@ export class AuthService {
     dto: LoginRequestDto,
     meta: { ip?: string; userAgent?: string; deviceId?: string },
   ) {
-    const user = await this.userRepo.findOne({
-      where:
-        dto.accountType === AccountType.EMAIL
-          ? {
-              schoolId: dto.schoolId,
-              email: dto.account,
-            }
-          : {
-              schoolId: dto.schoolId,
-              account: dto.account,
-            },
-    });
-    if (!user) {
-      throw new UnauthorizedException('账号或密码错误');
-    }
-    if (user.status !== UserStatus.ACTIVE) {
-      throw new ForbiddenException('账号已禁用');
-    }
+    const loginStart = this.nowNs();
+    const timings = {
+      userLookupMs: 0,
+      passwordCompareMs: 0,
+      sessionSaveMs: 0,
+    };
+    let stage = 'start';
+    let status: 'ok' | 'unauthorized' | 'forbidden' | 'error' = 'ok';
+    let userFound = false;
 
     try {
       const userLookupStart = this.nowNs();
