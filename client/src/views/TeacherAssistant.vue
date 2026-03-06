@@ -5,9 +5,18 @@
     :profile-name="profileName"
     :profile-account="profileAccount"
     brand-sub="学习辅助中心"
+    :show-topbar="false"
   >
     <section class="assistant-wrapper">
-      <div class="assistant-panel glass" :class="{ 'has-attachments': attachments.length }">
+      <div
+        class="assistant-panel glass"
+        :class="{
+          'has-attachments': attachments.length,
+          'empty-state': !messages.length,
+          'chat-started': messages.length > 0,
+          'first-input-transitioning': firstInputTransitioning,
+        }"
+      >
         <div class="assistant-body">
           <div
             ref="listRef"
@@ -15,7 +24,7 @@
             :class="{ empty: !messages.length }"
           >
             <div v-if="!messages.length" class="assistant-empty">
-              你好，让我们从这里启程
+              你在忙什么？
             </div>
             <div
               v-for="(message, index) in messages"
@@ -162,32 +171,25 @@
             </div>
           </div>
 
-          <div class="assistant-prompts-block">
-            <div class="assistant-prompts-header">
-              <div class="assistant-prompts-title">可尝试的提问</div>
-              <div class="assistant-prompts-sub">点击即可填充到输入框</div>
-            </div>
-            <div class="assistant-prompts">
-              <div class="assistant-prompts-tags">
-                <button
-                  type="button"
-                  class="assistant-prompts-tag new-chat"
-                  @click="openNewChat"
-                >
-                  开启新对话
-                </button>
-                <button
-                  v-for="prompt in quickPrompts"
-                  :key="prompt"
-                  type="button"
-                  class="assistant-prompts-tag"
-                  @click="applyPrompt(prompt)"
-                >
-                  {{ prompt }}
-                </button>
-              </div>
-            </div>
-          </div>
+        </div>
+
+        <div v-if="!messages.length" class="assistant-suggestions-row">
+          <button
+            type="button"
+            class="assistant-suggestion new-chat"
+            @click="openNewChat"
+          >
+            新对话
+          </button>
+          <button
+            v-for="prompt in quickPrompts"
+            :key="`empty-${prompt}`"
+            type="button"
+            class="assistant-suggestion"
+            @click="applyPrompt(prompt)"
+          >
+            {{ prompt }}
+          </button>
         </div>
 
         <div class="assistant-input">
@@ -199,48 +201,83 @@
             class="assistant-file"
             @change="handleFileChange"
           />
-          <div ref="toolsRef" class="assistant-tools">
-            <button class="assistant-upload" type="button" @click.stop="toggleTools">
-              +
-            </button>
-            <div v-if="toolsOpen" class="assistant-tools-menu">
-              <button class="assistant-tools-item" type="button" @click="openUpload">
-                上传图片
-              </button>
-              <div class="assistant-tools-divider" />
-              <div class="assistant-tools-title">深度思考</div>
+          <template v-if="messages.length">
+            <div class="assistant-compose-top">
+              <div class="assistant-input-area">
+                <textarea
+                  v-model="input"
+                  placeholder="发送消息或输入“/”选择技能"
+                  @keydown.enter.exact.prevent="sendMessage"
+                />
+              </div>
+            </div>
+            <div class="assistant-compose-bottom">
+              <div class="assistant-compose-left">
+                <button
+                  class="assistant-upload-tile"
+                  type="button"
+                  title="上传图片"
+                  @click="openUpload"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h8a3.5 3.5 0 0 1 3.5 3.5v7a3.5 3.5 0 0 1-3.5 3.5h-8A3.5 3.5 0 0 1 5 15.5v-7Z" />
+                    <path d="m8 15 3-3 2 2 3-3 2 4" />
+                    <circle cx="10" cy="10" r="1.1" />
+                  </svg>
+                </button>
+                <button
+                  class="assistant-pill-btn"
+                  :class="{ active: thinkingMode === 'enabled' }"
+                  type="button"
+                  @click="toggleThinkingMode"
+                >
+                  深度思考
+                  <span class="assistant-pill-state">
+                    {{ thinkingMode === 'enabled' ? '开' : '关' }}
+                  </span>
+                </button>
+                <button
+                  class="assistant-pill-btn ghost"
+                  type="button"
+                  @click="openNewChat"
+                >
+                  开启新对话
+                </button>
+              </div>
               <button
-                class="assistant-tools-item"
-                type="button"
-                :class="{ active: thinkingMode === 'enabled' }"
-                @click="setThinkingMode('enabled')"
+                class="assistant-send assistant-send-inline"
+                :disabled="sending || (!input.trim() && !attachments.length)"
+                @click="sendMessage"
               >
-                开启
-              </button>
-              <button
-                class="assistant-tools-item"
-                type="button"
-                :class="{ active: thinkingMode === 'disabled' }"
-                @click="setThinkingMode('disabled')"
-              >
-                关闭
+                <span v-if="sending" class="assistant-send-label">...</span>
+                <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 12h10M13 6l6 6-6 6" />
+                </svg>
               </button>
             </div>
-          </div>
-          <div class="assistant-input-area">
-            <textarea
-              v-model="input"
-              placeholder="输入问题，回车发送，Shift+Enter 换行"
-              @keydown.enter.exact.prevent="sendMessage"
-            />
-          </div>
-          <button
-            class="assistant-send"
-            :disabled="sending || (!input.trim() && !attachments.length)"
-            @click="sendMessage"
-          >
-            {{ sending ? '发送中...' : '发送' }}
-          </button>
+          </template>
+          <template v-else>
+            <button class="assistant-upload" type="button" @click="openUpload">
+              +
+            </button>
+            <div class="assistant-input-area">
+              <textarea
+                v-model="input"
+                placeholder="有问题，尽管问"
+                @keydown.enter.exact.prevent="sendMessage"
+              />
+            </div>
+            <button
+              class="assistant-send"
+              :disabled="sending || (!input.trim() && !attachments.length)"
+              @click="sendMessage"
+            >
+              <span v-if="sending" class="assistant-send-label">...</span>
+              <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 12h10M13 6l6 6-6 6" />
+              </svg>
+            </button>
+          </template>
         </div>
         <div class="assistant-attachments-row" v-if="attachments.length">
           <div v-if="attachments.length" class="assistant-attachments">
@@ -288,7 +325,7 @@
 
 <script setup>
 import { marked } from 'marked'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import TeacherLayout from '../components/TeacherLayout.vue'
 import {
@@ -307,7 +344,6 @@ const router = useRouter()
 
 const listRef = ref(null)
 const fileInputRef = ref(null)
-const toolsRef = ref(null)
 const input = ref('')
 const sending = ref(false)
 const error = ref('')
@@ -315,11 +351,14 @@ const messageSeed = ref(1)
 const streamingMessageId = ref(null)
 const showConfirm = ref(false)
 const attachments = ref([])
-const toolsOpen = ref(false)
 const thinkingMode = ref('disabled')
 const previewImage = ref(null)
 const actionPendingIds = ref([])
+const firstInputTransitioning = ref(false)
+const isBootstrappingMessages = ref(true)
+const hadAnyMessages = ref(false)
 let persistTimer = null
+let firstInputTransitionTimer = null
 const apiBaseOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '')
 const STREAM_UPDATE_THROTTLE_MS = 100
 const MAX_CHAT_MESSAGES = 120
@@ -407,28 +446,17 @@ const resetSessionId = () => {
   }
 }
 
-const toggleTools = () => {
-  toolsOpen.value = !toolsOpen.value
-}
-
-const closeTools = () => {
-  toolsOpen.value = false
-}
-
 const setThinkingMode = (mode) => {
-  thinkingMode.value = mode
+  thinkingMode.value = mode === 'enabled' ? 'enabled' : 'disabled'
   try {
-    localStorage.setItem(resolveThinkingKey(), mode)
+    localStorage.setItem(resolveThinkingKey(), thinkingMode.value)
   } catch (err) {
     // ignore
   }
-  closeTools()
 }
 
-const handleOutsideClick = (event) => {
-  if (!toolsRef.value) return
-  if (toolsRef.value.contains(event.target)) return
-  closeTools()
+const toggleThinkingMode = () => {
+  setThinkingMode(thinkingMode.value === 'enabled' ? 'disabled' : 'enabled')
 }
 
 const normalizeMessageImages = (value) => {
@@ -535,6 +563,35 @@ const loadMessages = () => {
 const createInitialMessages = () => []
 
 const messages = ref(createInitialMessages())
+
+watch(
+  () => messages.value.length,
+  (next, prev) => {
+    if (isBootstrappingMessages.value) return
+    if (!hadAnyMessages.value && prev === 0 && next > 0) {
+      firstInputTransitioning.value = true
+      if (firstInputTransitionTimer) {
+        clearTimeout(firstInputTransitionTimer)
+      }
+      firstInputTransitionTimer = setTimeout(() => {
+        firstInputTransitioning.value = false
+        firstInputTransitionTimer = null
+      }, 520)
+      hadAnyMessages.value = true
+      return
+    }
+    if (next === 0) {
+      hadAnyMessages.value = false
+      firstInputTransitioning.value = false
+      if (firstInputTransitionTimer) {
+        clearTimeout(firstInputTransitionTimer)
+        firstInputTransitionTimer = null
+      }
+      return
+    }
+    hadAnyMessages.value = next > 0
+  },
+)
 
 const quickPrompts = [
   '⚠重要提醒！点我查看',
@@ -707,7 +764,6 @@ const triggerFile = () => {
 
 const openUpload = () => {
   triggerFile()
-  closeTools()
 }
 
 const clearAttachments = () => {
@@ -1130,8 +1186,9 @@ onMounted(async () => {
   if (!loadMessages()) {
     persistMessages()
   }
+  hadAnyMessages.value = messages.value.length > 0
+  isBootstrappingMessages.value = false
   scrollToBottom()
-  document.addEventListener('click', handleOutsideClick)
 })
 
 onBeforeUnmount(() => {
@@ -1141,7 +1198,10 @@ onBeforeUnmount(() => {
     clearTimeout(persistTimer)
     persistTimer = null
   }
-  document.removeEventListener('click', handleOutsideClick)
+  if (firstInputTransitionTimer) {
+    clearTimeout(firstInputTransitionTimer)
+    firstInputTransitionTimer = null
+  }
 })
 </script>
 
@@ -1962,5 +2022,386 @@ onBeforeUnmount(() => {
   padding-left: 10px;
   border-left: 3px solid rgba(59, 168, 255, 0.5);
   color: rgba(26, 29, 51, 0.7);
+}
+
+/* Minimal assistant redesign */
+.assistant-wrapper {
+  gap: 14px;
+}
+
+.assistant-panel {
+  border-radius: 28px;
+  padding: 20px;
+  min-height: 640px;
+  height: min(78vh, 760px);
+  gap: 14px;
+}
+
+.assistant-panel.chat-started {
+  display: flex;
+  flex-direction: column;
+}
+
+.assistant-panel.empty-state {
+  height: min(72vh, 700px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.assistant-panel::before {
+  background:
+    radial-gradient(560px 320px at 50% 0%, rgba(112, 178, 255, 0.12), transparent 65%),
+    radial-gradient(420px 280px at 8% 100%, rgba(155, 196, 255, 0.09), transparent 70%);
+  opacity: 1;
+}
+
+.assistant-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+.assistant-panel.chat-started .assistant-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.assistant-messages {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  padding: 24px 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(151, 170, 201, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  gap: 12px;
+  scroll-behavior: smooth;
+}
+
+.assistant-panel.empty-state .assistant-messages {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  min-height: 240px;
+  height: auto;
+  overflow: hidden;
+}
+
+.assistant-panel.empty-state .assistant-body {
+  flex: 0 0 auto;
+}
+
+.assistant-panel.has-attachments .assistant-messages {
+  height: 100%;
+  max-height: none;
+}
+
+.assistant-empty {
+  font-size: 56px;
+  font-weight: 500;
+  color: rgba(17, 26, 46, 0.96);
+  letter-spacing: 0;
+}
+
+.assistant-message {
+  gap: 4px;
+}
+
+.assistant-bubble {
+  border-radius: 18px;
+  padding: 10px 14px;
+  max-width: min(880px, 90%);
+  border: 1px solid rgba(167, 184, 212, 0.26);
+  box-shadow: 0 2px 8px rgba(28, 38, 58, 0.04);
+}
+
+.assistant-message.assistant .assistant-bubble {
+  background: rgba(248, 250, 255, 0.88);
+  border-color: rgba(186, 197, 220, 0.3);
+  box-shadow: none;
+}
+
+.assistant-message.user .assistant-bubble {
+  background: linear-gradient(135deg, #4c97ff, #67cee7);
+  border-color: transparent;
+}
+
+.assistant-actions {
+  margin: 0 0 0 8px;
+}
+
+.assistant-suggestions-row {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 0 6px;
+}
+
+.assistant-suggestion {
+  border: 1px solid rgba(166, 180, 205, 0.4);
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(26, 29, 51, 0.78);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.assistant-suggestion:hover {
+  border-color: rgba(114, 148, 212, 0.55);
+  color: #1e315d;
+}
+
+.assistant-suggestion.new-chat {
+  background: linear-gradient(135deg, rgba(76, 151, 255, 0.94), rgba(103, 206, 231, 0.94));
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.assistant-input {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  min-height: 52px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(170, 182, 204, 0.5);
+  box-shadow: 0 8px 24px rgba(22, 34, 58, 0.08);
+}
+
+.assistant-panel.chat-started .assistant-input {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  padding: 14px 16px;
+  min-height: 132px;
+  border-radius: 28px;
+}
+
+.assistant-panel.chat-started.first-input-transitioning .assistant-input {
+  animation: assistantDockInput 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.assistant-panel.chat-started.first-input-transitioning .assistant-compose-bottom {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: assistantDockTools 0.26s ease 0.2s forwards;
+}
+
+.assistant-compose-top {
+  width: 100%;
+}
+
+.assistant-compose-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assistant-compose-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.assistant-upload-tile {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(170, 182, 204, 0.55);
+  background: rgba(255, 255, 255, 0.9);
+  color: rgba(36, 44, 63, 0.84);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.assistant-upload-tile:hover {
+  border-color: rgba(120, 145, 198, 0.7);
+  color: rgba(33, 43, 67, 0.95);
+}
+
+.assistant-upload-tile svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.assistant-pill-btn {
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(170, 182, 204, 0.52);
+  background: rgba(255, 255, 255, 0.88);
+  color: rgba(28, 36, 54, 0.84);
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.assistant-pill-btn:hover {
+  border-color: rgba(120, 145, 198, 0.7);
+}
+
+.assistant-pill-btn.active {
+  color: #1f4ea7;
+  border-color: rgba(87, 136, 228, 0.58);
+  background: rgba(228, 241, 255, 0.78);
+}
+
+.assistant-pill-btn.ghost {
+  color: rgba(54, 67, 95, 0.88);
+}
+
+.assistant-pill-state {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(57, 82, 133, 0.76);
+}
+
+.assistant-send-inline {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+}
+
+.assistant-panel.empty-state .assistant-input {
+  width: min(760px, calc(100% - 48px));
+  margin: 14px auto 0;
+}
+
+.assistant-upload {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1;
+  color: rgba(32, 39, 56, 0.76);
+}
+
+.assistant-input-area {
+  min-width: 0;
+}
+
+.assistant-input textarea {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 8px 6px;
+  min-height: 40px;
+  height: 40px;
+  resize: none;
+}
+
+.assistant-panel.chat-started .assistant-input textarea {
+  min-height: 52px;
+  height: 52px;
+  padding: 6px 4px;
+  font-size: 16px;
+}
+
+.assistant-input textarea:focus {
+  border: none;
+  box-shadow: none;
+}
+
+.assistant-send {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  background: #0e1118;
+  box-shadow: none;
+}
+
+.assistant-send svg {
+  width: 15px;
+  height: 15px;
+  stroke: #ffffff;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: translateX(0.5px);
+}
+
+.assistant-send:disabled {
+  background: rgba(130, 143, 168, 0.45);
+  opacity: 1;
+}
+
+.assistant-send-label {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+@keyframes assistantDockInput {
+  0% {
+    transform: translateY(-160px) scale(0.96);
+    opacity: 0.78;
+  }
+  60% {
+    transform: translateY(10px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes assistantDockTools {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .assistant-panel {
+    height: auto;
+    min-height: 560px;
+  }
+
+  .assistant-empty {
+    font-size: 34px;
+  }
+
+  .assistant-panel.empty-state .assistant-input {
+    width: 100%;
+    margin: 0;
+  }
 }
 </style>

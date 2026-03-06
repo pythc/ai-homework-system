@@ -1,8 +1,11 @@
 <template>
   <view class="page ui-shell assistant-page">
-    <view class="ui-card chat-card fx-fade-up fx-delay-1">
+    <view
+      class="ui-card chat-card fx-fade-up fx-delay-1"
+      :class="{ 'has-attachments': attachments.length, 'empty-state': !messages.length }"
+    >
       <scroll-view class="messages" scroll-y :scroll-top="scrollTop" :scroll-with-animation="true">
-        <view v-if="!messages.length" class="empty-hero">你好，让我们从这里启程</view>
+        <view v-if="!messages.length" class="empty-hero">你在忙什么？</view>
 
         <view v-for="(item, idx) in messages" :key="item.id" class="msg-row fx-fade-up" :class="item.role">
           <view class="msg-bubble" :class="{ pending: item.pending }">
@@ -20,16 +23,16 @@
         </view>
       </scroll-view>
 
-      <view class="prompt-block">
-        <view class="prompt-label">可尝试的提问</view>
-        <scroll-view class="prompt-scroll" scroll-x>
-          <view class="prompt-list">
-            <view class="prompt-chip new" @click="openNewChat">开启新对话</view>
-            <view v-for="prompt in quickPrompts" :key="prompt" class="prompt-chip" @click="applyPrompt(prompt)">
-              {{ prompt }}
-            </view>
-          </view>
-        </scroll-view>
+      <view v-if="!messages.length" class="assistant-suggestions-row">
+        <view class="assistant-suggestion new-chat" @click="openNewChat">新对话</view>
+        <view
+          v-for="prompt in quickPrompts"
+          :key="`empty-${prompt}`"
+          class="assistant-suggestion"
+          @click="applyPrompt(prompt)"
+        >
+          {{ prompt }}
+        </view>
       </view>
 
       <view v-if="attachments.length" class="attachment-list">
@@ -50,7 +53,7 @@
         <textarea
           v-model="input"
           class="composer-input"
-          placeholder="输入问题，回车发送"
+          placeholder="有问题，尽管问"
           placeholder-style="color: rgba(26, 36, 64, 0.45);"
           :disabled="sending"
           maxlength="4000"
@@ -65,7 +68,8 @@
           :disabled="sending || (!input.trim() && !attachments.length)"
           @click="sendMessage"
         >
-          <view class="send-icon"></view>
+          <text v-if="sending" class="send-loading">...</text>
+          <view v-else class="send-icon"></view>
         </button>
       </view>
       <view v-if="error" class="error">{{ error }}</view>
@@ -366,28 +370,41 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   max-height: 100%;
-  padding: 18rpx;
+  padding: 20rpx;
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
+  gap: 14rpx;
   overflow: hidden;
+  border-radius: 28rpx;
+}
+
+.chat-card.empty-state {
+  min-height: 520rpx;
 }
 
 .messages {
   flex: 1;
   min-height: 0;
-  padding: 8rpx 6rpx;
+  padding: 12rpx 10rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.58);
+  border: 2rpx solid rgba(151, 170, 201, 0.24);
+}
+
+.chat-card.empty-state .messages {
+  background: transparent;
+  border: 0;
 }
 
 .empty-hero {
-  height: 100%;
-  min-height: 420rpx;
+  min-height: 460rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(26, 36, 64, 0.56);
-  font-size: 36rpx;
-  font-weight: 700;
+  color: rgba(17, 26, 46, 0.94);
+  font-size: 64rpx;
+  font-weight: 500;
+  line-height: 1.15;
 }
 
 .msg-row {
@@ -461,41 +478,28 @@ onMounted(() => {
   line-height: 1;
 }
 
-.prompt-block {
+.assistant-suggestions-row {
   display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-
-.prompt-label {
-  font-size: 21rpx;
-  color: rgba(26, 36, 64, 0.54);
-}
-
-.prompt-scroll {
-  white-space: nowrap;
-}
-
-.prompt-list {
-  display: inline-flex;
+  flex-wrap: wrap;
   gap: 10rpx;
-  padding-bottom: 2rpx;
+  align-items: center;
 }
 
-.prompt-chip {
-  flex-shrink: 0;
-  border-radius: 14rpx;
-  border: 2rpx solid #dbe4f8;
-  background: #f4f8ff;
-  color: #30456e;
+.assistant-suggestion {
+  border: 2rpx solid rgba(166, 180, 205, 0.4);
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(26, 29, 51, 0.78);
+  border-radius: 999rpx;
+  padding: 10rpx 16rpx;
   font-size: 22rpx;
-  padding: 10rpx 14rpx;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
-.prompt-chip.new {
-  color: #fff;
-  border-color: transparent;
+.assistant-suggestion.new-chat {
   background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
+  border-color: transparent;
+  color: #fff;
 }
 
 .attachment-list {
@@ -534,13 +538,18 @@ onMounted(() => {
 }
 
 .composer {
-  border-radius: 24rpx;
-  border: 2rpx solid #d7e2f7;
-  background: #f7faff;
-  padding: 8rpx 12rpx;
+  border-radius: 999rpx;
+  border: 2rpx solid rgba(170, 182, 204, 0.5);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10rpx 30rpx rgba(22, 34, 58, 0.08);
+  padding: 10rpx 12rpx;
   display: flex;
   align-items: center;
   gap: 10rpx;
+}
+
+.chat-card.empty-state .composer {
+  margin-bottom: 46rpx;
 }
 
 .composer-input {
@@ -599,21 +608,31 @@ onMounted(() => {
 }
 
 .send-btn {
-  border-color: #b6c4dc;
-  background: #f7f8fb;
+  border: 0;
+  background: #0e1118;
+  color: #fff;
 }
 
 .send-btn.disabled {
-  opacity: 0.55;
+  background: rgba(130, 143, 168, 0.45);
+  color: #fff;
+  opacity: 1;
 }
 
 .send-icon {
   width: 0;
   height: 0;
-  border-top: 11rpx solid transparent;
-  border-bottom: 11rpx solid transparent;
-  border-left: 17rpx solid #1f2c49;
-  transform: translateX(2rpx);
+  border-top: 10rpx solid transparent;
+  border-bottom: 10rpx solid transparent;
+  border-left: 17rpx solid #fff;
+  margin-left: 2rpx;
+}
+
+.send-loading {
+  font-size: 24rpx;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .error {
