@@ -86,7 +86,7 @@
     </aside>
 
     <main class="content">
-      <header class="topbar glass">
+      <header v-if="showTopbar" class="topbar glass">
         <div>
           <div class="welcome">{{ title }}</div>
           <div v-if="subtitle" class="subtitle">{{ subtitle }}</div>
@@ -121,6 +121,7 @@ defineProps({
   profileName: { type: String, required: true },
   profileAccount: { type: String, required: true },
   brandSub: { type: String, default: '教学面板' },
+  showTopbar: { type: Boolean, default: true },
 })
 
 defineSlots<{

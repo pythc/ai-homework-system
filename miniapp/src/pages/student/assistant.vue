@@ -1,8 +1,11 @@
 <template>
   <view class="page ui-shell assistant-page">
-    <view class="ui-card chat-card fx-fade-up fx-delay-1">
+    <view
+      class="ui-card chat-card fx-fade-up fx-delay-1"
+      :class="{ 'has-attachments': attachments.length, 'empty-state': !messages.length }"
+    >
       <scroll-view class="messages" scroll-y :scroll-top="scrollTop" :scroll-with-animation="true">
-        <view v-if="!messages.length" class="empty-hero">你好，让我们从这里启程</view>
+        <view v-if="!messages.length" class="empty-hero">你在忙什么？</view>
 
         <view v-for="(item, idx) in messages" :key="item.id" class="msg-row fx-fade-up" :class="item.role">
           <view class="msg-bubble" :class="{ pending: item.pending }">
@@ -20,16 +23,16 @@
         </view>
       </scroll-view>
 
-      <view class="prompt-block">
-        <view class="prompt-label">可尝试的提问</view>
-        <scroll-view class="prompt-scroll" scroll-x>
-          <view class="prompt-list">
-            <view class="prompt-chip new" @click="openNewChat">开启新对话</view>
-            <view v-for="prompt in quickPrompts" :key="prompt" class="prompt-chip" @click="applyPrompt(prompt)">
-              {{ prompt }}
-            </view>
-          </view>
-        </scroll-view>
+      <view v-if="!messages.length" class="assistant-suggestions-row">
+        <view class="assistant-suggestion new-chat" @click="openNewChat">新对话</view>
+        <view
+          v-for="prompt in quickPrompts"
+          :key="`empty-${prompt}`"
+          class="assistant-suggestion"
+          @click="applyPrompt(prompt)"
+        >
+          {{ prompt }}
+        </view>
       </view>
 
       <view v-if="attachments.length" class="attachment-list">
@@ -49,7 +52,7 @@
         <textarea
           v-model="input"
           class="composer-input"
-          placeholder="输入问题，回车发送"
+          placeholder="有问题，尽管问"
           placeholder-style="color: rgba(26, 36, 64, 0.45);"
           :disabled="sending"
           maxlength="4000"
@@ -64,7 +67,8 @@
           :disabled="sending || (!input.trim() && !attachments.length)"
           @click="sendMessage"
         >
-          <view class="send-icon"></view>
+          <text v-if="sending" class="send-loading">...</text>
+          <view v-else class="send-icon"></view>
         </button>
       </view>
       <view v-if="error" class="error">{{ error }}</view>
@@ -358,28 +362,41 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   max-height: 100%;
-  padding: 18rpx;
+  padding: 20rpx;
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
+  gap: 14rpx;
   overflow: hidden;
+  border-radius: 28rpx;
+}
+
+.chat-card.empty-state {
+  min-height: 520rpx;
 }
 
 .messages {
   flex: 1;
   min-height: 0;
-  padding: 8rpx 6rpx;
+  padding: 12rpx 10rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.58);
+  border: 2rpx solid rgba(151, 170, 201, 0.24);
+}
+
+.chat-card.empty-state .messages {
+  background: transparent;
+  border: 0;
 }
 
 .empty-hero {
-  height: 100%;
-  min-height: 420rpx;
+  min-height: 460rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(26, 36, 64, 0.56);
-  font-size: 36rpx;
-  font-weight: 700;
+  color: rgba(17, 26, 46, 0.94);
+  font-size: 64rpx;
+  font-weight: 500;
+  line-height: 1.15;
 }
 
 .msg-row {
@@ -463,45 +480,28 @@ onMounted(() => {
   font-weight: 700;
 }
 
-.prompt-block {
-  padding-top: 4rpx;
-}
-
-.prompt-label {
-  font-size: 22rpx;
-  color: rgba(26, 36, 64, 0.52);
-  margin-bottom: 8rpx;
-}
-
-.prompt-scroll {
-  white-space: nowrap;
-}
-
-.prompt-list {
-  display: inline-flex;
+.assistant-suggestions-row {
+  display: flex;
+  flex-wrap: wrap;
   gap: 10rpx;
+  align-items: center;
 }
 
-.prompt-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 52rpx;
-  border-radius: 14rpx;
-  padding: 0 18rpx;
-  background: #eef2f8;
-  color: #4d5c79;
+.assistant-suggestion {
+  border: 2rpx solid rgba(166, 180, 205, 0.4);
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(26, 29, 51, 0.78);
+  border-radius: 999rpx;
+  padding: 10rpx 16rpx;
   font-size: 22rpx;
   font-weight: 600;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  line-height: 1.2;
 }
 
-.prompt-chip.new {
-  color: #fff;
+.assistant-suggestion.new-chat {
   background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
-}
-
-.prompt-chip:active {
-  transform: translateY(2rpx) scale(0.98);
+  border-color: transparent;
+  color: #fff;
 }
 
 .attachment-list {
@@ -540,14 +540,19 @@ onMounted(() => {
 
 .composer {
   margin-top: auto;
-  border-radius: 24rpx;
-  border: 2rpx solid #d4deef;
-  background: #f2f6fd;
-  padding: 14rpx 16rpx;
+  border-radius: 999rpx;
+  border: 2rpx solid rgba(170, 182, 204, 0.5);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10rpx 30rpx rgba(22, 34, 58, 0.08);
+  padding: 10rpx 12rpx;
   display: flex;
   align-items: center;
   gap: 12rpx;
   animation: composerEnter 0.55s ease both;
+}
+
+.chat-card.empty-state .composer {
+  margin-bottom: 46rpx;
 }
 
 .composer-input {
@@ -569,9 +574,9 @@ onMounted(() => {
 
 .circle-btn {
   margin: 0;
-  width: 68rpx;
-  height: 68rpx;
-  border-radius: 34rpx;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -588,14 +593,18 @@ onMounted(() => {
 }
 
 .send-btn {
-  border: 3rpx solid #cfdbf0;
-  background: #edf2fb;
-  color: #7e91b5;
+  border: 0;
+  background: #0e1118;
+  color: #fff;
 }
 
 .send-btn:not(.disabled) {
-  border: 0;
-  background: linear-gradient(90deg, #5a8ff2 0%, #69d0dc 100%);
+  background: #0e1118;
+  color: #fff;
+}
+
+.send-btn.disabled {
+  background: rgba(130, 143, 168, 0.45);
   color: #fff;
 }
 
@@ -629,10 +638,17 @@ onMounted(() => {
 .send-icon {
   width: 0;
   height: 0;
-  border-top: 11rpx solid transparent;
-  border-bottom: 11rpx solid transparent;
-  border-left: 19rpx solid currentColor;
-  margin-left: 4rpx;
+  border-top: 10rpx solid transparent;
+  border-bottom: 10rpx solid transparent;
+  border-left: 17rpx solid #fff;
+  margin-left: 2rpx;
+}
+
+.send-loading {
+  font-size: 24rpx;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .circle-btn:active {

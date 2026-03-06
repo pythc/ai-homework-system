@@ -7,7 +7,14 @@
     brand-sub="学习辅助中心"
   >
     <section class="assistant-wrapper">
-      <div class="assistant-panel glass" :class="{ 'has-attachments': attachments.length }">
+      <div
+        class="assistant-panel glass"
+        :class="{
+          'has-attachments': attachments.length,
+          'empty-state': !messages.length,
+          'chat-started': messages.length > 0,
+        }"
+      >
         <div class="assistant-body">
           <div
             ref="listRef"
@@ -15,7 +22,7 @@
             :class="{ empty: !messages.length }"
           >
             <div v-if="!messages.length" class="assistant-empty">
-              你好，让我们从这里启程
+              你在忙什么？
             </div>
             <div
               v-for="(message, index) in messages"
@@ -108,32 +115,25 @@
             </div>
           </div>
 
-          <div class="assistant-prompts-block">
-            <div class="assistant-prompts-header">
-              <div class="assistant-prompts-title">可尝试的提问</div>
-              <div class="assistant-prompts-sub">点击即可填充到输入框</div>
-            </div>
-            <div class="assistant-prompts">
-              <div class="assistant-prompts-tags">
-                <button
-                  type="button"
-                  class="assistant-prompts-tag new-chat"
-                  @click="openNewChat"
-                >
-                  开启新对话
-                </button>
-                <button
-                  v-for="prompt in quickPrompts"
-                  :key="prompt"
-                  type="button"
-                  class="assistant-prompts-tag"
-                  @click="applyPrompt(prompt)"
-                >
-                  {{ prompt }}
-                </button>
-              </div>
-            </div>
-          </div>
+        </div>
+
+        <div v-if="!messages.length" class="assistant-suggestions-row">
+          <button
+            type="button"
+            class="assistant-suggestion new-chat"
+            @click="openNewChat"
+          >
+            新对话
+          </button>
+          <button
+            v-for="prompt in quickPrompts"
+            :key="`empty-${prompt}`"
+            type="button"
+            class="assistant-suggestion"
+            @click="applyPrompt(prompt)"
+          >
+            {{ prompt }}
+          </button>
         </div>
 
         <div class="assistant-input">
@@ -176,7 +176,7 @@
           <div class="assistant-input-area">
             <textarea
               v-model="input"
-              placeholder="输入问题，回车发送，Shift+Enter 换行"
+              placeholder="有问题，尽管问"
               @keydown.enter.exact.prevent="sendMessage"
             />
           </div>
@@ -185,7 +185,10 @@
             :disabled="sending || (!input.trim() && !attachments.length)"
             @click="sendMessage"
           >
-            {{ sending ? '发送中...' : '发送' }}
+            <span v-if="sending" class="assistant-send-label">...</span>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 12h10M13 6l6 6-6 6" />
+            </svg>
           </button>
         </div>
         <div class="assistant-attachments-row" v-if="attachments.length">
@@ -1505,5 +1508,245 @@ onBeforeUnmount(() => {
   padding-left: 10px;
   border-left: 3px solid rgba(59, 168, 255, 0.5);
   color: rgba(26, 29, 51, 0.7);
+}
+
+/* Minimal assistant redesign */
+.assistant-wrapper {
+  gap: 14px;
+}
+
+.assistant-panel {
+  border-radius: 28px;
+  padding: 20px;
+  min-height: 640px;
+  height: min(78vh, 760px);
+  gap: 14px;
+}
+
+.assistant-panel.chat-started {
+  display: flex;
+  flex-direction: column;
+}
+
+.assistant-panel.empty-state {
+  height: min(72vh, 700px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.assistant-panel::before {
+  background:
+    radial-gradient(560px 320px at 50% 0%, rgba(112, 178, 255, 0.12), transparent 65%),
+    radial-gradient(420px 280px at 8% 100%, rgba(155, 196, 255, 0.09), transparent 70%);
+  opacity: 1;
+}
+
+.assistant-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+.assistant-panel.chat-started .assistant-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.assistant-messages {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  padding: 24px 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(151, 170, 201, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  gap: 12px;
+  scroll-behavior: smooth;
+}
+
+.assistant-panel.empty-state .assistant-messages {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  min-height: 240px;
+  height: auto;
+  overflow: hidden;
+}
+
+.assistant-panel.empty-state .assistant-body {
+  flex: 0 0 auto;
+}
+
+.assistant-panel.has-attachments .assistant-messages {
+  height: 100%;
+  max-height: none;
+}
+
+.assistant-empty {
+  font-size: 56px;
+  font-weight: 500;
+  color: rgba(17, 26, 46, 0.96);
+  letter-spacing: 0;
+}
+
+.assistant-message {
+  gap: 4px;
+}
+
+.assistant-bubble {
+  border-radius: 18px;
+  padding: 10px 14px;
+  max-width: min(880px, 90%);
+  border: 1px solid rgba(167, 184, 212, 0.26);
+  box-shadow: 0 2px 8px rgba(28, 38, 58, 0.04);
+}
+
+.assistant-message.assistant .assistant-bubble {
+  background: rgba(248, 250, 255, 0.88);
+  border-color: rgba(186, 197, 220, 0.3);
+  box-shadow: none;
+}
+
+.assistant-message.user .assistant-bubble {
+  background: linear-gradient(135deg, #4c97ff, #67cee7);
+  border-color: transparent;
+}
+
+.assistant-actions {
+  margin: 0 0 0 8px;
+}
+
+.assistant-suggestions-row {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 0 6px;
+}
+
+.assistant-suggestion {
+  border: 1px solid rgba(166, 180, 205, 0.4);
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(26, 29, 51, 0.78);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.assistant-suggestion:hover {
+  border-color: rgba(114, 148, 212, 0.55);
+  color: #1e315d;
+}
+
+.assistant-suggestion.new-chat {
+  background: linear-gradient(135deg, rgba(76, 151, 255, 0.94), rgba(103, 206, 231, 0.94));
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.assistant-input {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  min-height: 52px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(170, 182, 204, 0.5);
+  box-shadow: 0 8px 24px rgba(22, 34, 58, 0.08);
+}
+
+.assistant-panel.empty-state .assistant-input {
+  width: min(760px, calc(100% - 48px));
+  margin: 14px auto 0;
+}
+
+.assistant-upload {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1;
+  color: rgba(32, 39, 56, 0.76);
+}
+
+.assistant-input-area {
+  min-width: 0;
+}
+
+.assistant-input textarea {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 8px 6px;
+  min-height: 40px;
+  height: 40px;
+  resize: none;
+}
+
+.assistant-input textarea:focus {
+  border: none;
+  box-shadow: none;
+}
+
+.assistant-send {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  background: #0e1118;
+  box-shadow: none;
+}
+
+.assistant-send svg {
+  width: 15px;
+  height: 15px;
+  stroke: #ffffff;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: translateX(0.5px);
+}
+
+.assistant-send:disabled {
+  background: rgba(130, 143, 168, 0.45);
+  opacity: 1;
+}
+
+.assistant-send-label {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+@media (max-width: 900px) {
+  .assistant-panel {
+    height: auto;
+    min-height: 560px;
+  }
+
+  .assistant-empty {
+    font-size: 34px;
+  }
+
+  .assistant-panel.empty-state .assistant-input {
+    width: 100%;
+    margin: 0;
+  }
 }
 </style>
